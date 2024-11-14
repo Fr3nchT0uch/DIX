@@ -1,0 +1,2156 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; Crazy Cycles
+; Routines + DATA
+; version 0.2
+
+!sl "routineslabel.a"
+!convtab "a2txt.bin"
+
+		*= $9000 ; ORG = $9000
+
+; CONSTANTES SYSTEME ===================
+VERTBLANK	 = $C019	; 
+; -----------------------------------------------------------------------------
+; Page Zéro
+bMachine 	= $0A	; byte MACHINE ($7F/IIE | $FF/GS)
+bRefresh	= $0B	; byte type NTSC/60Hz - PAL/50Hz (00 = 50HZ | 01 = 60 HZ)
+
+PosSplit	= $FD	; compteur position (40)
+COUNT		= $FE	; compteur lignes (192)
+Temp		= $FF	; variable tampon
+; -----------------------------------------------------------------------------
+
+; =============================================================================
+TRANSITION1			; entrée Y (numéro de la PART - 0 à 2)
+!zone		
+		
+		; préparation routine avec le texte à afficher
+		LDA TableTrans1L,y
+		STA .off1+1
+		LDA TableTrans1H,y
+		STA .off1+2
+		LDA TableTrans2L,y
+		STA .off2+1
+		LDA TableTrans2H,y
+		STA .off2+2
+		LDA TableTrans3L,y
+		STA .off3+1
+		LDA TableTrans3H,y
+		STA .off3+2
+		LDA TableTrans4L,y
+		STA .off4+1
+		LDA TableTrans4H,y
+		STA .off4+2
+		LDA TableTrans5L,y
+		STA .off5+1
+		LDA TableTrans5H,y
+		STA .off5+2
+		LDA TableTrans6L,y
+		STA .off6+1
+		LDA TableTrans6H,y
+		STA .off6+2
+		LDA TableTrans7L,y
+		STA .off7+1
+		LDA TableTrans7H,y
+		STA .off7+2
+		LDA TableTrans8L,y
+		STA .off8+1
+		LDA TableTrans8H,y
+		STA .off8+2
+		LDA TableTrans9L,y
+		STA .off9+1
+		LDA TableTrans9H,y
+		STA .off9+2
+		LDA TableTransAL,y
+		STA .offA+1
+		LDA TableTransAH,y
+		STA .offA+2
+		LDA TableTransBL,y
+		STA .offB+1
+		LDA TableTransBH,y
+		STA .offB+2
+	
+		LDY #00				; première lettre
+.bp	
+		LDA bMachine                                                                   
+.LVBL1	CMP VERTBLANK         
+		BPL .LVBL1 			; attend fin vbl
+                                          
+		LDA bMachine      
+.LVBL2 	CMP VERTBLANK        
+		BMI .LVBL2 			; attend fin display
+	
+	; scrolling	(858*4=3432)
+	 lda $781
+     sta $780
+     lda $782
+     sta $781
+     lda $783
+     sta $782
+     lda $784
+     sta $783
+     lda $785
+     sta $784
+     lda $786
+     sta $785
+     lda $787
+     sta $786
+     lda $788
+     sta $787
+     lda $789
+     sta $788
+     lda $78a
+     sta $789
+     lda $78b
+     sta $78a
+     lda $78c
+     sta $78b
+     lda $78d
+     sta $78c
+     lda $78e
+     sta $78d
+     lda $78f
+     sta $78e
+     lda $790
+     sta $78f
+     lda $791
+     sta $790
+     lda $792
+     sta $791
+     lda $793
+     sta $792
+     lda $794
+     sta $793
+     lda $795
+     sta $794
+     lda $796
+     sta $795
+     lda $797
+     sta $796
+     lda $798
+     sta $797
+     lda $799
+     sta $798
+     lda $79a
+     sta $799
+     lda $79b
+     sta $79a
+     lda $79c
+     sta $79b
+     lda $79d
+     sta $79c
+     lda $79e
+     sta $79d
+     lda $79f
+     sta $79e
+     lda $7a0
+     sta $79f
+     lda $7a1
+     sta $7a0
+     lda $7a2
+     sta $7a1
+     lda $7a3
+     sta $7a2
+     lda $7a4
+     sta $7a3
+     lda $7a5
+     sta $7a4
+     lda $7a6
+     sta $7a5
+     lda $7a7
+     sta $7a6
+     lda $429
+     sta $428
+     lda $42a
+     sta $429
+     lda $42b
+     sta $42a
+     lda $42c
+     sta $42b
+     lda $42d
+     sta $42c
+     lda $42e
+     sta $42d
+     lda $42f
+     sta $42e
+     lda $430
+     sta $42f
+     lda $431
+     sta $430
+     lda $432
+     sta $431
+     lda $433
+     sta $432
+     lda $434
+     sta $433
+     lda $435
+     sta $434
+     lda $436
+     sta $435
+     lda $437
+     sta $436
+     lda $438
+     sta $437
+     lda $439
+     sta $438
+     lda $43a
+     sta $439
+     lda $43b
+     sta $43a
+     lda $43c
+     sta $43b
+     lda $43d
+     sta $43c
+     lda $43e
+     sta $43d
+     lda $43f
+     sta $43e
+     lda $440
+     sta $43f
+     lda $441
+     sta $440
+     lda $442
+     sta $441
+     lda $443
+     sta $442
+     lda $444
+     sta $443
+     lda $445
+     sta $444
+     lda $446
+     sta $445
+     lda $447
+     sta $446
+     lda $448
+     sta $447
+     lda $449
+     sta $448
+     lda $44a
+     sta $449
+     lda $44b
+     sta $44a
+     lda $44c
+     sta $44b
+     lda $44d
+     sta $44c
+     lda $44e
+     sta $44d
+     lda $44f
+     sta $44e
+     lda $4a9
+     sta $4a8
+     lda $4aa
+     sta $4a9
+     lda $4ab
+     sta $4aa
+     lda $4ac
+     sta $4ab
+     lda $4ad
+     sta $4ac
+     lda $4ae
+     sta $4ad
+     lda $4af
+     sta $4ae
+     lda $4b0
+     sta $4af
+     lda $4b1
+     sta $4b0
+     lda $4b2
+     sta $4b1
+     lda $4b3
+     sta $4b2
+     lda $4b4
+     sta $4b3
+     lda $4b5
+     sta $4b4
+     lda $4b6
+     sta $4b5
+     lda $4b7
+     sta $4b6
+     lda $4b8
+     sta $4b7
+     lda $4b9
+     sta $4b8
+     lda $4ba
+     sta $4b9
+     lda $4bb
+     sta $4ba
+     lda $4bc
+     sta $4bb
+     lda $4bd
+     sta $4bc
+     lda $4be
+     sta $4bd
+     lda $4bf
+     sta $4be
+     lda $4c0
+     sta $4bf
+     lda $4c1
+     sta $4c0
+     lda $4c2
+     sta $4c1
+     lda $4c3
+     sta $4c2
+     lda $4c4
+     sta $4c3
+     lda $4c5
+     sta $4c4
+     lda $4c6
+     sta $4c5
+     lda $4c7
+     sta $4c6
+     lda $4c8
+     sta $4c7
+     lda $4c9
+     sta $4c8
+     lda $4ca
+     sta $4c9
+     lda $4cb
+     sta $4ca
+     lda $4cc
+     sta $4cb
+     lda $4cd
+     sta $4cc
+     lda $4ce
+     sta $4cd
+     lda $4cf
+     sta $4ce
+     lda $529
+     sta $528
+     lda $52a
+     sta $529
+     lda $52b
+     sta $52a
+     lda $52c
+     sta $52b
+     lda $52d
+     sta $52c
+     lda $52e
+     sta $52d
+     lda $52f
+     sta $52e
+     lda $530
+     sta $52f
+     lda $531
+     sta $530
+     lda $532
+     sta $531
+     lda $533
+     sta $532
+     lda $534
+     sta $533
+     lda $535
+     sta $534
+     lda $536
+     sta $535
+     lda $537
+     sta $536
+     lda $538
+     sta $537
+     lda $539
+     sta $538
+     lda $53a
+     sta $539
+     lda $53b
+     sta $53a
+     lda $53c
+     sta $53b
+     lda $53d
+     sta $53c
+     lda $53e
+     sta $53d
+     lda $53f
+     sta $53e
+     lda $540
+     sta $53f
+     lda $541
+     sta $540
+     lda $542
+     sta $541
+     lda $543
+     sta $542
+     lda $544
+     sta $543
+     lda $545
+     sta $544
+     lda $546
+     sta $545
+     lda $547
+     sta $546
+     lda $548
+     sta $547
+     lda $549
+     sta $548
+     lda $54a
+     sta $549
+     lda $54b
+     sta $54a
+     lda $54c
+     sta $54b
+     lda $54d
+     sta $54c
+     lda $54e
+     sta $54d
+     lda $54f
+     sta $54e
+     lda $5a9
+     sta $5a8
+     lda $5aa
+     sta $5a9
+     lda $5ab
+     sta $5aa
+     lda $5ac
+     sta $5ab
+     lda $5ad
+     sta $5ac
+     lda $5ae
+     sta $5ad
+     lda $5af
+     sta $5ae
+     lda $5b0
+     sta $5af
+     lda $5b1
+     sta $5b0
+     lda $5b2
+     sta $5b1
+     lda $5b3
+     sta $5b2
+     lda $5b4
+     sta $5b3
+     lda $5b5
+     sta $5b4
+     lda $5b6
+     sta $5b5
+     lda $5b7
+     sta $5b6
+     lda $5b8
+     sta $5b7
+     lda $5b9
+     sta $5b8
+     lda $5ba
+     sta $5b9
+     lda $5bb
+     sta $5ba
+     lda $5bc
+     sta $5bb
+     lda $5bd
+     sta $5bc
+     lda $5be
+     sta $5bd
+     lda $5bf
+     sta $5be
+     lda $5c0
+     sta $5bf
+     lda $5c1
+     sta $5c0
+     lda $5c2
+     sta $5c1
+     lda $5c3
+     sta $5c2
+     lda $5c4
+     sta $5c3
+     lda $5c5
+     sta $5c4
+     lda $5c6
+     sta $5c5
+     lda $5c7
+     sta $5c6
+     lda $5c8
+     sta $5c7
+     lda $5c9
+     sta $5c8
+     lda $5ca
+     sta $5c9
+     lda $5cb
+     sta $5ca
+     lda $5cc
+     sta $5cb
+     lda $5cd
+     sta $5cc
+     lda $5ce
+     sta $5cd
+     lda $5cf
+     sta $5ce
+     lda $629
+     sta $628
+     lda $62a
+     sta $629
+     lda $62b
+     sta $62a
+     lda $62c
+     sta $62b
+     lda $62d
+     sta $62c
+     lda $62e
+     sta $62d
+     lda $62f
+     sta $62e
+     lda $630
+     sta $62f
+     lda $631
+     sta $630
+     lda $632
+     sta $631
+     lda $633
+     sta $632
+     lda $634
+     sta $633
+     lda $635
+     sta $634
+     lda $636
+     sta $635
+     lda $637
+     sta $636
+     lda $638
+     sta $637
+     lda $639
+     sta $638
+     lda $63a
+     sta $639
+     lda $63b
+     sta $63a
+     lda $63c
+     sta $63b
+     lda $63d
+     sta $63c
+     lda $63e
+     sta $63d
+     lda $63f
+     sta $63e
+     lda $640
+     sta $63f
+     lda $641
+     sta $640
+     lda $642
+     sta $641
+     lda $643
+     sta $642
+     lda $644
+     sta $643
+     lda $645
+     sta $644
+     lda $646
+     sta $645
+     lda $647
+     sta $646
+     lda $648
+     sta $647
+     lda $649
+     sta $648
+     lda $64a
+     sta $649
+     lda $64b
+     sta $64a
+     lda $64c
+     sta $64b
+     lda $64d
+     sta $64c
+     lda $64e
+     sta $64d
+     lda $64f
+     sta $64e
+     lda $6a9
+     sta $6a8
+     lda $6aa
+     sta $6a9
+     lda $6ab
+     sta $6aa
+     lda $6ac
+     sta $6ab
+     lda $6ad
+     sta $6ac
+     lda $6ae
+     sta $6ad
+     lda $6af
+     sta $6ae
+     lda $6b0
+     sta $6af
+     lda $6b1
+     sta $6b0
+     lda $6b2
+     sta $6b1
+     lda $6b3
+     sta $6b2
+     lda $6b4
+     sta $6b3
+     lda $6b5
+     sta $6b4
+     lda $6b6
+     sta $6b5
+     lda $6b7
+     sta $6b6
+     lda $6b8
+     sta $6b7
+     lda $6b9
+     sta $6b8
+     lda $6ba
+     sta $6b9
+     lda $6bb
+     sta $6ba
+     lda $6bc
+     sta $6bb
+     lda $6bd
+     sta $6bc
+     lda $6be
+     sta $6bd
+     lda $6bf
+     sta $6be
+     lda $6c0
+     sta $6bf
+     lda $6c1
+     sta $6c0
+     lda $6c2
+     sta $6c1
+     lda $6c3
+     sta $6c2
+     lda $6c4
+     sta $6c3
+     lda $6c5
+     sta $6c4
+     lda $6c6
+     sta $6c5
+     lda $6c7
+     sta $6c6
+     lda $6c8
+     sta $6c7
+     lda $6c9
+     sta $6c8
+     lda $6ca
+     sta $6c9
+     lda $6cb
+     sta $6ca
+     lda $6cc
+     sta $6cb
+     lda $6cd
+     sta $6cc
+     lda $6ce
+     sta $6cd
+     lda $6cf
+     sta $6ce
+     lda $729
+     sta $728
+     lda $72a
+     sta $729
+     lda $72b
+     sta $72a
+     lda $72c
+     sta $72b
+     lda $72d
+     sta $72c
+     lda $72e
+     sta $72d
+     lda $72f
+     sta $72e
+     lda $730
+     sta $72f
+     lda $731
+     sta $730
+     lda $732
+     sta $731
+     lda $733
+     sta $732
+     lda $734
+     sta $733
+     lda $735
+     sta $734
+     lda $736
+     sta $735
+     lda $737
+     sta $736
+     lda $738
+     sta $737
+     lda $739
+     sta $738
+     lda $73a
+     sta $739
+     lda $73b
+     sta $73a
+     lda $73c
+     sta $73b
+     lda $73d
+     sta $73c
+     lda $73e
+     sta $73d
+     lda $73f
+     sta $73e
+     lda $740
+     sta $73f
+     lda $741
+     sta $740
+     lda $742
+     sta $741
+     lda $743
+     sta $742
+     lda $744
+     sta $743
+     lda $745
+     sta $744
+     lda $746
+     sta $745
+     lda $747
+     sta $746
+     lda $748
+     sta $747
+     lda $749
+     sta $748
+     lda $74a
+     sta $749
+     lda $74b
+     sta $74a
+     lda $74c
+     sta $74b
+     lda $74d
+     sta $74c
+     lda $74e
+     sta $74d
+     lda $74f
+     sta $74e
+     lda $7a9
+     sta $7a8
+     lda $7aa
+     sta $7a9
+     lda $7ab
+     sta $7aa
+     lda $7ac
+     sta $7ab
+     lda $7ad
+     sta $7ac
+     lda $7ae
+     sta $7ad
+     lda $7af
+     sta $7ae
+     lda $7b0
+     sta $7af
+     lda $7b1
+     sta $7b0
+     lda $7b2
+     sta $7b1
+     lda $7b3
+     sta $7b2
+     lda $7b4
+     sta $7b3
+     lda $7b5
+     sta $7b4
+     lda $7b6
+     sta $7b5
+     lda $7b7
+     sta $7b6
+     lda $7b8
+     sta $7b7
+     lda $7b9
+     sta $7b8
+     lda $7ba
+     sta $7b9
+     lda $7bb
+     sta $7ba
+     lda $7bc
+     sta $7bb
+     lda $7bd
+     sta $7bc
+     lda $7be
+     sta $7bd
+     lda $7bf
+     sta $7be
+     lda $7c0
+     sta $7bf
+     lda $7c1
+     sta $7c0
+     lda $7c2
+     sta $7c1
+     lda $7c3
+     sta $7c2
+     lda $7c4
+     sta $7c3
+     lda $7c5
+     sta $7c4
+     lda $7c6
+     sta $7c5
+     lda $7c7
+     sta $7c6
+     lda $7c8
+     sta $7c7
+     lda $7c9
+     sta $7c8
+     lda $7ca
+     sta $7c9
+     lda $7cb
+     sta $7ca
+     lda $7cc
+     sta $7cb
+     lda $7cd
+     sta $7cc
+     lda $7ce
+     sta $7cd
+     lda $7cf
+     sta $7ce
+     lda $451
+     sta $450
+     lda $452
+     sta $451
+     lda $453
+     sta $452
+     lda $454
+     sta $453
+     lda $455
+     sta $454
+     lda $456
+     sta $455
+     lda $457
+     sta $456
+     lda $458
+     sta $457
+     lda $459
+     sta $458
+     lda $45a
+     sta $459
+     lda $45b
+     sta $45a
+     lda $45c
+     sta $45b
+     lda $45d
+     sta $45c
+     lda $45e
+     sta $45d
+     lda $45f
+     sta $45e
+     lda $460
+     sta $45f
+     lda $461
+     sta $460
+     lda $462
+     sta $461
+     lda $463
+     sta $462
+     lda $464
+     sta $463
+     lda $465
+     sta $464
+     lda $466
+     sta $465
+     lda $467
+     sta $466
+     lda $468
+     sta $467
+     lda $469
+     sta $468
+     lda $46a
+     sta $469
+     lda $46b
+     sta $46a
+     lda $46c
+     sta $46b
+     lda $46d
+     sta $46c
+     lda $46e
+     sta $46d
+     lda $46f
+     sta $46e
+     lda $470
+     sta $46f
+     lda $471
+     sta $470
+     lda $472
+     sta $471
+     lda $473
+     sta $472
+     lda $474
+     sta $473
+     lda $475
+     sta $474
+     lda $476
+     sta $475
+     lda $477
+     sta $476
+     lda $4d1
+     sta $4d0
+     lda $4d2
+     sta $4d1
+     lda $4d3
+     sta $4d2
+     lda $4d4
+     sta $4d3
+     lda $4d5
+     sta $4d4
+     lda $4d6
+     sta $4d5
+     lda $4d7
+     sta $4d6
+     lda $4d8
+     sta $4d7
+     lda $4d9
+     sta $4d8
+     lda $4da
+     sta $4d9
+     lda $4db
+     sta $4da
+     lda $4dc
+     sta $4db
+     lda $4dd
+     sta $4dc
+     lda $4de
+     sta $4dd
+     lda $4df
+     sta $4de
+     lda $4e0
+     sta $4df
+     lda $4e1
+     sta $4e0
+     lda $4e2
+     sta $4e1
+     lda $4e3
+     sta $4e2
+     lda $4e4
+     sta $4e3
+     lda $4e5
+     sta $4e4
+     lda $4e6
+     sta $4e5
+     lda $4e7
+     sta $4e6
+     lda $4e8
+     sta $4e7
+     lda $4e9
+     sta $4e8
+     lda $4ea
+     sta $4e9
+     lda $4eb
+     sta $4ea
+     lda $4ec
+     sta $4eb
+     lda $4ed
+     sta $4ec
+     lda $4ee
+     sta $4ed
+     lda $4ef
+     sta $4ee
+     lda $4f0
+     sta $4ef
+     lda $4f1
+     sta $4f0
+     lda $4f2
+     sta $4f1
+     lda $4f3
+     sta $4f2
+     lda $4f4
+     sta $4f3
+     lda $4f5
+     sta $4f4
+     lda $4f6
+     sta $4f5
+     lda $4f7
+     sta $4f6 
+     
+     
+     	; entrée nouvelles lettres
+
+.off1   	LDA TextPartI1,y                                
+			STA $780+39
+.off2		LDA TextPartI2,y                                    
+			STA $428+39
+.off3		LDA TextPartI3,y                                     
+			STA $4a8+39
+.off4		LDA TextPartI4,y                                         
+			STA $528+39
+.off5		LDA TextPartI5,y                                         
+			STA $5a8+39
+.off6		LDA TextPartI6,y                                         
+			STA $628+39
+.off7		LDA TextPartI7,y                                         
+			STA $6a8+39
+.off8		LDA TextPartI8,y                                    
+			STA $728+39
+.off9		LDA TextPartI9,y     
+     		STA $7A8+39
+.offA		LDA TextPartIA,y     
+     		STA $450+39
+.offB		LDA TextPartIB,y     
+     		STA $4D0+39
+     	
+     		INY
+     		CPY #40
+     		BEQ .end
+     		JMP .bp
+     	
+.end	RTS
+; =====================================================================================================================
+!align 255,0
+TableTrans1L	!byte <TextPartI1,<TextPartII1,<TextPartIII1
+TableTrans1H	!byte >TextPartI1,>TextPartII1,>TextPartIII1
+TableTrans2L	!byte <TextPartI2,<TextPartII2,<TextPartIII2
+TableTrans2H	!byte >TextPartI2,>TextPartII2,>TextPartIII2
+TableTrans3L	!byte <TextPartI3,<TextPartII3,<TextPartIII3
+TableTrans3H	!byte >TextPartI3,>TextPartII3,>TextPartIII3
+TableTrans4L	!byte <TextPartI4,<TextPartII4,<TextPartIII4
+TableTrans4H	!byte >TextPartI4,>TextPartII4,>TextPartIII4
+TableTrans5L	!byte <TextPartI5,<TextPartII5,<TextPartIII5
+TableTrans5H	!byte >TextPartI5,>TextPartII5,>TextPartIII5
+TableTrans6L	!byte <TextPartI6,<TextPartII6,<TextPartIII6
+TableTrans6H	!byte >TextPartI6,>TextPartII6,>TextPartIII6
+TableTrans7L	!byte <TextPartI7,<TextPartII7,<TextPartIII7
+TableTrans7H	!byte >TextPartI7,>TextPartII7,>TextPartIII7
+TableTrans8L	!byte <TextPartI8,<TextPartII8,<TextPartIII8
+TableTrans8H	!byte >TextPartI8,>TextPartII8,>TextPartIII8
+TableTrans9L	!byte <TextPartI9,<TextPartII9,<TextPartIII9
+TableTrans9H	!byte >TextPartI9,>TextPartII9,>TextPartIII9
+TableTransAL	!byte <TextPartIA,<TextPartIIA,<TextPartIIIA
+TableTransAH	!byte >TextPartIA,>TextPartIIA,>TextPartIIIA
+TableTransBL	!byte <TextPartIB,<TextPartIIB,<TextPartIIIB
+TableTransBH	!byte >TextPartIB,>TextPartIIB,>TextPartIIIB
+
+; .................0000000000111111111122222222223333333333
+; .................0123456789012345678901234567890123456789
+TextPartI1	!text "     ______ _______ ______ _______      "
+TextPartI2	!text "    |   __ \   _   |   __ \_     _|     "
+TextPartI3	!text "    |    __/       |      < |   |       "
+TextPartI4	!text "    |___|  |___|___|___|__| |___|       "                           
+TextPartI5	!text "                _______                 "
+TextPartI6	!text "               |_     _|                "
+TextPartI7	!text "                _|   |_                 "
+TextPartI8	!text "               |_______|                "
+TextPartI9 	!text "                                        "
+TextPartIA	!text "  Super Mixed Mode * Hires (Pages 1/2)  "
+TextPartIB	!text "                                        "
+; .................0000000000111111111122222222223333333333
+; .................0123456789012345678901234567890123456789
+TextPartII1	!text "     ______ _______ ______ _______      "
+TextPartII2	!text "    |   __ \   _   |   __ \_     _|     "
+TextPartII3	!text "    |    __/       |      < |   |       "
+TextPartII4	!text "    |___|  |___|___|___|__| |___|       "                    
+TextPartII5 !text "            _______ _______             "
+TextPartII6	!text "           |_     _|_     _|            "
+TextPartII7	!text "            _|   |_ _|   |_             "
+TextPartII8	!text "           |_______|_______|            "
+TextPartII9	!text "                                        "
+TextPartIIA	!text "  Super Mixed Mode * Text, Lores/Hires  "
+TextPartIIB	!text "                                        "
+
+; .....................0000000000111111111122222222223333333333
+; .....................0123456789012345678901234567890123456789
+TextPartIII1	!text "     ______ _______ ______ _______      "
+TextPartIII2	!text "    |   __ \   _   |   __ \_     _|     "
+TextPartIII3	!text "    |    __/       |      < |   |       "
+TextPartIII4	!text "    |___|  |___|___|___|__| |___|       "                           
+TextPartIII5	!text "        _______ _______ _______         "
+TextPartIII6	!text "       |_     _|_     _|_     _|        "
+TextPartIII7	!text "        _|   |_ _|   |_ _|   |_         "
+TextPartIII8	!text "       |_______|_______|_______|        "
+TextPartIII9	!text "                                        "
+TextPartIIIA	!text "  Super Mixed Mode * Desyncronized Move "
+TextPartIIIB	!text "                                        "
+
+; =============================================================================
+!align 255,0
+TRANSITION2
+!zone
+		; initialisation		
+		LDA #192
+		STA COUNT
+		LDA #00
+		STA PosSplit
+		
+		; synchronisation
+		
+.LS1	LDA $C070		; lecture $02  ** important
+		CMP #$20		; 
+		BNE .LS1
+		NOP
+		NOP
+		NOP
+		NOP
+		NOP				;
+		LDA $C070		; lecture $14 ** important
+		CMP #$05			
+		BNE .LS1
+		NOP
+		NOP
+		NOP
+		NOP
+		NOP	
+		LDA $C070		; 4 ;lecture $26 ** important
+ 		CMP	#$20		; 2
+		BNE .LS1    	; 2 = 8
+
+		; début synchro 
+		; on attend 65 cycles - 08 déjà effectués = 57 pour retrouver le byte en $426 (nouvelle ligne sur les 8)
+
+		LDA Temp		; 3
+
+.LS2	; 11 cycles déjà fait ici sur les 65
+		LDX #$0A
+.WL1	DEX	
+		BNE .WL1		; 51 cycles  
+
+		LDA Temp		; 3
+						; = (8 + 3) + 51 + 3 = 65
+				
+		LDA $C070		; 4		; lecture des "autres lignes" en $7F6
+		CMP #$20		; 2
+		BNE .S2			; 2/3
+		JMP .LS2		; 3  
+						; = 11 ; on boucle tant qu'on trouve $66 à cette position
+
+.S2		; quand on arrive ici, on est position $26 de la première ligne de VBL
+		; on "revient" au début de la seconde ligne
+		; (4-2) + 2 + 3 = 7 cycles déjà effectué en "HBL" de la première ligne de VBL
+		; 25-7 = 18
+
+		; 
+		; empiriquement, il faudrait 18 en théorie
+
+		LDA $C051		; 4
+		LDA Temp		; 3
+		INC Temp		; 5
+		LDA Temp		; 3
+
+; on arrive début seconde ligne de VBL
+; --------------------------------------------
+; suivant PAL OU NTSC
+; 1 ligne VBL (NTSC) ou 1 + 50 ligne VBL (PAL)
+		LDA bRefresh	; 3
+		BNE .NTSC		; 3 / (2)
+		
+		NOP
+		NOP			; 3 (appel routine WAIT) + 1 (compensé BNE non pris)
+		LDY #50
+		JSR WAIT 	; 50 * 65 (PAL)
+
+.NTSC	; 65 - 6 cycles = 59
+		LDX #11
+.BW0	DEX
+		BNE .BW0 ; 56
+		LDA Temp ; 3 
+; --------------------------------------------
+; début 3ème ligne de VBL
+		LDA Temp
+		LDY #67 		; 70 - 3 ; [ 2 lignes de VBL déjà effectuées + 1 ligne de VBL à ne pas faire]
+		JSR WAIT
+; on est maintenant début dernière ligne de VBL
+; =======================================================
+; debut synchronisation - premier octet dernière ligne de VBL
+; =======================================================
+BP
+!zone
+; --------------------------------------
+; [VBL] * dernière ligne VBL
+		LDY PosSplit				; 3
+		LDA SPLIT2LO,Y				; 4
+		STA .Off+1					; 4
+		LDA SPLIT2HI,Y				; 4
+		STA .Off+2					; 4
+		NOP							; 2
+		NOP							; 2 
+									; = 23
+
+		LDX #6						; + remise à zero du X importante pour les tempo !
+.BW1	DEX
+		BNE .BW1					; = 31
+
+
+		INC Temp					; 5
+		LDA Temp					; 3
+
+.Off	JMP $0000					; 3 	
+									; 23 + 31 + 8 + 3 = 65
+
+									; => 65 
+
+; -------------------------------------
+; [DISPLAY/]
+; ... 
+; (65*192 lignes)
+; [/DISPLAY]
+; -------------------------------------
+; [VBL] * première ligne VBL
+BACK			
+!zone	
+; -------------------------------------------
+; [VBL] * 1 ligne
+		INC PosSplit	; 5
+		NOP
+		NOP				; 4
+		LDX #11
+.BW1	DEX
+		BNE .BW1 		; 56
+						; = 65
+; -------------------------------------------
+; [VBL] * 70-1-2-1 = 66 lignes VBL 
+		LDA Temp		;
+		LDY #66			;
+		JSR WAIT		; = 65 * 66
+
+; --------------------------------------------
+; suivant PAL OU NTSC => 65*1 ou 65*50 + 65*1
+; [VBL] * 1 ligne VBL (NTSC) ou 1 + 50 ligne VBL (PAL)
+		LDA bRefresh	; 3
+		BNE .NTSC		; 3 / (2)
+		
+		NOP
+		NOP			; 3 (appel routine WAIT) + 1 (compensé BNE non pris)
+		LDY #50
+		JSR WAIT 	; 50 * 65 (PAL)
+
+.NTSC	; 65 - 6 cycles = 59
+		LDX #11
+.BW2	DEX
+		BNE .BW2 ; 56
+		LDA Temp ; 3 
+; --------------------------------------------
+; [VBL] * 1 ligne VBL
+		LDX #10
+.BW3	DEX
+		BNE .BW3		; 51
+		
+		SBC (Temp,X)	; 6
+
+		LDA #192		; 2		; réinitialisation compteur lignes DISPLAY
+		STA COUNT		; 3
+		JMP BP			; 3 
+						; = 65 cycles
+						
+; =============================================================================
+SPLIT2X00
+!zone	
+.debut
+		LDA $C051		; 4
+		
+		LDX #9
+.BW		DEX
+		BNE .BW			; 46
+		NOP				; 2
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X05	; OK
+!zone	
+.debut
+		LDA $C050		; 4 
+		LDA $C051		; 4
+
+		SBC (Temp,X)	; 6 = 14
+
+		LDX #7
+.BW		DEX
+		BNE .BW			; 
+		NOP				; 38
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; --------------------------------------
+SPLIT2X06
+!zone	
+.debut
+		STA $C050,X		; 5 
+		LDA $C051		; 4
+
+		INC Temp		; 5 = 14
+
+		LDX #7
+.BW		DEX
+		BNE .BW			; 
+		NOP				; 38
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; --------------------------------------
+!align 255,0
+SPLIT2X07
+!zone	
+.debut
+		LDA $C050		; 4
+		NOP 			; 2
+		LDA $C051		; 4
+
+		NOP
+		NOP				; 4 = 14
+
+		LDX #7
+.BW		DEX
+		BNE .BW			; 
+		NOP				; 38
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X08
+!zone	
+.debut
+		LDA $C050		; 4
+		LDA Temp		; 3 
+		LDA $C051		; 4
+
+		LDA Temp		; 3 = 14
+
+		LDX #7
+.BW		DEX
+		BNE .BW			; 
+		NOP				; 38
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X09	
+!zone	
+.debut
+		LDA $C050		; 4
+		NOP
+		NOP 			; 4
+		LDA $C051		; 4
+
+		NOP				; 2 = 14
+
+		LDX #7
+.BW		DEX
+		BNE .BW			; 
+		NOP				; 38
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X10		
+!zone	
+.debut
+		LDA $C050		; 4
+		INC Temp 		; 5
+		LDA $C051		; 4
+
+		LDA Temp		; 3 = 16
+
+		LDX #7
+.BW		DEX
+		BNE .BW			; 36
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X11	; 	
+!zone	
+.debut
+		LDA $C050		; 4 
+		SBC (Temp,X)	; 6
+		LDA $C051		; 4 = 14
+
+		LDX #7
+.BW		DEX
+		BNE .BW			; 36
+		NOP				; 2
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X12
+!zone	
+.debut
+		LDA $C050		; 4
+		INC Temp 		; 5
+		NOP				; 2
+		LDA $C051		; 4 = 15
+
+		SBC (Temp,X)	; 6
+
+		LDX #6
+.BW		DEX
+		BNE .BW			; = 31
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X13
+!zone	
+.debut
+		LDA $C050		; 4
+		INC Temp 		; 5
+		LDA Temp		; 3
+		LDA $C051		; 4 = 16
+
+		INC Temp		; 5
+
+		LDX #6
+.BW		DEX
+		BNE .BW			; 31
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X14	
+!zone	
+.debut
+		LDA $C050		; 4
+		INC Temp 		; 5
+		NOP
+		NOP				; 4
+		LDA $C051		; 4 = 17
+
+		NOP
+		NOP				; 4
+
+		LDX #6
+.BW		DEX
+		BNE .BW			; 31
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X15
+!zone	
+.debut
+		LDA $C050		; 4
+		INC Temp
+		INC Temp		; 10
+		LDA $C051		; 4 = 18
+
+		LDA Temp		; 3
+
+		LDX #6
+.BW		DEX
+		BNE .BW			; 31
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X16		
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C051		; 4 = 19
+
+		NOP				; 2
+
+		LDX #6
+.BW		DEX
+		BNE .BW			; 31
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X17
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		STA $C051,X		; 5 = 21
+
+
+		LDX #6
+.BW		DEX
+		BNE .BW			; 31
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X18
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		NOP				; 2
+		LDA $C051		; 4 = 21
+
+		INC Temp		; 5
+
+		LDX #5
+.BW		DEX
+		BNE .BW			; 26
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X19		
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA Temp		; 3
+		LDA $C051		; 4 = 22
+
+		NOP
+		NOP				; 4
+
+		LDX #5
+.BW		DEX
+		BNE .BW			; 26
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X20
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+		LDA $C051		; 4 = 23
+
+		LDA Temp		; 3
+
+		LDX #5
+.BW		DEX
+		BNE .BW			; 26
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X21
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		NOP
+		NOP
+		LDA $C051		; 4 = 24
+
+		NOP				; 2
+
+		LDX #5
+.BW		DEX
+		BNE .BW			; 26
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X22
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		STA $C051,X		; 5 = 26
+
+
+		LDX #5
+.BW		DEX
+		BNE .BW			; 26
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X23
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA $C051		; 4 = 26
+
+		LDX #5
+.BW		DEX
+		BNE .BW			; 26
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X24
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		NOP				; 2
+		LDA $C051		; 4 = 27
+
+		NOP
+		NOP				; 4
+
+		LDX #4
+.BW		DEX
+		BNE .BW			; 21
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X25	
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA Temp		; 3
+		LDA $C051		; 4 = 28
+
+		LDA Temp		; 3
+
+		LDX #4
+.BW		DEX
+		BNE .BW			; 21
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X26
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+		LDA $C051		; 4 = 29
+
+		NOP				; 2
+
+		LDX #4
+.BW		DEX
+		BNE .BW			; 21
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X27
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		NOP
+		NOP				; 4
+		STA $C051,X		; 5 = 31
+
+		LDX #4
+.BW		DEX
+		BNE .BW			; 21
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X28
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5 
+		LDA $C051		; 4 = 31
+
+
+		LDX #4
+.BW		DEX
+		BNE .BW			; 21
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X29
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA $C051		; 4 = 32
+
+		NOP
+		NOP				; 4
+
+		LDX #3
+.BW		DEX
+		BNE .BW			; 16
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X30
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		NOP				; 2
+		LDA $C051		; 4 = 33
+
+		LDA Temp		; 3
+
+		LDX #3
+.BW		DEX
+		BNE .BW			; 16
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X31
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA Temp		; 3
+		LDA $C051		; 4 = 34
+
+		NOP				; 2
+
+		LDX #3
+.BW		DEX
+		BNE .BW			; 16
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X32
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+		STA $C051,X		; 5 = 36
+
+		LDX #3
+.BW		DEX
+		BNE .BW			; 16
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X33
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		NOP
+		NOP				; 4
+		LDA $C051		; 4 = 36
+
+		LDX #3
+.BW		DEX
+		BNE .BW			; 16
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X34
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C051		; 4 = 37
+
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X35
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA $C051		; 4 = 38
+
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		NOP				; 2
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X36
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		NOP				; 2
+		LDA $C051		; 4 = 39
+
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		NOP				; 2
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X37
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA Temp		; 3
+		LDA $C051		; 4 = 40
+
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X38
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+		LDA $C051		; 4 = 41
+
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X39
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		NOP
+		NOP				; 4
+		LDA $C051		; 4 = 42
+
+		INC Temp		; 5
+		INC Temp		; 5
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X40
+!zone	
+.debut
+		LDA $C050		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C051		; 4 = 43
+
+		INC Temp		; 5
+		NOP
+		NOP				; 4
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- 13
+; -------------------------------------
+SPLIT2X41			; 65 cycles DONT LE RETOUR SOUS ROUTINE
+!zone	
+.debut
+		LDA $C050		; 4
+		
+		LDX #8
+.BW		DEX
+		BNE .BW			; 41
+		NOP				; 2
+		NOP				; 2
+
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		LDA Temp		; 3
+		JMP .debut		; 3
+.s1		NOP				; 2
+		RTS				; 6
+						; <- 16
+; =============================================================================
+; = Routine WAIT ======================
+; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 11 cycles obligatoire)
+!align 255,0
+WAIT
+!zone           
+		DEY								
+		BEQ .S1						
+                  
+.WL1 	LDX #$0B				            
+.WL2 	DEX							
+		BNE .WL2																
+                      
+		NOP								
+		NOP								
+		DEY								
+		BNE .WL1						
+																                      
+		LDX #$08					                   
+.WL3 	DEX							
+		BNE .WL3						
+                							
+		NOP								
+		NOP								
+		RTS								
+											         
+.S1	 	LDX #08					                    
+.WL4 	DEX							
+		BNE .WL4						
+																	
+		NOP								
+		RTS
+; =============================================================================
+!align 255,0
+SPLIT2HI !byte >SPLIT2X00, >SPLIT2X05, >SPLIT2X06, >SPLIT2X07, >SPLIT2X08, >SPLIT2X09, >SPLIT2X10, >SPLIT2X11, >SPLIT2X12, >SPLIT2X13 
+		 !byte >SPLIT2X14, >SPLIT2X15, >SPLIT2X16, >SPLIT2X17, >SPLIT2X18, >SPLIT2X19, >SPLIT2X20, >SPLIT2X21, >SPLIT2X22, >SPLIT2X23
+		 !byte >SPLIT2X24, >SPLIT2X25, >SPLIT2X26, >SPLIT2X27, >SPLIT2X28, >SPLIT2X29, >SPLIT2X30, >SPLIT2X31, >SPLIT2X32, >SPLIT2X33
+		 !byte >SPLIT2X34, >SPLIT2X35, >SPLIT2X36, >SPLIT2X37, >SPLIT2X38, >SPLIT2X39, >SPLIT2X40, >SPLIT2X41
+		 
+SPLIT2LO !byte <SPLIT2X00, <SPLIT2X05, <SPLIT2X06, <SPLIT2X07, <SPLIT2X08, <SPLIT2X09, <SPLIT2X10, <SPLIT2X11, <SPLIT2X12, <SPLIT2X13
+		 !byte <SPLIT2X14, <SPLIT2X15, <SPLIT2X16, <SPLIT2X17, <SPLIT2X18, <SPLIT2X19, <SPLIT2X20, <SPLIT2X21, <SPLIT2X22, <SPLIT2X23
+		 !byte <SPLIT2X24, <SPLIT2X25, <SPLIT2X26, <SPLIT2X27, <SPLIT2X28, <SPLIT2X29, <SPLIT2X30, <SPLIT2X31, <SPLIT2X32, <SPLIT2X33
+		 !byte <SPLIT2X34, <SPLIT2X35, <SPLIT2X36, <SPLIT2X37, <SPLIT2X38, <SPLIT2X39, <SPLIT2X40, <SPLIT2X41

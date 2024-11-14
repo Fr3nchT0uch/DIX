@@ -1,0 +1,493 @@
+; French Touch framework
+; (c) Cyril Lambin, Grouik (French Touch)
+
+;  This program is free software: you can redistribute it and/or modify
+;  it under the terms of the GNU Affero General Public License as
+;  published by the Free Software Foundation, either version 3 of the
+;  License, or (at your option) any later version.
+;
+;  This program is distributed in the hope that it will be useful,
+;  but WITHOUT ANY WARRANTY; without even the implied warranty of
+;  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;  GNU Affero General Public License for more details.
+;
+;  You should have received a copy of the GNU Affero General Public License
+;  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+; ====================================================================================
+; FYM2 player (v3)
+;
+; by Fenarinarsa/FRENCH TOUCH
+
+!cpu 6502
+
+!source "../sysconst.a"
+!source "../macros.a"
+;!source "boot/setup.a"
+
+MB_BASEADDR	= $10
+
+TableOffsetData	= $30  ; ~$4B
+TableIndex	= $4C	; ~$59
+TableCompteur	= $5A	; ~ $67
+pPartition	= $68	; +$69
+TableData 	= $6A ;$7A	; ~77
+SeqCount		= $78
+Mem		= $79 ; +$7A
+pattern		= $7B
+MBpatch_start	= $7C ;16b
+MBpatch_end	= $7E ;16b
+
+FYM_DATA		= $6000
+DEBUGPLAYER = 0
+
+	* = $F000
+
+PLAYER
+	JMP PLAYER_FYM
+	JMP PLAYER_FYM_INIT
+	JMP PLAYER_YMRESET
+
+PLAYER_FYM_INIT
+	; Patch Mockingboard registers
+	+set_ptr PLAYER_YMRESET,MBpatch_start
+	+set_ptr next_sequence,MBpatch_end
+	JSR MB_PATCH
+
+	JSR PLAYER_YMRESET
+
+	STA _RAMWRTaux
+	STA _RAMRDaux
+	LDA #0
+	STA pattern
+
+	; prepare tune data
+	; FYM2
+	LDA FYM_DATA+1
+	STA modseqlength+1
+	STA SeqCount
+
+relocate_partition
+	; file is loaded at $2000
+	CLC
+	LDA FYM_DATA+3
+	ADC #>FYM_DATA    ; relocate main partition ptr
+	STA FYM_DATA+3
+	; relocate partition pointers
+	LDA FYM_DATA+2
+	STA pPartition
+	STA Mem
+	LDA FYM_DATA+3
+	STA pPartition+1
+	STA Mem+1
+.reloc1	LDY #1
+	CLC
+.reloc0	LDA (Mem),Y
+	ADC #>FYM_DATA
+	STA (Mem),Y
+	INY
+	INY
+	CPY #29
+	BNE .reloc0
+	LDY #29
+	LDA (Mem),Y
+	BEQ .end_relocate ; partition end
+	CLC
+	LDA Mem
+	ADC #28
+	STA Mem
+	BCC .reloc1
+	LDA Mem+1
+	ADC #0
+	STA Mem+1
+	JMP .reloc1
+.end_relocate
+
+!macro init_packbits {
+	!zone
+	; packbits file format
+	; 1 control byte (n) + ? data bytes
+	; if control byte ==$80 => end (not used here)
+	; if control byte >$00 => copy n data bytes
+	; if control byte <$00 => repeat 1 data byte n times
+	; n is always equals to (delta between control byte's value and $00)+1
+	; for example n will be $03 if the control byte is $02 or $FE
+	; => the value of the first byte after the control byte is always copied as is.
+
+	; copy partition pointers
+	LDY #0
+!for iplayer,0,27 {
+	LDA (pPartition),Y
+	STA TableOffsetData+iplayer
+	INY
+ }
+	; init 13 patterns' packbits
+	LDY #0
+	LDX #2
+!for iplayer,0,13 {
+	LDA (TableOffsetData+(iplayer*2)),Y	; control byte
+	STA TableCompteur+iplayer
+	INY
+	LDA (TableOffsetData+(iplayer*2)),Y	; value byte
+!if iplayer<13 {
+	DEY
+  }
+	STA TableData+iplayer
+	STX TableIndex+iplayer
+ }
+}
+
+	; call macro
+	+init_packbits
+
+	STA _RAMWRTmain
+	STA _RAMRDmain
+	RTS
+
+; =============================================================================
+; patch all STAs/STXs to mockinboard registers
+
+MB_PATCH
+!zone
+	LDA MBpatch_end+1
+	STA .modmb1+1
+	LDA MBpatch_end
+	STA .modmb2+1
+.loop
+	LDY #0
+	LDA (MBpatch_start),Y
+	CMP #$8D    ; "STA xxxx"
+	BEQ .yes2
+	CMP #$8C    ; "STY xxxx"
+	BEQ .yes2
+	CMP #$2C    ; "BIT xxxx"
+	BEQ .yes2
+	CMP #$AD    ; "LDA xxxx"
+	BEQ .yes2
+	CMP #$8E    ; "STX xxxx"
+	BNE .not
+.yes2
+	INY
+	LDA (MBpatch_start),Y
+	AND #$F0
+	CMP #$00
+	BEQ .yes
+	CMP #$80
+	BNE .not
+.yes
+	INY
+	LDA (MBpatch_start),Y
+	CMP #$CF        ; "STA $CFxx" or "STX $CFxx"
+	BNE .not
+	; patching
+	LDA MB_BASEADDR+1
+	STA (MBpatch_start),Y
+.not
+	INC MBpatch_start
+	BNE +
+	INC MBpatch_start+1
++	LDA MBpatch_start+1
+.modmb1
+	CMP #$00
+	BNE .loop
+	LDA MBpatch_start
+.modmb2
+	CMP #$00
+	BNE .loop
+	RTS
+
+PLAYER_YMRESET
+!zone
+	LDA #$FF
+	STA $CF03
+	STA $CF83
+    	LDA #$07
+          STA $CF02
+          STA $CF82
+
+	LDA #$00
+	STA $CF00
+	STA $CF80
+	LDA #$04
+	STA $CF00
+	STA $CF80
+	RTS
+
+
+
+; =============================================================================
+PLAYER_FYM
+!zone
+	; This way of programming the two AYs at the same time using $CF0x and $CF8x
+	; works on the original Mockingboard and emulators but does not on Mockingboard 4c.
+	; On 4c there is only one VIA with address mapping so by poking $CF0x, then $CF8x,
+	; only one AY is actually set up witht the right data, resulting in a mono sound.
+	; Consequence: when stereo is enabled, it will play as mono on Mockingboard 4c
+	; and as stereo on any other Mockingboard or emulators.
+	; On the plus side, the AY setup is then ~128 cycles faster.
+
+!if DEBUGPLAYER=1 {
+	JSR print_debugplayer
+}
+
+	!zone psg
+	STA _RAMRDaux
+
+	LDX #$04
+!for iplayer,0,12 {
+	; R0~R12
+	LDA #iplayer
+	STA $CF01			; ORA1 (data)
+	STA $CF81			; ORA1 (data)
+	LDA TableData+iplayer
+	LDY #$07			; Set fct "Set PSG Reg #"
+	STY $CF00			; ORB1 (fct)
+	STY $CF80			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF00			; ORB1 (fct)
+	STA $CF01			; ORA1 (data)
+	STX $CF80			; ORB1 (fct)
+	STA $CF81			; ORA1 (data)
+	LDY #$06			; Set fct "Write DATA"
+	STY $CF00			; ORB1 (fct)
+	STY $CF80			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF00			; ORB1 (fct)
+	STX $CF80			; ORB1 (fct)
+}
+	
+	LDA TableData+13
+	CMP #$FF
+	BEQ .no_r13update
+	LDA #13
+	STA $CF01			; ORA1 (data)
+	STA $CF81			; ORA1 (data)
+	LDA TableData+iplayer
+	LDY #$07			; Set fct "Set PSG Reg #"
+	STY $CF00			; ORB1 (fct)
+	STY $CF80			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF00			; ORB1 (fct)
+	STA $CF01			; ORA1 (data)
+	STX $CF80			; ORB1 (fct)
+	STA $CF81			; ORA1 (data)
+	LDY #$06			; Set fct "Write DATA"
+	STY $CF00			; ORB1 (fct)
+	STY $CF80			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF00			; ORB1 (fct)
+	STX $CF80			; ORB1 (fct)
+.no_r13update
+	!zone unpack_data
+
+; ---------- partition handling
+
+	; if SeqCount reaches zero, we step to another patterns sequence in the partition
+	DEC SeqCount
+	BEQ next_sequence
+	JMP unpack_pattern
+
+; ---------- load new sequence of 14 pointers in partition
+next_sequence
+	; we are at the end of the pattern sequence
+	; reset sequence count
+modseqlength
+	LDA #$AA		; sequence length
+	STA SeqCount
+
+	LDY #29
+	LDA (pPartition),Y
+	BEQ .looptune
+
+	; next partition sequence (+28 bytes)
+	CLC
+	LDA pPartition
+	ADC #28
+	STA pPartition
+	LDA pPartition+1
+	ADC #0
+	STA pPartition+1
+
+	INC pattern	; debug
+	BNE .newpatterns
+	
+.looptune ; end of partition, looping to the start of the song
+	LDY #0
+	STY pattern
+	LDA FYM_DATA+2
+	STA pPartition
+	LDA FYM_DATA+3
+	STA pPartition+1
+		
+.newpatterns
+	; reset packbits depack counters for all 14 registers
+	+init_packbits
+	STA _RAMRDmain
+	RTS
+
+; ---------- handling packbits for each 14 registers
+unpack_pattern
+	CLC
+!for iplayer,0,13 {
+	!zone
+	LDY TableCompteur+iplayer
+	BEQ .controlbyte ; ==0 read next control byte
+	BMI .dupmode
+
+.copymode ; counter is positive
+	DEY
+	STY TableCompteur+iplayer
+	LDY TableIndex+iplayer
+	LDA (TableOffsetData+(iplayer*2)),Y
+	STA TableData+iplayer
+	INY
+	STY TableIndex+iplayer
+!if iplayer<13 {
+	BCC .nextreg
+} else {
+	BCC .exit
+}
+
+.dupmode	; counter is negative
+	INY
+	STY TableCompteur+iplayer
+!if iplayer<13 {
+	BCC .nextreg
+} else {
+	BCC .exit
+}
+
+.controlbyte
+	LDY TableIndex+iplayer
+	LDA (TableOffsetData+(iplayer*2)),Y	; control byte
+	STA TableCompteur+iplayer
+	INY
+	LDA (TableOffsetData+(iplayer*2)),Y	; value byte
+	STA TableData+iplayer
+	INY
+	STY TableIndex+iplayer
+
+.nextreg
+}
+; ---------- end of partition handling
+
+.exit	STA _RAMRDmain
+	RTS
+
+!if DEBUGPLAYER=1 {
+
+echo_ptr	=	$10
+
+print_debugplayer
+	lda #$00
+	tay
+	tax
+	lda #$05
+	sta echo_ptr+1
+	lda #$81
+	sta echo_ptr
+		
+	; display YM registers
+.dbg_reg
+	lda TableData,X
+	jsr PRBYTE
+	inx
+	cpx #14
+	bne .dbg_reg
+
+	; display ptr high
+	lda #$07
+	sta echo_ptr+1
+	lda #$01
+	sta echo_ptr
+	ldx #$00
+	ldy #$00
+.dbg_ptrH
+	lda TableOffsetData+1,X
+	jsr PRBYTE
+	INX
+	INX
+	cpx #28
+	bne .dbg_ptrH
+
+	; display ptr low
+	lda #$81
+	sta echo_ptr
+	ldx #$00
+	ldy #$00
+	LDA #TableIndex
+	STA .dbg8_mod+1
+.dbg_ptrB
+	CLC
+	lda TableOffsetData,X
+.dbg8_mod	ADC TableIndex
+	jsr PRBYTE
+	inx
+	INX
+	INC .dbg8_mod+1
+	cpx #28
+	bne .dbg_ptrB
+	
+	; display partition pointer
+	lda #$29
+	sta echo_ptr
+	lda #$05
+	sta echo_ptr+1
+	ldy #$00
+	ldx #$01
+	lda pPartition,X
+	jsr PRBYTE
+	dex
+	lda pPartition,X
+	jsr PRBYTE
+	INY
+	lda SeqCount
+	jsr PRBYTE
+	INY
+	lda pattern
+	jsr PRBYTE
+
++	rts
+
+
+
+; By Steve Wozniak
+;-------------------------------------------------------------------------
+;  Subroutine to print a byte in A in hex form (destructive)
+;  Address of line to print at zp0001, column number in Y
+;-------------------------------------------------------------------------
+
+PRBYTE          PHA                     ;Save A for LSD
+                LSR
+                LSR
+                LSR                     ;MSD to LSD position
+                LSR
+                JSR     PRHEX           ;Output hex digit
+                PLA                     ;Restore A
+
+; Fall through to print hex routine
+
+;-------------------------------------------------------------------------
+;  Subroutine to print a hexadecimal digit
+;-------------------------------------------------------------------------
+
+PRHEX           AND     #$0F		    ;Mask LSD for hex print
+                ORA     #"0"           ;Add "0"
+                CMP     #"9"+1           ;Is it a decimal digit?
+                BCC     ECHO            ;Yes! output it
+                ADC     #6              ;Add offset for letter A-F
+
+; Fall through to print routine
+
+;-------------------------------------------------------------------------
+;  Subroutine to print a character to the terminal
+;-------------------------------------------------------------------------
+
+ECHO            STA		(echo_ptr),Y
+				INY
+                RTS
+
+}
+
+
+EO_PLAYER

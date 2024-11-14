@@ -1,0 +1,4282 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; SCROLL SCROLL SCROLL
+; Routines + DATA
+; version 0.3
+
+!sl "routineslabel.a"
+!convtab "a2txt.bin"
+
+!source "../../macros.a"
+!source "../../sysconst.a"
+
+		*= $4000 ; ORG = $4000
+
+; CONSTANTES SYSTEME ===================
+;VERTBLANK	 = $C019	; 
+; -----------------------------------------------------------------------------
+; PZ
+ExpoMode = $05
+bMachine 	= $0B	; byte MACHINE ($7F/IIE | $FF/GS)
+
+IndexText	= $18
+IndexText2	= $19
+IndexBit	= $1A
+IndexBit2	= $1B
+IndexBit3	= $1C
+
+IndexScroll4	= $1D
+Mask4			= $1E
+bAction4		= $1F
+
+Mask		= $40
+bSpeed		= $41
+Color		= $42
+ADR			= $43 ; et $44
+Tick           = $45 ;16b
+; DISPLAYSYNC    = $FE
+; VSYNC          = $FF
+; F4~FE MUTUAL INTs
+DISPLAYSYNC	= $F4
+VSYNC		= $F5
+
+; -----------------------------------------------------------------------------
+
+START
+!zone		
+		LDX #$FF
+		STX IndexText
+		STX IndexText2
+		INX
+		STX Mask		; mask � zero (pour forcer la lecture du premier char)
+		STX bSpeed
+		STX IndexScroll4
+		STX bAction4
+
+		INX
+		STX IndexBit	; indexBit � 1
+		STX IndexBit2
+		STX IndexBit3
+		
+		
+		LDX #%00000001
+		STX Mask4
+
+          LDA #0
+          STA Tick
+          STA Tick+1
+
+BP		
+
+     JSR WAIT_VSYNC_
+     
+;		LDA bMachine      
+;.L2 	CMP VERTBLANK         
+;		BMI .L2 		; wait fin display courant		
+
+BP2
+     LDA ExpoMode
+     BEQ +
+     INC Tick
+     BNE +
+     INC Tick+1
+     LDA Tick+1
+     CMP #$0b
+     BNE +
+     RTS ; end (expo mode)     
++    JSR WAIT_DISPLAY_
+     LDA $400,X
+     LDA $400,X
+     LDA $400,X
+     LDA $400,X
+     LDA $400,X
+     LDA $400,X 
+     LDA $400,X
+     LDA $400,X
+     LDA $400,X 
+     LDA $400,X
+     LDA $400,X
+     LDA $400,X      ; wait a bit to be in HBLANK
+; prise en compte des cycles � partir d'ici
+;		LDA bMachine                                                                   
+;.L1		CMP VERTBLANK   ; 4      
+;		BPL .L1 		; 2  ; wait fin VBL courant
+                        ; = 6                  
+; debut display !
+
+; =====================================
+; MODIFICATION du MODE � la LIGNE X
+; =====================================
+; ligne 0		
+; 65 - 6 = 59 cycles 
+
+		LDA bMachine	; 3
+
+		LDX #$0B		; 
+.WL1	DEX				; 
+		BNE .WL1		; = 2 + (2+3)*10 + (2+2)*1 = 56
+						; = +3 = 59 cycles 
+						; + 6 = 65 cycles => 1 ligne
+; lignes 1-15
+
+		LDA bMachine	; timing
+		LDY #15
+		JSR WAITROUTINE	; x65 cycles
+; -------------------------------------
+; PREMIERE ligne avec changement de mode
+; ligne 16
+
+		LDA $C056		; 4 - LORES
+		NOP				; 2
+		NOP				; 2
+		NOP				; 2
+		NOP				; 2
+		NOP				; 2
+						; = 14
+		
+		LDX #$0A		; 2							
+.WL2 	DEX				; 2					
+		BNE .WL2 		; 3/2					
+						; = 2 + (2+3)*9 + (2+2)*1 = 51
+
+						; = 14 + 51 = 65 cycles => 1 ligne
+; =============================================================================	
+; -------------------------------------
+; AUTRES LIGNES avec changement de mode
+; lignes 17-63 = 47x65 cycles = 3055
+SCROLLTEXT
+!zone
+	; 78 * 4 = 312 cycles
+	 lda $751
+     sta $750
+     lda $752
+     sta $751
+     lda $6d3
+     sta $752
+     lda $6d4
+     sta $6d3
+     lda $655
+     sta $6d4
+     lda $5d6
+     sta $655
+     lda $5d7
+     sta $5d6
+     lda $5d8
+     sta $5d7
+     lda $5d9
+     sta $5d8
+     lda $65a
+     sta $5d9
+     lda $6db
+     sta $65a
+     lda $6dc
+     sta $6db
+     lda $75d
+     sta $6dc
+     lda $75e
+     sta $75d
+     lda $75f
+     sta $75e
+     lda $6e0
+     sta $75f
+     lda $6e1
+     sta $6e0
+     lda $662
+     sta $6e1
+     lda $663
+     sta $662
+     lda $5e4
+     sta $663
+     lda $5e5
+     sta $5e4
+     lda $5e6
+     sta $5e5
+     lda $667
+     sta $5e6
+     lda $668
+     sta $667
+     lda $6e9
+     sta $668
+     lda $76a
+     sta $6e9
+     lda $76b
+     sta $76a
+     lda $76c
+     sta $76b
+     lda $76d
+     sta $76c
+     lda $6ee
+     sta $76d
+     lda $66f
+     sta $6ee
+     lda $670
+     sta $66f
+     lda $5f1
+     sta $670
+     lda $5f2
+     sta $5f1
+     lda $5f3
+     sta $5f2
+     lda $674
+     sta $5f3
+     lda $675
+     sta $674
+     lda $6f6
+     sta $675
+     lda $6f7
+     sta $6f6
+; ------------------------
+; c = 312
+
+	; nouvelle entr�e colonne 27
+	; NewLetter
+		LDX IndexText2		; 3
+		INX					; 2
+		CPX #90				; 2
+		BNE .s1				; 3/2
+		LDX #00				; 2
+		JMP .s2				; 3 = 14 cycles si BNE non pris
+
+.s1		NOP					; 2
+		NOP					; 2 = 14 cycles si BNE pris ! 
+; + 14
+.s2		STX IndexText2 		; 4 ; remise � zero si au bout de la chaine
+		LDA StringText,X	; 4 ; lecture caract�re suivant 
+     	STA $6F7			; 4				
+; + 12
+; c = 312 + 14 + 12 = 338
+
+; 65x47 = 3055 - 338 = 2717 => 2717/65 = 41 (+ 52)
+; =============================================================================
+	;	LDA bMachine		; 3	; pour le timing...
+	;	LDY #41				;
+	;	JSR WAITROUTINE		; attente de Y * 65 cycles (appel/retour compris)
+; 41 * 65 = 2665
+SCROLL4HGR
+!zone	
+		; <******* 65*41 cycles
+		; il faut 65 cycles (+40*65) pour obtenir le meme d�lai que si dessus
+		LDA bAction4		; 3
+		CMP #02				; 2
+		BEQ .action			; 2/3
+
+		inc bAction4		; 5
+		
+		; 3 + 2 + 2 + 5 = 12
+		
+		LDA bMachine
+		LDY #40
+		JSR WAITROUTINE		; 40*65
+
+		; il faut 65-12 = 53 cycles
+		LDX #$09		; 2							
+.WL1 	DEX				; 2					
+		BNE .WL1 		; 3/2					
+						; = 2 + (2+3)*8 + (2+2)*1 = 46
+		NOP
+		NOP
+		LDA bMachine
+		; 46 + 7 = 53
+		
+		JMP .noaction4		; 3
+		; **********> 65 * 41 cycles
+.action		
+		; <********* 65 * 41 cycles
+
+		; 2665 - 2057 = 608
+		; 608/65 = 9 (+23)
+		; quand on arrive ici, on a d�j� utilis� 3+2+3 = 8 cycles
+
+		LDA bMachine
+		LDY #9
+		JSR WAITROUTINE		; 9*65
+		
+		; reste 23-8 = 15 cycles � effectuer
+		INC $C070			; 6
+		INC $C070			; 6
+		LDA bMachine		; 3 = 15
+
+		; <** 1920 + 137 = 2057
+		; ==>
+		LDA #00				; (3+2)
+		STA bAction4		; 5
+		
+		LDX IndexScroll4	; 3
+		LDA Mask4			; 3  mask � zero ? new char � load !
+	 	CMP #%10000000		; 2
+		BEQ .newCol			; 2/3
+		JMP .s3				; 3
+							; 
+		; ->					
+.newCol	INX  				; 2
+		CPX #40				; 2
+		BEQ .s1				; 2/3
+		JMP .s2				; 3
+.s1		LDX #00				; 2
+
+.s2		STX IndexScroll4	; 3
+		LDA #%00000001		; 2
+		STA Mask4			; 3
+		JMP .suite			; 3
+		; <- = 20c
+		
+.s3		; compenser	20c - 2 = 18c
+		INC $C070			; 6
+		INC $C070			; 6
+		INC $C070			; 6
+
+.suite
+		; <== 5 + 3 + 3 + 2 + 3 + 20 (ou 5 + 3 + 3 + 2 + 2 + 3 + 18) = 36 !!!
+		
+		; ==>
+		LDA Scroll4L1,X		; 4
+		AND Mask4			; 3
+		BNE .sa1			; 2/3
+		JMP	.sa2			; 3
+.sa1	LDA #$40			; 2
+.sa2	STA TSaveBit4+0		; 4 
+							; = 4 + 3 + 2 + 3 + 4 = 16
+		
+		LDA Scroll4L2,X		; 4
+		AND Mask4			; 3
+		BNE .sb1			; 2/3
+		JMP	.sb2			; 3
+.sb1	LDA #$40			; 2
+.sb2	STA TSaveBit4+1		; 4
+	
+		
+		LDA Scroll4L3,X		; 4
+		AND Mask4			; 3
+		BNE .sc1			; 2/3
+		JMP	.sc2			; 3
+.sc1	LDA #$40			; 2
+.sc2	STA TSaveBit4+2		; 4
+		
+		
+		LDA Scroll4L4,X		; 4
+		AND Mask4			; 3
+		BNE .sd1			; 2/3
+		JMP	.sd2			; 3
+.sd1	LDA #$40			; 2
+.sd2	STA TSaveBit4+3		; 4
+		
+		
+		LDA Scroll4L5,X		; 4
+		AND Mask4			; 3
+		BNE .se1			; 2/3
+		JMP	.se2			; 3
+.se1	LDA #$40			; 2
+.se2	STA TSaveBit4+4		; 4
+		
+		
+		LDA Scroll4L6,X		; 4
+		AND Mask4			; 3
+		BNE .sf1			; 2/3
+		JMP	.sf2			; 3
+.sf1	LDA #$40			; 2
+.sf2	STA TSaveBit4+5		; 4
+
+
+		ASL Mask4			; 5
+
+		; <== 16 * 6 + 5 = 101 !!!
+		
+		; <* 36 + 101 = 137 !
+
+	 ; <== 4 * 480 = 1920 
+	 
+	 lda TSaveBit4+0
+     ldx $3e45
+     ora DECALLAGE,X
+     sta $3e45
+     lda DECALBIT,X
+     ldx $3e44
+     ora DECALLAGE,X
+     sta $3e44
+     lda DECALBIT,X
+     ldx $3e43
+     ora DECALLAGE,X
+     sta $3e43
+     lda DECALBIT,X
+     ldx $3e42
+     ora DECALLAGE,X
+     sta $3e42
+     lda DECALBIT,X
+     ldx $3e41
+     ora DECALLAGE,X
+     sta $3e41
+     lda DECALBIT,X
+     ldx $3e40
+     ora DECALLAGE,X
+     sta $3e40
+     lda DECALBIT,X
+     ldx $3e3f
+     ora DECALLAGE,X
+     sta $3e3f
+     lda DECALBIT,X
+     ldx $3e3e
+     ora DECALLAGE,X
+     sta $3e3e
+     lda DECALBIT,X
+     ldx $3e3d
+     ora DECALLAGE,X
+     sta $3e3d
+     lda DECALBIT,X
+     ldx $3e3c
+     ora DECALLAGE,X
+     sta $3e3c
+     lda DECALBIT,X
+     ldx $3e3b
+     ora DECALLAGE,X
+     sta $3e3b
+     lda DECALBIT,X
+     ldx $3e3a
+     ora DECALLAGE,X
+     sta $3e3a
+     lda DECALBIT,X
+     ldx $3e39
+     ora DECALLAGE,X
+     sta $3e39
+     lda DECALBIT,X
+     ldx $3e38
+     ora DECALLAGE,X
+     sta $3e38
+     lda DECALBIT,X
+     ldx $3e37
+     ora DECALLAGE,X
+     sta $3e37
+     lda DECALBIT,X
+     ldx $3e36
+     ora DECALLAGE,X
+     sta $3e36
+     lda DECALBIT,X
+     ldx $3e35
+     ora DECALLAGE,X
+     sta $3e35
+     lda DECALBIT,X
+     ldx $3e34
+     ora DECALLAGE,X
+     sta $3e34
+     lda DECALBIT,X
+     ldx $3e33
+     ora DECALLAGE,X
+     sta $3e33
+     lda DECALBIT,X
+     ldx $3e32
+     ora DECALLAGE,X
+     sta $3e32
+
+     lda TSaveBit4+1
+     ldx $22c5
+     ora DECALLAGE,X
+     sta $22c5
+     lda DECALBIT,X
+     ldx $22c4
+     ora DECALLAGE,X
+     sta $22c4
+     lda DECALBIT,X
+     ldx $22c3
+     ora DECALLAGE,X
+     sta $22c3
+     lda DECALBIT,X
+     ldx $22c2
+     ora DECALLAGE,X
+     sta $22c2
+     lda DECALBIT,X
+     ldx $22c1
+     ora DECALLAGE,X
+     sta $22c1
+     lda DECALBIT,X
+     ldx $22c0
+     ora DECALLAGE,X
+     sta $22c0
+     lda DECALBIT,X
+     ldx $22bf
+     ora DECALLAGE,X
+     sta $22bf
+     lda DECALBIT,X
+     ldx $22be
+     ora DECALLAGE,X
+     sta $22be
+     lda DECALBIT,X
+     ldx $22bd
+     ora DECALLAGE,X
+     sta $22bd
+     lda DECALBIT,X
+     ldx $22bc
+     ora DECALLAGE,X
+     sta $22bc
+     lda DECALBIT,X
+     ldx $22bb
+     ora DECALLAGE,X
+     sta $22bb
+     lda DECALBIT,X
+     ldx $22ba
+     ora DECALLAGE,X
+     sta $22ba
+     lda DECALBIT,X
+     ldx $22b9
+     ora DECALLAGE,X
+     sta $22b9
+     lda DECALBIT,X
+     ldx $22b8
+     ora DECALLAGE,X
+     sta $22b8
+     lda DECALBIT,X
+     ldx $22b7
+     ora DECALLAGE,X
+     sta $22b7
+     lda DECALBIT,X
+     ldx $22b6
+     ora DECALLAGE,X
+     sta $22b6
+     lda DECALBIT,X
+     ldx $22b5
+     ora DECALLAGE,X
+     sta $22b5
+     lda DECALBIT,X
+     ldx $22b4
+     ora DECALLAGE,X
+     sta $22b4
+     lda DECALBIT,X
+     ldx $22b3
+     ora DECALLAGE,X
+     sta $22b3
+     lda DECALBIT,X
+     ldx $22b2
+     ora DECALLAGE,X
+     sta $22b2
+
+     lda TSaveBit4+2
+     ldx $26c5
+     ora DECALLAGE,X
+     sta $26c5
+     lda DECALBIT,X
+     ldx $26c4
+     ora DECALLAGE,X
+     sta $26c4
+     lda DECALBIT,X
+     ldx $26c3
+     ora DECALLAGE,X
+     sta $26c3
+     lda DECALBIT,X
+     ldx $26c2
+     ora DECALLAGE,X
+     sta $26c2
+     lda DECALBIT,X
+     ldx $26c1
+     ora DECALLAGE,X
+     sta $26c1
+     lda DECALBIT,X
+     ldx $26c0
+     ora DECALLAGE,X
+     sta $26c0
+     lda DECALBIT,X
+     ldx $26bf
+     ora DECALLAGE,X
+     sta $26bf
+     lda DECALBIT,X
+     ldx $26be
+     ora DECALLAGE,X
+     sta $26be
+     lda DECALBIT,X
+     ldx $26bd
+     ora DECALLAGE,X
+     sta $26bd
+     lda DECALBIT,X
+     ldx $26bc
+     ora DECALLAGE,X
+     sta $26bc
+     lda DECALBIT,X
+     ldx $26bb
+     ora DECALLAGE,X
+     sta $26bb
+     lda DECALBIT,X
+     ldx $26ba
+     ora DECALLAGE,X
+     sta $26ba
+     lda DECALBIT,X
+     ldx $26b9
+     ora DECALLAGE,X
+     sta $26b9
+     lda DECALBIT,X
+     ldx $26b8
+     ora DECALLAGE,X
+     sta $26b8
+     lda DECALBIT,X
+     ldx $26b7
+     ora DECALLAGE,X
+     sta $26b7
+     lda DECALBIT,X
+     ldx $26b6
+     ora DECALLAGE,X
+     sta $26b6
+     lda DECALBIT,X
+     ldx $26b5
+     ora DECALLAGE,X
+     sta $26b5
+     lda DECALBIT,X
+     ldx $26b4
+     ora DECALLAGE,X
+     sta $26b4
+     lda DECALBIT,X
+     ldx $26b3
+     ora DECALLAGE,X
+     sta $26b3
+     lda DECALBIT,X
+     ldx $26b2
+     ora DECALLAGE,X
+     sta $26b2
+
+     lda TSaveBit4+3
+     ldx $2ac5
+     ora DECALLAGE,X
+     sta $2ac5
+     lda DECALBIT,X
+     ldx $2ac4
+     ora DECALLAGE,X
+     sta $2ac4
+     lda DECALBIT,X
+     ldx $2ac3
+     ora DECALLAGE,X
+     sta $2ac3
+     lda DECALBIT,X
+     ldx $2ac2
+     ora DECALLAGE,X
+     sta $2ac2
+     lda DECALBIT,X
+     ldx $2ac1
+     ora DECALLAGE,X
+     sta $2ac1
+     lda DECALBIT,X
+     ldx $2ac0
+     ora DECALLAGE,X
+     sta $2ac0
+     lda DECALBIT,X
+     ldx $2abf
+     ora DECALLAGE,X
+     sta $2abf
+     lda DECALBIT,X
+     ldx $2abe
+     ora DECALLAGE,X
+     sta $2abe
+     lda DECALBIT,X
+     ldx $2abd
+     ora DECALLAGE,X
+     sta $2abd
+     lda DECALBIT,X
+     ldx $2abc
+     ora DECALLAGE,X
+     sta $2abc
+     lda DECALBIT,X
+     ldx $2abb
+     ora DECALLAGE,X
+     sta $2abb
+     lda DECALBIT,X
+     ldx $2aba
+     ora DECALLAGE,X
+     sta $2aba
+     lda DECALBIT,X
+     ldx $2ab9
+     ora DECALLAGE,X
+     sta $2ab9
+     lda DECALBIT,X
+     ldx $2ab8
+     ora DECALLAGE,X
+     sta $2ab8
+     lda DECALBIT,X
+     ldx $2ab7
+     ora DECALLAGE,X
+     sta $2ab7
+     lda DECALBIT,X
+     ldx $2ab6
+     ora DECALLAGE,X
+     sta $2ab6
+     lda DECALBIT,X
+     ldx $2ab5
+     ora DECALLAGE,X
+     sta $2ab5
+     lda DECALBIT,X
+     ldx $2ab4
+     ora DECALLAGE,X
+     sta $2ab4
+     lda DECALBIT,X
+     ldx $2ab3
+     ora DECALLAGE,X
+     sta $2ab3
+     lda DECALBIT,X
+     ldx $2ab2
+     ora DECALLAGE,X
+     sta $2ab2
+
+     lda TSaveBit4+4
+     ldx $2ec5
+     ora DECALLAGE,X
+     sta $2ec5
+     lda DECALBIT,X
+     ldx $2ec4
+     ora DECALLAGE,X
+     sta $2ec4
+     lda DECALBIT,X
+     ldx $2ec3
+     ora DECALLAGE,X
+     sta $2ec3
+     lda DECALBIT,X
+     ldx $2ec2
+     ora DECALLAGE,X
+     sta $2ec2
+     lda DECALBIT,X
+     ldx $2ec1
+     ora DECALLAGE,X
+     sta $2ec1
+     lda DECALBIT,X
+     ldx $2ec0
+     ora DECALLAGE,X
+     sta $2ec0
+     lda DECALBIT,X
+     ldx $2ebf
+     ora DECALLAGE,X
+     sta $2ebf
+     lda DECALBIT,X
+     ldx $2ebe
+     ora DECALLAGE,X
+     sta $2ebe
+     lda DECALBIT,X
+     ldx $2ebd
+     ora DECALLAGE,X
+     sta $2ebd
+     lda DECALBIT,X
+     ldx $2ebc
+     ora DECALLAGE,X
+     sta $2ebc
+     lda DECALBIT,X
+     ldx $2ebb
+     ora DECALLAGE,X
+     sta $2ebb
+     lda DECALBIT,X
+     ldx $2eba
+     ora DECALLAGE,X
+     sta $2eba
+     lda DECALBIT,X
+     ldx $2eb9
+     ora DECALLAGE,X
+     sta $2eb9
+     lda DECALBIT,X
+     ldx $2eb8
+     ora DECALLAGE,X
+     sta $2eb8
+     lda DECALBIT,X
+     ldx $2eb7
+     ora DECALLAGE,X
+     sta $2eb7
+     lda DECALBIT,X
+     ldx $2eb6
+     ora DECALLAGE,X
+     sta $2eb6
+     lda DECALBIT,X
+     ldx $2eb5
+     ora DECALLAGE,X
+     sta $2eb5
+     lda DECALBIT,X
+     ldx $2eb4
+     ora DECALLAGE,X
+     sta $2eb4
+     lda DECALBIT,X
+     ldx $2eb3
+     ora DECALLAGE,X
+     sta $2eb3
+     lda DECALBIT,X
+     ldx $2eb2
+     ora DECALLAGE,X
+     sta $2eb2
+
+     lda TSaveBit4+5
+     ldx $32c5
+     ora DECALLAGE,X
+     sta $32c5
+     lda DECALBIT,X
+     ldx $32c4
+     ora DECALLAGE,X
+     sta $32c4
+     lda DECALBIT,X
+     ldx $32c3
+     ora DECALLAGE,X
+     sta $32c3
+     lda DECALBIT,X
+     ldx $32c2
+     ora DECALLAGE,X
+     sta $32c2
+     lda DECALBIT,X
+     ldx $32c1
+     ora DECALLAGE,X
+     sta $32c1
+     lda DECALBIT,X
+     ldx $32c0
+     ora DECALLAGE,X
+     sta $32c0
+     lda DECALBIT,X
+     ldx $32bf
+     ora DECALLAGE,X
+     sta $32bf
+     lda DECALBIT,X
+     ldx $32be
+     ora DECALLAGE,X
+     sta $32be
+     lda DECALBIT,X
+     ldx $32bd
+     ora DECALLAGE,X
+     sta $32bd
+     lda DECALBIT,X
+     ldx $32bc
+     ora DECALLAGE,X
+     sta $32bc
+     lda DECALBIT,X
+     ldx $32bb
+     ora DECALLAGE,X
+     sta $32bb
+     lda DECALBIT,X
+     ldx $32ba
+     ora DECALLAGE,X
+     sta $32ba
+     lda DECALBIT,X
+     ldx $32b9
+     ora DECALLAGE,X
+     sta $32b9
+     lda DECALBIT,X
+     ldx $32b8
+     ora DECALLAGE,X
+     sta $32b8
+     lda DECALBIT,X
+     ldx $32b7
+     ora DECALLAGE,X
+     sta $32b7
+     lda DECALBIT,X
+     ldx $32b6
+     ora DECALLAGE,X
+     sta $32b6
+     lda DECALBIT,X
+     ldx $32b5
+     ora DECALLAGE,X
+     sta $32b5
+     lda DECALBIT,X
+     ldx $32b4
+     ora DECALLAGE,X
+     sta $32b4
+     lda DECALBIT,X
+     ldx $32b3
+     ora DECALLAGE,X
+     sta $32b3
+     lda DECALBIT,X
+     ldx $32b2
+     ora DECALLAGE,X
+     sta $32b2
+
+	; <== 4*480 = 1920
+	; <*** 1920 + 137 = 2057
+
+.noaction4	; on a shunt� tout le scroll 4
+; =============================================================================		
+		LDX #$09		; 2							
+.WL3 	DEX				; 2					
+		BNE .WL3 		; 3/2					
+						; = 2 + (2+3)*8 + (2+2)*1 = 46
+		NOP
+		NOP
+		NOP
+; 46 + 6 = 52
+		
+; 52 + 2665 + 338 = 3055 !
+; =============================================================================	
+; -------------------------------------
+; on repasse dans le mode par d�faut pendant x lignes
+; ligne 64
+		
+		LDA $C057 		; 4
+		NOP				; 2
+		NOP				; 2
+		NOP				; 2
+		NOP				; 2
+		NOP				; 2
+						; = 14
+		
+		LDX #$0A		; 2							
+.WL5 	DEX				; 2					
+		BNE .WL5 		; 3/2					
+						; = 2 + (2+3)*9 + (2+2)*1 = 51
+
+						; = 14 + 51 = 65 cycles => 1 ligne
+; =============================================================================
+SCROLLGR				; SCROLL LORES GR
+!zone
+; -------------------------------------
+; attente (x-1 lignes)
+; lignes 65-159
+; 95 * 65 = 6175 cycles
+
+; 468 * 4 = 1872
+     lda $501
+     sta $500
+     lda $502
+     sta $501
+     lda $503
+     sta $502
+     lda $504
+     sta $503
+     lda $505
+     sta $504
+     lda $506
+     sta $505
+     lda $507
+     sta $506
+     lda $508
+     sta $507
+     lda $509
+     sta $508
+     lda $50a
+     sta $509
+     lda $50b
+     sta $50a
+     lda $50c
+     sta $50b
+     lda $50d
+     sta $50c
+     lda $50e
+     sta $50d
+     lda $50f
+     sta $50e
+     lda $510
+     sta $50f
+     lda $511
+     sta $510
+     lda $512
+     sta $511
+     lda $513
+     sta $512
+     lda $514
+     sta $513
+     lda $515
+     sta $514
+     lda $516
+     sta $515
+     lda $517
+     sta $516
+     lda $518
+     sta $517
+     lda $519
+     sta $518
+     lda $51a
+     sta $519
+     lda $51b
+     sta $51a
+     lda $51c
+     sta $51b
+     lda $51d
+     sta $51c
+     lda $51e
+     sta $51d
+     lda $51f
+     sta $51e
+     lda $520
+     sta $51f
+     lda $521
+     sta $520
+     lda $522
+     sta $521
+     lda $523
+     sta $522
+     lda $524
+     sta $523
+     lda $525
+     sta $524
+     lda $526
+     sta $525
+     lda $527
+     sta $526
+     lda $581
+     sta $580
+     lda $582
+     sta $581
+     lda $583
+     sta $582
+     lda $584
+     sta $583
+     lda $585
+     sta $584
+     lda $586
+     sta $585
+     lda $587
+     sta $586
+     lda $588
+     sta $587
+     lda $589
+     sta $588
+     lda $58a
+     sta $589
+     lda $58b
+     sta $58a
+     lda $58c
+     sta $58b
+     lda $58d
+     sta $58c
+     lda $58e
+     sta $58d
+     lda $58f
+     sta $58e
+     lda $590
+     sta $58f
+     lda $591
+     sta $590
+     lda $592
+     sta $591
+     lda $593
+     sta $592
+     lda $594
+     sta $593
+     lda $595
+     sta $594
+     lda $596
+     sta $595
+     lda $597
+     sta $596
+     lda $598
+     sta $597
+     lda $599
+     sta $598
+     lda $59a
+     sta $599
+     lda $59b
+     sta $59a
+     lda $59c
+     sta $59b
+     lda $59d
+     sta $59c
+     lda $59e
+     sta $59d
+     lda $59f
+     sta $59e
+     lda $5a0
+     sta $59f
+     lda $5a1
+     sta $5a0
+     lda $5a2
+     sta $5a1
+     lda $5a3
+     sta $5a2
+     lda $5a4
+     sta $5a3
+     lda $5a5
+     sta $5a4
+     lda $5a6
+     sta $5a5
+     lda $5a7
+     sta $5a6
+     lda $601
+     sta $600
+     lda $602
+     sta $601
+     lda $603
+     sta $602
+     lda $604
+     sta $603
+     lda $605
+     sta $604
+     lda $606
+     sta $605
+     lda $607
+     sta $606
+     lda $608
+     sta $607
+     lda $609
+     sta $608
+     lda $60a
+     sta $609
+     lda $60b
+     sta $60a
+     lda $60c
+     sta $60b
+     lda $60d
+     sta $60c
+     lda $60e
+     sta $60d
+     lda $60f
+     sta $60e
+     lda $610
+     sta $60f
+     lda $611
+     sta $610
+     lda $612
+     sta $611
+     lda $613
+     sta $612
+     lda $614
+     sta $613
+     lda $615
+     sta $614
+     lda $616
+     sta $615
+     lda $617
+     sta $616
+     lda $618
+     sta $617
+     lda $619
+     sta $618
+     lda $61a
+     sta $619
+     lda $61b
+     sta $61a
+     lda $61c
+     sta $61b
+     lda $61d
+     sta $61c
+     lda $61e
+     sta $61d
+     lda $61f
+     sta $61e
+     lda $620
+     sta $61f
+     lda $621
+     sta $620
+     lda $622
+     sta $621
+     lda $623
+     sta $622
+     lda $624
+     sta $623
+     lda $625
+     sta $624
+     lda $626
+     sta $625
+     lda $627
+     sta $626
+     lda $681
+     sta $680
+     lda $682
+     sta $681
+     lda $683
+     sta $682
+     lda $684
+     sta $683
+     lda $685
+     sta $684
+     lda $686
+     sta $685
+     lda $687
+     sta $686
+     lda $688
+     sta $687
+     lda $689
+     sta $688
+     lda $68a
+     sta $689
+     lda $68b
+     sta $68a
+     lda $68c
+     sta $68b
+     lda $68d
+     sta $68c
+     lda $68e
+     sta $68d
+     lda $68f
+     sta $68e
+     lda $690
+     sta $68f
+     lda $691
+     sta $690
+     lda $692
+     sta $691
+     lda $693
+     sta $692
+     lda $694
+     sta $693
+     lda $695
+     sta $694
+     lda $696
+     sta $695
+     lda $697
+     sta $696
+     lda $698
+     sta $697
+     lda $699
+     sta $698
+     lda $69a
+     sta $699
+     lda $69b
+     sta $69a
+     lda $69c
+     sta $69b
+     lda $69d
+     sta $69c
+     lda $69e
+     sta $69d
+     lda $69f
+     sta $69e
+     lda $6a0
+     sta $69f
+     lda $6a1
+     sta $6a0
+     lda $6a2
+     sta $6a1
+     lda $6a3
+     sta $6a2
+     lda $6a4
+     sta $6a3
+     lda $6a5
+     sta $6a4
+     lda $6a6
+     sta $6a5
+     lda $6a7
+     sta $6a6
+     lda $701
+     sta $700
+     lda $702
+     sta $701
+     lda $703
+     sta $702
+     lda $704
+     sta $703
+     lda $705
+     sta $704
+     lda $706
+     sta $705
+     lda $707
+     sta $706
+     lda $708
+     sta $707
+     lda $709
+     sta $708
+     lda $70a
+     sta $709
+     lda $70b
+     sta $70a
+     lda $70c
+     sta $70b
+     lda $70d
+     sta $70c
+     lda $70e
+     sta $70d
+     lda $70f
+     sta $70e
+     lda $710
+     sta $70f
+     lda $711
+     sta $710
+     lda $712
+     sta $711
+     lda $713
+     sta $712
+     lda $714
+     sta $713
+     lda $715
+     sta $714
+     lda $716
+     sta $715
+     lda $717
+     sta $716
+     lda $718
+     sta $717
+     lda $719
+     sta $718
+     lda $71a
+     sta $719
+     lda $71b
+     sta $71a
+     lda $71c
+     sta $71b
+     lda $71d
+     sta $71c
+     lda $71e
+     sta $71d
+     lda $71f
+     sta $71e
+     lda $720
+     sta $71f
+     lda $721
+     sta $720
+     lda $722
+     sta $721
+     lda $723
+     sta $722
+     lda $724
+     sta $723
+     lda $725
+     sta $724
+     lda $726
+     sta $725
+     lda $727
+     sta $726
+     lda $781
+     sta $780
+     lda $782
+     sta $781
+     lda $783
+     sta $782
+     lda $784
+     sta $783
+     lda $785
+     sta $784
+     lda $786
+     sta $785
+     lda $787
+     sta $786
+     lda $788
+     sta $787
+     lda $789
+     sta $788
+     lda $78a
+     sta $789
+     lda $78b
+     sta $78a
+     lda $78c
+     sta $78b
+     lda $78d
+     sta $78c
+     lda $78e
+     sta $78d
+     lda $78f
+     sta $78e
+     lda $790
+     sta $78f
+     lda $791
+     sta $790
+     lda $792
+     sta $791
+     lda $793
+     sta $792
+     lda $794
+     sta $793
+     lda $795
+     sta $794
+     lda $796
+     sta $795
+     lda $797
+     sta $796
+     lda $798
+     sta $797
+     lda $799
+     sta $798
+     lda $79a
+     sta $799
+     lda $79b
+     sta $79a
+     lda $79c
+     sta $79b
+     lda $79d
+     sta $79c
+     lda $79e
+     sta $79d
+     lda $79f
+     sta $79e
+     lda $7a0
+     sta $79f
+     lda $7a1
+     sta $7a0
+     lda $7a2
+     sta $7a1
+     lda $7a3
+     sta $7a2
+     lda $7a4
+     sta $7a3
+     lda $7a5
+     sta $7a4
+     lda $7a6
+     sta $7a5
+     lda $7a7
+     sta $7a6
+; 468 * 4 = 1872
+
+		; nouvelle entr�e colonne $27
+; ==>
+		LDA Mask			; 3 mask � zero ? new char � load !
+	 	BEQ .newL			; 2/3
+		JMP .suite			; 3
+							; si non BEQ = 8
+ 
+.newL	; NewLetter			; si BEQ = 6
+							; --->
+ 		INC IndexText		; 5		
+		LDX IndexText 		; 3 
+		LDA StringGR,X		; 4 lecture caract�re suivant/couleur
+		TAX					; 2 sauve A
+		AND #%11100000		; 2 on garde les 3 bits "haut"
+		LSR					; 2
+		LSR					; 2
+		LSR				    ; 2
+		LSR					; 2
+		LSR					; 2	on transforme en 3 bits faible (valeurs possibles 0-7)
+		TAY					; 2	on met dans Y
+		LDA TColor,Y		; 4	on r�cup�re la couleur suivant valeur
+		STA Color			; 3	on sauve la couleur 
+		
+		TXA					; 2 on r�cup�re le caract�re/couleur lu
+		AND #%00011111		; 2 on garde les 5 bits de poids faible (valeurs de 0-31)
+		TAY					; 2 on met dans Y
+
+		LDA TLetterB,Y		; 4
+		STA ADR				; 3
+		LDA TLetterH,Y		; 4
+		STA ADR+1			; 3
+		
+		LDA #$01			; 2 remise au d�but du mask (bit 0 � 1)
+		STA Mask			; 3
+		JMP .s2				; 3
+							; <--- = 63
+							; + 6 = 69
+.suite	; compenser le code shunt� si BNE .suite
+		; 69 - 8 = 61
+		LDX #12				; 2							
+.WL1 	DEX					; 2					
+		BNE .WL1 			; 3/2					
+							; = 2 + (2+3)*11 + (2+2)*1 = 61
+
+; <==  69 cycles
+
+; ==>
+.s2		LDY #05				; 2
+		; boucle Y effectu�e 6 fois
+.BY							; -->
+		LDA (ADR),Y			; 5 lecture data screen pour la lettre
+		AND Mask			; 3 on ne garde que le bit en cours
+		BEQ .sb2			; 3/2 s'il reste 0, il n'y a rien � afficher (LDA = #00)
+
+		LDA Color			; 3
+		JMP .sb3			; 3
+
+.sb2	LDX bMachine		; 3
+		NOP					; 2
+
+.sb3	LDX TABLELO,Y		; 4 on r�cup�re ordonn�e �cran suivant Y
+		STX .Off1+1			; 4
+		LDX TABLEHI,Y		; 4
+		STX .Off1+2			; 4
+		
+.Off1	STA $527			; 4 affichage !
+		
+		DEY					; 2
+		BPL .BY				; 3/2 boucle Y de 0 � 5 (hauteur des caract�res = 6)
+							; <-- (16 + 4*4 + 4 + 2 + 3)*5 + (16 + 4*4 + 4 + 2 + 2) =  (16 + 16 + 9)*5 + (16 + 16+ 8) = 205 + 40 = 245
+
+		; on pr�pare �tape suivante (bit suivant)
+		ASL Mask			; 5 on d�calle le mask d'un cran � droite !
+							; si mask = 0 cela forcera la lecture d'un new char
+; <== 2 + 245 + 5 = 252 
+
+; 1872 + 69 + 252 = 2193
+; 95 * 65 = 6175
+; - 2193 = 3982
+; / 65 = 61 (+17) 
+
+		LDX #$02		; 2							
+.WL2 	DEX				; 2					
+		BNE .WL2 		; 3/2					
+						; = 2 + (2+3)*1 + (2+2)*1 = 11
+		INC $C070		; 6
+; 11 + 6 = 17
+
+; + [61 * 65]3965 = 3982
+; + 2193 = 6175 = 65 * 95 !
+; -------------------------------------		
+
+; compl�ment cycles
+; 61 * 65 cycles = 3965
+; =============================================================================
+;		LDA bMachine		; pour le timing...
+;		LDY #61			;
+;		JSR WAITROUTINE		; attente de Y * 65 cycles (appel/retour compris)
+; -----------------------------------------------------------------------------
+SCROLL2HGR
+!zone
+		; ==>
+.Off1	LDX String2HGR		; 3		; r�cup�re lettre de la string � afficher
+		BPL .suite			; 3/2	; sup�rieure � $80 ? (dont $FF donc)
+												
+		LDA #>String2HGR	; 2	; si oui, on remet les compteurs � zero
+		STA .Off1+2			; 4
+		LDA #<String2HGR	; 2
+		STA .Off1+1			; 4
+		LDX String2HGR		; 4
+		JMP .suite2 		; 3 = 19 
+							; 3 + 2 + 19 = 24
+.suite	; 24 cycles � compenser - (3 + 3) = 18
+		INC $C070
+		INC $C070
+		INC $C070			; 3*6 = 18
+		; ---	
+.suite2	LDY Table5,X		; 4		; on r�cup�re l'index dans la table TCar
+		
+		
+		; <== 24 + 4 = 32 !!!
+
+
+		; ==>		
+		LDX #4					; 2
+		
+.boucle_Y
+		
+		LDA TCar2HGR, Y			; 4
+		AND IndexBit2			; 3
+
+		BNE .sb1				; 3/2	; bit !
+		JMP .sb2				; 3		; pas bit
+.sb1	LDA #$40				; 2 = 5
+
+.sb2	STA TSaveBit2,X			; 4
+		DEY						; 2
+		DEX						; 2
+		BPL .boucle_Y			; 3/2
+								; = (4+3+5+4+2+2+3)*4 + (4+3+5+4+2+2+2) = 23*4 + 22 = 114
+		; <== 2 + 114 = 116 !!!				
+		
+		; ==>
+		LDA IndexBit2		; 3
+		ASL					; 2
+		BMI .s1				; 3/2
+
+		; timing de 15c pour compenser
+		INC $C070			; 6
+		INC $C070			; 6
+		LDX bMachine		; 3 = 15
+		; --
+ 		STA IndexBit2		; 3
+ 		JMP .s4				; 3
+ 		
+.s1		LDA #$01			; 2			; remise � 1 du mask de bit
+		STA IndexBit2		; 3			; save  
+		
+
+		; ->
+		INC .Off1+1			; 6			; on augmente la partie LO de la m�moire de string � lire au prochaine passage 
+		BEQ	.s3				; 3/2 		; diff�rent de z�ro, on continue
+							;
+		NOP					; 2
+		NOP					; 2
+		JMP .s4 			; 3 = 9
+							
+.s3		INC .Off1+2			; 6 		; sinon, on augmente la partie HI		
+		; <-  = 6 + 9 = 15
+
+.s4		; <==  = 3 + 2 + (3 + 2 + 3 + 15)|(2+15+3+3) = 28 !!!
+		; ------
+
+		; 32 + 116 + 28 = 176 !!!
+
+	 	; 800 * 4 = 3200 cycles
+	 lda TSaveBit2+0
+     ldx $214f
+     ora DECALLAGE,X
+     sta $214f
+     lda DECALBIT,X
+     ldx $214e
+     ora DECALLAGE,X
+     sta $214e
+     lda DECALBIT,X
+     ldx $214d
+     ora DECALLAGE,X
+     sta $214d
+     lda DECALBIT,X
+     ldx $214c
+     ora DECALLAGE,X
+     sta $214c
+     lda DECALBIT,X
+     ldx $214b
+     ora DECALLAGE,X
+     sta $214b
+     lda DECALBIT,X
+     ldx $214a
+     ora DECALLAGE,X
+     sta $214a
+     lda DECALBIT,X
+     ldx $2149
+     ora DECALLAGE,X
+     sta $2149
+     lda DECALBIT,X
+     ldx $2148
+     ora DECALLAGE,X
+     sta $2148
+     lda DECALBIT,X
+     ldx $2147
+     ora DECALLAGE,X
+     sta $2147
+     lda DECALBIT,X
+     ldx $2146
+     ora DECALLAGE,X
+     sta $2146
+     lda DECALBIT,X
+     ldx $2145
+     ora DECALLAGE,X
+     sta $2145
+     lda DECALBIT,X
+     ldx $2144
+     ora DECALLAGE,X
+     sta $2144
+     lda DECALBIT,X
+     ldx $2143
+     ora DECALLAGE,X
+     sta $2143
+     lda DECALBIT,X
+     ldx $2142
+     ora DECALLAGE,X
+     sta $2142
+     lda DECALBIT,X
+     ldx $2141
+     ora DECALLAGE,X
+     sta $2141
+     lda DECALBIT,X
+     ldx $2140
+     ora DECALLAGE,X
+     sta $2140
+     lda DECALBIT,X
+     ldx $213f
+     ora DECALLAGE,X
+     sta $213f
+     lda DECALBIT,X
+     ldx $213e
+     ora DECALLAGE,X
+     sta $213e
+     lda DECALBIT,X
+     ldx $213d
+     ora DECALLAGE,X
+     sta $213d
+     lda DECALBIT,X
+     ldx $213c
+     ora DECALLAGE,X
+     sta $213c
+     lda DECALBIT,X
+     ldx $213b
+     ora DECALLAGE,X
+     sta $213b
+     lda DECALBIT,X
+     ldx $213a
+     ora DECALLAGE,X
+     sta $213a
+     lda DECALBIT,X
+     ldx $2139
+     ora DECALLAGE,X
+     sta $2139
+     lda DECALBIT,X
+     ldx $2138
+     ora DECALLAGE,X
+     sta $2138
+     lda DECALBIT,X
+     ldx $2137
+     ora DECALLAGE,X
+     sta $2137
+     lda DECALBIT,X
+     ldx $2136
+     ora DECALLAGE,X
+     sta $2136
+     lda DECALBIT,X
+     ldx $2135
+     ora DECALLAGE,X
+     sta $2135
+     lda DECALBIT,X
+     ldx $2134
+     ora DECALLAGE,X
+     sta $2134
+     lda DECALBIT,X
+     ldx $2133
+     ora DECALLAGE,X
+     sta $2133
+     lda DECALBIT,X
+     ldx $2132
+     ora DECALLAGE,X
+     sta $2132
+     lda DECALBIT,X
+     ldx $2131
+     ora DECALLAGE,X
+     sta $2131
+     lda DECALBIT,X
+     ldx $2130
+     ora DECALLAGE,X
+     sta $2130
+     lda DECALBIT,X
+     ldx $212f
+     ora DECALLAGE,X
+     sta $212f
+     lda DECALBIT,X
+     ldx $212e
+     ora DECALLAGE,X
+     sta $212e
+     lda DECALBIT,X
+     ldx $212d
+     ora DECALLAGE,X
+     sta $212d
+     lda DECALBIT,X
+     ldx $212c
+     ora DECALLAGE,X
+     sta $212c
+     lda DECALBIT,X
+     ldx $212b
+     ora DECALLAGE,X
+     sta $212b
+     lda DECALBIT,X
+     ldx $212a
+     ora DECALLAGE,X
+     sta $212a
+     lda DECALBIT,X
+     ldx $2129
+     ora DECALLAGE,X
+     sta $2129
+     lda DECALBIT,X
+     ldx $2128
+     ora DECALLAGE,X
+     sta $2128
+
+     lda TSaveBit2+1
+     ldx $254f
+     ora DECALLAGE,X
+     sta $254f
+     lda DECALBIT,X
+     ldx $254e
+     ora DECALLAGE,X
+     sta $254e
+     lda DECALBIT,X
+     ldx $254d
+     ora DECALLAGE,X
+     sta $254d
+     lda DECALBIT,X
+     ldx $254c
+     ora DECALLAGE,X
+     sta $254c
+     lda DECALBIT,X
+     ldx $254b
+     ora DECALLAGE,X
+     sta $254b
+     lda DECALBIT,X
+     ldx $254a
+     ora DECALLAGE,X
+     sta $254a
+     lda DECALBIT,X
+     ldx $2549
+     ora DECALLAGE,X
+     sta $2549
+     lda DECALBIT,X
+     ldx $2548
+     ora DECALLAGE,X
+     sta $2548
+     lda DECALBIT,X
+     ldx $2547
+     ora DECALLAGE,X
+     sta $2547
+     lda DECALBIT,X
+     ldx $2546
+     ora DECALLAGE,X
+     sta $2546
+     lda DECALBIT,X
+     ldx $2545
+     ora DECALLAGE,X
+     sta $2545
+     lda DECALBIT,X
+     ldx $2544
+     ora DECALLAGE,X
+     sta $2544
+     lda DECALBIT,X
+     ldx $2543
+     ora DECALLAGE,X
+     sta $2543
+     lda DECALBIT,X
+     ldx $2542
+     ora DECALLAGE,X
+     sta $2542
+     lda DECALBIT,X
+     ldx $2541
+     ora DECALLAGE,X
+     sta $2541
+     lda DECALBIT,X
+     ldx $2540
+     ora DECALLAGE,X
+     sta $2540
+     lda DECALBIT,X
+     ldx $253f
+     ora DECALLAGE,X
+     sta $253f
+     lda DECALBIT,X
+     ldx $253e
+     ora DECALLAGE,X
+     sta $253e
+     lda DECALBIT,X
+     ldx $253d
+     ora DECALLAGE,X
+     sta $253d
+     lda DECALBIT,X
+     ldx $253c
+     ora DECALLAGE,X
+     sta $253c
+     lda DECALBIT,X
+     ldx $253b
+     ora DECALLAGE,X
+     sta $253b
+     lda DECALBIT,X
+     ldx $253a
+     ora DECALLAGE,X
+     sta $253a
+     lda DECALBIT,X
+     ldx $2539
+     ora DECALLAGE,X
+     sta $2539
+     lda DECALBIT,X
+     ldx $2538
+     ora DECALLAGE,X
+     sta $2538
+     lda DECALBIT,X
+     ldx $2537
+     ora DECALLAGE,X
+     sta $2537
+     lda DECALBIT,X
+     ldx $2536
+     ora DECALLAGE,X
+     sta $2536
+     lda DECALBIT,X
+     ldx $2535
+     ora DECALLAGE,X
+     sta $2535
+     lda DECALBIT,X
+     ldx $2534
+     ora DECALLAGE,X
+     sta $2534
+     lda DECALBIT,X
+     ldx $2533
+     ora DECALLAGE,X
+     sta $2533
+     lda DECALBIT,X
+     ldx $2532
+     ora DECALLAGE,X
+     sta $2532
+     lda DECALBIT,X
+     ldx $2531
+     ora DECALLAGE,X
+     sta $2531
+     lda DECALBIT,X
+     ldx $2530
+     ora DECALLAGE,X
+     sta $2530
+     lda DECALBIT,X
+     ldx $252f
+     ora DECALLAGE,X
+     sta $252f
+     lda DECALBIT,X
+     ldx $252e
+     ora DECALLAGE,X
+     sta $252e
+     lda DECALBIT,X
+     ldx $252d
+     ora DECALLAGE,X
+     sta $252d
+     lda DECALBIT,X
+     ldx $252c
+     ora DECALLAGE,X
+     sta $252c
+     lda DECALBIT,X
+     ldx $252b
+     ora DECALLAGE,X
+     sta $252b
+     lda DECALBIT,X
+     ldx $252a
+     ora DECALLAGE,X
+     sta $252a
+     lda DECALBIT,X
+     ldx $2529
+     ora DECALLAGE,X
+     sta $2529
+     lda DECALBIT,X
+     ldx $2528
+     ora DECALLAGE,X
+     sta $2528
+
+     lda TSaveBit2+2
+     ldx $294f
+     ora DECALLAGE,X
+     sta $294f
+     lda DECALBIT,X
+     ldx $294e
+     ora DECALLAGE,X
+     sta $294e
+     lda DECALBIT,X
+     ldx $294d
+     ora DECALLAGE,X
+     sta $294d
+     lda DECALBIT,X
+     ldx $294c
+     ora DECALLAGE,X
+     sta $294c
+     lda DECALBIT,X
+     ldx $294b
+     ora DECALLAGE,X
+     sta $294b
+     lda DECALBIT,X
+     ldx $294a
+     ora DECALLAGE,X
+     sta $294a
+     lda DECALBIT,X
+     ldx $2949
+     ora DECALLAGE,X
+     sta $2949
+     lda DECALBIT,X
+     ldx $2948
+     ora DECALLAGE,X
+     sta $2948
+     lda DECALBIT,X
+     ldx $2947
+     ora DECALLAGE,X
+     sta $2947
+     lda DECALBIT,X
+     ldx $2946
+     ora DECALLAGE,X
+     sta $2946
+     lda DECALBIT,X
+     ldx $2945
+     ora DECALLAGE,X
+     sta $2945
+     lda DECALBIT,X
+     ldx $2944
+     ora DECALLAGE,X
+     sta $2944
+     lda DECALBIT,X
+     ldx $2943
+     ora DECALLAGE,X
+     sta $2943
+     lda DECALBIT,X
+     ldx $2942
+     ora DECALLAGE,X
+     sta $2942
+     lda DECALBIT,X
+     ldx $2941
+     ora DECALLAGE,X
+     sta $2941
+     lda DECALBIT,X
+     ldx $2940
+     ora DECALLAGE,X
+     sta $2940
+     lda DECALBIT,X
+     ldx $293f
+     ora DECALLAGE,X
+     sta $293f
+     lda DECALBIT,X
+     ldx $293e
+     ora DECALLAGE,X
+     sta $293e
+     lda DECALBIT,X
+     ldx $293d
+     ora DECALLAGE,X
+     sta $293d
+     lda DECALBIT,X
+     ldx $293c
+     ora DECALLAGE,X
+     sta $293c
+     lda DECALBIT,X
+     ldx $293b
+     ora DECALLAGE,X
+     sta $293b
+     lda DECALBIT,X
+     ldx $293a
+     ora DECALLAGE,X
+     sta $293a
+     lda DECALBIT,X
+     ldx $2939
+     ora DECALLAGE,X
+     sta $2939
+     lda DECALBIT,X
+     ldx $2938
+     ora DECALLAGE,X
+     sta $2938
+     lda DECALBIT,X
+     ldx $2937
+     ora DECALLAGE,X
+     sta $2937
+     lda DECALBIT,X
+     ldx $2936
+     ora DECALLAGE,X
+     sta $2936
+     lda DECALBIT,X
+     ldx $2935
+     ora DECALLAGE,X
+     sta $2935
+     lda DECALBIT,X
+     ldx $2934
+     ora DECALLAGE,X
+     sta $2934
+     lda DECALBIT,X
+     ldx $2933
+     ora DECALLAGE,X
+     sta $2933
+     lda DECALBIT,X
+     ldx $2932
+     ora DECALLAGE,X
+     sta $2932
+     lda DECALBIT,X
+     ldx $2931
+     ora DECALLAGE,X
+     sta $2931
+     lda DECALBIT,X
+     ldx $2930
+     ora DECALLAGE,X
+     sta $2930
+     lda DECALBIT,X
+     ldx $292f
+     ora DECALLAGE,X
+     sta $292f
+     lda DECALBIT,X
+     ldx $292e
+     ora DECALLAGE,X
+     sta $292e
+     lda DECALBIT,X
+     ldx $292d
+     ora DECALLAGE,X
+     sta $292d
+     lda DECALBIT,X
+     ldx $292c
+     ora DECALLAGE,X
+     sta $292c
+     lda DECALBIT,X
+     ldx $292b
+     ora DECALLAGE,X
+     sta $292b
+     lda DECALBIT,X
+     ldx $292a
+     ora DECALLAGE,X
+     sta $292a
+     lda DECALBIT,X
+     ldx $2929
+     ora DECALLAGE,X
+     sta $2929
+     lda DECALBIT,X
+     ldx $2928
+     ora DECALLAGE,X
+     sta $2928
+
+     lda TSaveBit2+3
+     ldx $2d4f
+     ora DECALLAGE,X
+     sta $2d4f
+     lda DECALBIT,X
+     ldx $2d4e
+     ora DECALLAGE,X
+     sta $2d4e
+     lda DECALBIT,X
+     ldx $2d4d
+     ora DECALLAGE,X
+     sta $2d4d
+     lda DECALBIT,X
+     ldx $2d4c
+     ora DECALLAGE,X
+     sta $2d4c
+     lda DECALBIT,X
+     ldx $2d4b
+     ora DECALLAGE,X
+     sta $2d4b
+     lda DECALBIT,X
+     ldx $2d4a
+     ora DECALLAGE,X
+     sta $2d4a
+     lda DECALBIT,X
+     ldx $2d49
+     ora DECALLAGE,X
+     sta $2d49
+     lda DECALBIT,X
+     ldx $2d48
+     ora DECALLAGE,X
+     sta $2d48
+     lda DECALBIT,X
+     ldx $2d47
+     ora DECALLAGE,X
+     sta $2d47
+     lda DECALBIT,X
+     ldx $2d46
+     ora DECALLAGE,X
+     sta $2d46
+     lda DECALBIT,X
+     ldx $2d45
+     ora DECALLAGE,X
+     sta $2d45
+     lda DECALBIT,X
+     ldx $2d44
+     ora DECALLAGE,X
+     sta $2d44
+     lda DECALBIT,X
+     ldx $2d43
+     ora DECALLAGE,X
+     sta $2d43
+     lda DECALBIT,X
+     ldx $2d42
+     ora DECALLAGE,X
+     sta $2d42
+     lda DECALBIT,X
+     ldx $2d41
+     ora DECALLAGE,X
+     sta $2d41
+     lda DECALBIT,X
+     ldx $2d40
+     ora DECALLAGE,X
+     sta $2d40
+     lda DECALBIT,X
+     ldx $2d3f
+     ora DECALLAGE,X
+     sta $2d3f
+     lda DECALBIT,X
+     ldx $2d3e
+     ora DECALLAGE,X
+     sta $2d3e
+     lda DECALBIT,X
+     ldx $2d3d
+     ora DECALLAGE,X
+     sta $2d3d
+     lda DECALBIT,X
+     ldx $2d3c
+     ora DECALLAGE,X
+     sta $2d3c
+     lda DECALBIT,X
+     ldx $2d3b
+     ora DECALLAGE,X
+     sta $2d3b
+     lda DECALBIT,X
+     ldx $2d3a
+     ora DECALLAGE,X
+     sta $2d3a
+     lda DECALBIT,X
+     ldx $2d39
+     ora DECALLAGE,X
+     sta $2d39
+     lda DECALBIT,X
+     ldx $2d38
+     ora DECALLAGE,X
+     sta $2d38
+     lda DECALBIT,X
+     ldx $2d37
+     ora DECALLAGE,X
+     sta $2d37
+     lda DECALBIT,X
+     ldx $2d36
+     ora DECALLAGE,X
+     sta $2d36
+     lda DECALBIT,X
+     ldx $2d35
+     ora DECALLAGE,X
+     sta $2d35
+     lda DECALBIT,X
+     ldx $2d34
+     ora DECALLAGE,X
+     sta $2d34
+     lda DECALBIT,X
+     ldx $2d33
+     ora DECALLAGE,X
+     sta $2d33
+     lda DECALBIT,X
+     ldx $2d32
+     ora DECALLAGE,X
+     sta $2d32
+     lda DECALBIT,X
+     ldx $2d31
+     ora DECALLAGE,X
+     sta $2d31
+     lda DECALBIT,X
+     ldx $2d30
+     ora DECALLAGE,X
+     sta $2d30
+     lda DECALBIT,X
+     ldx $2d2f
+     ora DECALLAGE,X
+     sta $2d2f
+     lda DECALBIT,X
+     ldx $2d2e
+     ora DECALLAGE,X
+     sta $2d2e
+     lda DECALBIT,X
+     ldx $2d2d
+     ora DECALLAGE,X
+     sta $2d2d
+     lda DECALBIT,X
+     ldx $2d2c
+     ora DECALLAGE,X
+     sta $2d2c
+     lda DECALBIT,X
+     ldx $2d2b
+     ora DECALLAGE,X
+     sta $2d2b
+     lda DECALBIT,X
+     ldx $2d2a
+     ora DECALLAGE,X
+     sta $2d2a
+     lda DECALBIT,X
+     ldx $2d29
+     ora DECALLAGE,X
+     sta $2d29
+     lda DECALBIT,X
+     ldx $2d28
+     ora DECALLAGE,X
+     sta $2d28
+
+     lda TSaveBit2+4
+     ldx $314f
+     ora DECALLAGE,X
+     sta $314f
+     lda DECALBIT,X
+     ldx $314e
+     ora DECALLAGE,X
+     sta $314e
+     lda DECALBIT,X
+     ldx $314d
+     ora DECALLAGE,X
+     sta $314d
+     lda DECALBIT,X
+     ldx $314c
+     ora DECALLAGE,X
+     sta $314c
+     lda DECALBIT,X
+     ldx $314b
+     ora DECALLAGE,X
+     sta $314b
+     lda DECALBIT,X
+     ldx $314a
+     ora DECALLAGE,X
+     sta $314a
+     lda DECALBIT,X
+     ldx $3149
+     ora DECALLAGE,X
+     sta $3149
+     lda DECALBIT,X
+     ldx $3148
+     ora DECALLAGE,X
+     sta $3148
+     lda DECALBIT,X
+     ldx $3147
+     ora DECALLAGE,X
+     sta $3147
+     lda DECALBIT,X
+     ldx $3146
+     ora DECALLAGE,X
+     sta $3146
+     lda DECALBIT,X
+     ldx $3145
+     ora DECALLAGE,X
+     sta $3145
+     lda DECALBIT,X
+     ldx $3144
+     ora DECALLAGE,X
+     sta $3144
+     lda DECALBIT,X
+     ldx $3143
+     ora DECALLAGE,X
+     sta $3143
+     lda DECALBIT,X
+     ldx $3142
+     ora DECALLAGE,X
+     sta $3142
+     lda DECALBIT,X
+     ldx $3141
+     ora DECALLAGE,X
+     sta $3141
+     lda DECALBIT,X
+     ldx $3140
+     ora DECALLAGE,X
+     sta $3140
+     lda DECALBIT,X
+     ldx $313f
+     ora DECALLAGE,X
+     sta $313f
+     lda DECALBIT,X
+     ldx $313e
+     ora DECALLAGE,X
+     sta $313e
+     lda DECALBIT,X
+     ldx $313d
+     ora DECALLAGE,X
+     sta $313d
+     lda DECALBIT,X
+     ldx $313c
+     ora DECALLAGE,X
+     sta $313c
+     lda DECALBIT,X
+     ldx $313b
+     ora DECALLAGE,X
+     sta $313b
+     lda DECALBIT,X
+     ldx $313a
+     ora DECALLAGE,X
+     sta $313a
+     lda DECALBIT,X
+     ldx $3139
+     ora DECALLAGE,X
+     sta $3139
+     lda DECALBIT,X
+     ldx $3138
+     ora DECALLAGE,X
+     sta $3138
+     lda DECALBIT,X
+     ldx $3137
+     ora DECALLAGE,X
+     sta $3137
+     lda DECALBIT,X
+     ldx $3136
+     ora DECALLAGE,X
+     sta $3136
+     lda DECALBIT,X
+     ldx $3135
+     ora DECALLAGE,X
+     sta $3135
+     lda DECALBIT,X
+     ldx $3134
+     ora DECALLAGE,X
+     sta $3134
+     lda DECALBIT,X
+     ldx $3133
+     ora DECALLAGE,X
+     sta $3133
+     lda DECALBIT,X
+     ldx $3132
+     ora DECALLAGE,X
+     sta $3132
+     lda DECALBIT,X
+     ldx $3131
+     ora DECALLAGE,X
+     sta $3131
+     lda DECALBIT,X
+     ldx $3130
+     ora DECALLAGE,X
+     sta $3130
+     lda DECALBIT,X
+     ldx $312f
+     ora DECALLAGE,X
+     sta $312f
+     lda DECALBIT,X
+     ldx $312e
+     ora DECALLAGE,X
+     sta $312e
+     lda DECALBIT,X
+     ldx $312d
+     ora DECALLAGE,X
+     sta $312d
+     lda DECALBIT,X
+     ldx $312c
+     ora DECALLAGE,X
+     sta $312c
+     lda DECALBIT,X
+     ldx $312b
+     ora DECALLAGE,X
+     sta $312b
+     lda DECALBIT,X
+     ldx $312a
+     ora DECALLAGE,X
+     sta $312a
+     lda DECALBIT,X
+     ldx $3129
+     ora DECALLAGE,X
+     sta $3129
+     lda DECALBIT,X
+     ldx $3128
+     ora DECALLAGE,X
+     sta $3128
+; **> 176 + 3200 = 3376   
+; compl�ment timing 
+; 3965 - 3376 = 589 => ancien calcul 
+
+; on remonte de 8 lignes donc on supprime l'attente, on passe directement en mode text
+;		LDA bMachine
+;		LDY #1			; normalement 9 avec ce qui �tait pr�vu ancien calcul
+;		JSR WAITROUTINE	; (9*65 = 585) 1*65
+
+		NOP
+		NOP				; 589 !
+
+; =============================================================================
+
+
+; =============================================================================		
+MODETEXT
+!zone
+; -------------------------------------
+; on passe en mode text pendant 32 lignes
+; ligne 160-8=152		
+		LDA $C051 		; 4
+		NOP				; 2
+		NOP				; 2
+		NOP				; 2
+		NOP				; 2
+		NOP				; 2
+						; = 14
+		
+		LDX #$0A		; 2							
+.WL4 	DEX				; 2					
+		BNE .WL4 		; 3/2					
+						; = 2 + (2+3)*9 + (2+2)*1 = 51
+
+						; = 14 + 51 = 65 cycles => 1 ligne
+; -------------------------------------
+; attente de 32-1 lignes
+; lignes 153-183
+
+		LDA bMachine		; pour le timing...
+		LDY #31 			; 
+		JSR WAITROUTINE		; attente de Y * 65 cycles (appel/retour compris)
+; -------------------------------------				
+; on repasse dans le mode par d�faut
+		
+		LDA $C050
+		
+		LDA $C000
+		BMI .FIN
+		
+		ROL $C061
+		BCS .FIN
+		
+		LDA bSpeed
+		BNE .s3
+		JSR ScrollHGR
+		LDA #01
+		sta bSpeed
+		JMP BP2   			; warning -> BP2
+
+.s3		JSR ScrollHGR3
+		LDA #00
+		sta bSpeed
+		JMP BP2		
+
+.FIN	RTS			
+; =============================================================================
+WAITROUTINE		; time = Y * 65 cycles (y compris  appel/retour)
+				; appel de la routine en 11 cycles obligatoire : NOP/LDY ZP (5cycles) ou LDA zp/LDY# + JSR = 11 cycles !
+!zone
+		DEY				; 2					
+		BEQ .S1			; 3/2
+						; = 4 (si BEQ non pris) ou = 5 (si BEQ pris)
+.WL1 	LDX #$0B							
+.WL2 	DEX									
+		BNE .WL2		; WL6 = 56							
+
+		NOP				; 2					
+		NOP				; 2				
+		DEY				; 2					
+		BNE .WL1		; (56+6+3)*(Y-2) + (56+6+2) = 65 *(Y-2) + 64				
+						; 65Y - 66					
+		LDX #$08							
+.WL3 	DEX									
+		BNE .WL3		; WL3 = 41						
+ 
+		NOP				; 2						
+		NOP				; 2											
+		RTS				; 6
+						; = 51 + (11) = 62
+						
+						; = 4 + 65 Y - 66 + 62 
+  						; = 65 Y !
+; ***
+.S1	 	LDX #08			; 					
+
+.WL4 	DEX				; 				
+		BNE .WL4		; 
+						; = WL4 = 41					
+											
+		NOP				; 2								
+		RTS				; 6
+						; = 5 + 41 + 2 + 6 + (11) = 65 !
+; =============================================================================
+ScrollHGR				; SCROLL HGR SINUSOIDALE - NOM DE GROUPES SCENE FRENCH 
+!zone	 
+		
+.debut
+.Off1	LDX StringHGR			; r�cup�re lettre de la string � afficher
+		BPL .suite				; sup�rieure � $80 ? (dont $FF donc)
+		
+		CPX #$FF				; fin de chaine "noms"
+		BEQ .sc1
+		
+		; fin de chaine "espace" ($FE)
+OFFGROUPS2
+		LDA #>StringHGRP2			; si oui, on remet les compteurs � zero - debut chaine noms ALEATOIRE
+		STA .Off1+2
+OFFGROUPS1
+		LDA #<StringHGRP2
+		STA .Off1+1
+		JMP .debut
+.sc1	; fin de chaine "noms"						
+		LDA #>StringHGRP2			; si oui, on remet les compteurs � zero - debut chaine nom
+		STA .Off1+2
+		LDA #<StringHGRP2
+		STA .Off1+1
+		JMP .debut		
+		
+.suite	LDY Table4,X			; on r�cup�re l'index dans la table TCar
+		
+		LDX #3
+		
+.boucle_Y
+		
+		LDA TCar, Y
+		AND IndexBit
+		BEQ .sb1				; pas bit !
+		LDA #$40				; bit
+.sb1	STA TSaveBit,X		
+		DEY
+		DEX
+		BPL .boucle_Y
+		
+		
+		LDA IndexBit
+		ASL					; 
+		BPL .s1				; 
+		INC .Off1+1			; on augmente la partie LO de la m�moire de string � lire au prochaine passage 
+		BNE	.s2				; diff�rent de z�ro, on continue 
+		INC .Off1+2			; sinon, on augmente la partie HI
+.s2		LDA #$01			; remise � 1 du mask de bit
+.s1		STA IndexBit		; save  
+	
+	; ------
+         
+     lda TSaveBit+0
+     ldx $3077
+     ora DECALLAGE,X
+     sta $3077
+     lda DECALBIT,X
+     ldx $3476
+     ora DECALLAGE,X
+     sta $3476
+     lda DECALBIT,X
+     ldx $3875
+     ora DECALLAGE,X
+     sta $3875
+     lda DECALBIT,X
+     ldx $3c74
+     ora DECALLAGE,X
+     sta $3c74
+     lda DECALBIT,X
+     ldx $20f3
+     ora DECALLAGE,X
+     sta $20f3
+     lda DECALBIT,X
+     ldx $20f2
+     ora DECALLAGE,X
+     sta $20f2
+     lda DECALBIT,X
+     ldx $3c71
+     ora DECALLAGE,X
+     sta $3c71
+     lda DECALBIT,X
+     ldx $3870
+     ora DECALLAGE,X
+     sta $3870
+     lda DECALBIT,X
+     ldx $346f
+     ora DECALLAGE,X
+     sta $346f
+     lda DECALBIT,X
+     ldx $306e
+     ora DECALLAGE,X
+     sta $306e
+     lda DECALBIT,X
+     ldx $306d
+     ora DECALLAGE,X
+     sta $306d
+     lda DECALBIT,X
+     ldx $346c
+     ora DECALLAGE,X
+     sta $346c
+     lda DECALBIT,X
+     ldx $386b
+     ora DECALLAGE,X
+     sta $386b
+     lda DECALBIT,X
+     ldx $3c6a
+     ora DECALLAGE,X
+     sta $3c6a
+     lda DECALBIT,X
+     ldx $20e9
+     ora DECALLAGE,X
+     sta $20e9
+     lda DECALBIT,X
+     ldx $20e8
+     ora DECALLAGE,X
+     sta $20e8
+     lda DECALBIT,X
+     ldx $3c67
+     ora DECALLAGE,X
+     sta $3c67
+     lda DECALBIT,X
+     ldx $3866
+     ora DECALLAGE,X
+     sta $3866
+     lda DECALBIT,X
+     ldx $3465
+     ora DECALLAGE,X
+     sta $3465
+     lda DECALBIT,X
+     ldx $3064
+     ora DECALLAGE,X
+     sta $3064
+     lda DECALBIT,X
+     ldx $3063
+     ora DECALLAGE,X
+     sta $3063
+     lda DECALBIT,X
+     ldx $3462
+     ora DECALLAGE,X
+     sta $3462
+     lda DECALBIT,X
+     ldx $3861
+     ora DECALLAGE,X
+     sta $3861
+     lda DECALBIT,X
+     ldx $3c60
+     ora DECALLAGE,X
+     sta $3c60
+     lda DECALBIT,X
+     ldx $20df
+     ora DECALLAGE,X
+     sta $20df
+     lda DECALBIT,X
+     ldx $20de
+     ora DECALLAGE,X
+     sta $20de
+     lda DECALBIT,X
+     ldx $3c5d
+     ora DECALLAGE,X
+     sta $3c5d
+     lda DECALBIT,X
+     ldx $385c
+     ora DECALLAGE,X
+     sta $385c
+     lda DECALBIT,X
+     ldx $345b
+     ora DECALLAGE,X
+     sta $345b
+     lda DECALBIT,X
+     ldx $305a
+     ora DECALLAGE,X
+     sta $305a
+     lda DECALBIT,X
+     ldx $3059
+     ora DECALLAGE,X
+     sta $3059
+     lda DECALBIT,X
+     ldx $3458
+     ora DECALLAGE,X
+     sta $3458
+     lda DECALBIT,X
+     ldx $3857
+     ora DECALLAGE,X
+     sta $3857
+     lda DECALBIT,X
+     ldx $3c56
+     ora DECALLAGE,X
+     sta $3c56
+     lda DECALBIT,X
+     ldx $20d5
+     ora DECALLAGE,X
+     sta $20d5
+     lda DECALBIT,X
+     ldx $20d4
+     ora DECALLAGE,X
+     sta $20d4
+     lda DECALBIT,X
+     ldx $3c53
+     ora DECALLAGE,X
+     sta $3c53
+     lda DECALBIT,X
+     ldx $3852
+     ora DECALLAGE,X
+     sta $3852
+     lda DECALBIT,X
+     ldx $3451
+     ora DECALLAGE,X
+     sta $3451
+     lda DECALBIT,X
+     ldx $3050
+     ora DECALLAGE,X
+     sta $3050
+
+     lda TSaveBit+1
+     ldx $3477
+     ora DECALLAGE,X
+     sta $3477
+     lda DECALBIT,X
+     ldx $3876
+     ora DECALLAGE,X
+     sta $3876
+     lda DECALBIT,X
+     ldx $3c75
+     ora DECALLAGE,X
+     sta $3c75
+     lda DECALBIT,X
+     ldx $20f4
+     ora DECALLAGE,X
+     sta $20f4
+     lda DECALBIT,X
+     ldx $24f3
+     ora DECALLAGE,X
+     sta $24f3
+     lda DECALBIT,X
+     ldx $24f2
+     ora DECALLAGE,X
+     sta $24f2
+     lda DECALBIT,X
+     ldx $20f1
+     ora DECALLAGE,X
+     sta $20f1
+     lda DECALBIT,X
+     ldx $3c70
+     ora DECALLAGE,X
+     sta $3c70
+     lda DECALBIT,X
+     ldx $386f
+     ora DECALLAGE,X
+     sta $386f
+     lda DECALBIT,X
+     ldx $346e
+     ora DECALLAGE,X
+     sta $346e
+     lda DECALBIT,X
+     ldx $346d
+     ora DECALLAGE,X
+     sta $346d
+     lda DECALBIT,X
+     ldx $386c
+     ora DECALLAGE,X
+     sta $386c
+     lda DECALBIT,X
+     ldx $3c6b
+     ora DECALLAGE,X
+     sta $3c6b
+     lda DECALBIT,X
+     ldx $20ea
+     ora DECALLAGE,X
+     sta $20ea
+     lda DECALBIT,X
+     ldx $24e9
+     ora DECALLAGE,X
+     sta $24e9
+     lda DECALBIT,X
+     ldx $24e8
+     ora DECALLAGE,X
+     sta $24e8
+     lda DECALBIT,X
+     ldx $20e7
+     ora DECALLAGE,X
+     sta $20e7
+     lda DECALBIT,X
+     ldx $3c66
+     ora DECALLAGE,X
+     sta $3c66
+     lda DECALBIT,X
+     ldx $3865
+     ora DECALLAGE,X
+     sta $3865
+     lda DECALBIT,X
+     ldx $3464
+     ora DECALLAGE,X
+     sta $3464
+     lda DECALBIT,X
+     ldx $3463
+     ora DECALLAGE,X
+     sta $3463
+     lda DECALBIT,X
+     ldx $3862
+     ora DECALLAGE,X
+     sta $3862
+     lda DECALBIT,X
+     ldx $3c61
+     ora DECALLAGE,X
+     sta $3c61
+     lda DECALBIT,X
+     ldx $20e0
+     ora DECALLAGE,X
+     sta $20e0
+     lda DECALBIT,X
+     ldx $24df
+     ora DECALLAGE,X
+     sta $24df
+     lda DECALBIT,X
+     ldx $24de
+     ora DECALLAGE,X
+     sta $24de
+     lda DECALBIT,X
+     ldx $20dd
+     ora DECALLAGE,X
+     sta $20dd
+     lda DECALBIT,X
+     ldx $3c5c
+     ora DECALLAGE,X
+     sta $3c5c
+     lda DECALBIT,X
+     ldx $385b
+     ora DECALLAGE,X
+     sta $385b
+     lda DECALBIT,X
+     ldx $345a
+     ora DECALLAGE,X
+     sta $345a
+     lda DECALBIT,X
+     ldx $3459
+     ora DECALLAGE,X
+     sta $3459
+     lda DECALBIT,X
+     ldx $3858
+     ora DECALLAGE,X
+     sta $3858
+     lda DECALBIT,X
+     ldx $3c57
+     ora DECALLAGE,X
+     sta $3c57
+     lda DECALBIT,X
+     ldx $20d6
+     ora DECALLAGE,X
+     sta $20d6
+     lda DECALBIT,X
+     ldx $24d5
+     ora DECALLAGE,X
+     sta $24d5
+     lda DECALBIT,X
+     ldx $24d4
+     ora DECALLAGE,X
+     sta $24d4
+     lda DECALBIT,X
+     ldx $20d3
+     ora DECALLAGE,X
+     sta $20d3
+     lda DECALBIT,X
+     ldx $3c52
+     ora DECALLAGE,X
+     sta $3c52
+     lda DECALBIT,X
+     ldx $3851
+     ora DECALLAGE,X
+     sta $3851
+     lda DECALBIT,X
+     ldx $3450
+     ora DECALLAGE,X
+     sta $3450
+
+     lda TSaveBit+2
+     ldx $3877
+     ora DECALLAGE,X
+     sta $3877
+     lda DECALBIT,X
+     ldx $3c76
+     ora DECALLAGE,X
+     sta $3c76
+     lda DECALBIT,X
+     ldx $20f5
+     ora DECALLAGE,X
+     sta $20f5
+     lda DECALBIT,X
+     ldx $24f4
+     ora DECALLAGE,X
+     sta $24f4
+     lda DECALBIT,X
+     ldx $28f3
+     ora DECALLAGE,X
+     sta $28f3
+     lda DECALBIT,X
+     ldx $28f2
+     ora DECALLAGE,X
+     sta $28f2
+     lda DECALBIT,X
+     ldx $24f1
+     ora DECALLAGE,X
+     sta $24f1
+     lda DECALBIT,X
+     ldx $20f0
+     ora DECALLAGE,X
+     sta $20f0
+     lda DECALBIT,X
+     ldx $3c6f
+     ora DECALLAGE,X
+     sta $3c6f
+     lda DECALBIT,X
+     ldx $386e
+     ora DECALLAGE,X
+     sta $386e
+     lda DECALBIT,X
+     ldx $386d
+     ora DECALLAGE,X
+     sta $386d
+     lda DECALBIT,X
+     ldx $3c6c
+     ora DECALLAGE,X
+     sta $3c6c
+     lda DECALBIT,X
+     ldx $20eb
+     ora DECALLAGE,X
+     sta $20eb
+     lda DECALBIT,X
+     ldx $24ea
+     ora DECALLAGE,X
+     sta $24ea
+     lda DECALBIT,X
+     ldx $28e9
+     ora DECALLAGE,X
+     sta $28e9
+     lda DECALBIT,X
+     ldx $28e8
+     ora DECALLAGE,X
+     sta $28e8
+     lda DECALBIT,X
+     ldx $24e7
+     ora DECALLAGE,X
+     sta $24e7
+     lda DECALBIT,X
+     ldx $20e6
+     ora DECALLAGE,X
+     sta $20e6
+     lda DECALBIT,X
+     ldx $3c65
+     ora DECALLAGE,X
+     sta $3c65
+     lda DECALBIT,X
+     ldx $3864
+     ora DECALLAGE,X
+     sta $3864
+     lda DECALBIT,X
+     ldx $3863
+     ora DECALLAGE,X
+     sta $3863
+     lda DECALBIT,X
+     ldx $3c62
+     ora DECALLAGE,X
+     sta $3c62
+     lda DECALBIT,X
+     ldx $20e1
+     ora DECALLAGE,X
+     sta $20e1
+     lda DECALBIT,X
+     ldx $24e0
+     ora DECALLAGE,X
+     sta $24e0
+     lda DECALBIT,X
+     ldx $28df
+     ora DECALLAGE,X
+     sta $28df
+     lda DECALBIT,X
+     ldx $28de
+     ora DECALLAGE,X
+     sta $28de
+     lda DECALBIT,X
+     ldx $24dd
+     ora DECALLAGE,X
+     sta $24dd
+     lda DECALBIT,X
+     ldx $20dc
+     ora DECALLAGE,X
+     sta $20dc
+     lda DECALBIT,X
+     ldx $3c5b
+     ora DECALLAGE,X
+     sta $3c5b
+     lda DECALBIT,X
+     ldx $385a
+     ora DECALLAGE,X
+     sta $385a
+     lda DECALBIT,X
+     ldx $3859
+     ora DECALLAGE,X
+     sta $3859
+     lda DECALBIT,X
+     ldx $3c58
+     ora DECALLAGE,X
+     sta $3c58
+     lda DECALBIT,X
+     ldx $20d7
+     ora DECALLAGE,X
+     sta $20d7
+     lda DECALBIT,X
+     ldx $24d6
+     ora DECALLAGE,X
+     sta $24d6
+     lda DECALBIT,X
+     ldx $28d5
+     ora DECALLAGE,X
+     sta $28d5
+     lda DECALBIT,X
+     ldx $28d4
+     ora DECALLAGE,X
+     sta $28d4
+     lda DECALBIT,X
+     ldx $24d3
+     ora DECALLAGE,X
+     sta $24d3
+     lda DECALBIT,X
+     ldx $20d2
+     ora DECALLAGE,X
+     sta $20d2
+     lda DECALBIT,X
+     ldx $3c51
+     ora DECALLAGE,X
+     sta $3c51
+     lda DECALBIT,X
+     ldx $3850
+     ora DECALLAGE,X
+     sta $3850
+
+     lda TSaveBit+3
+     ldx $3c77
+     ora DECALLAGE,X
+     sta $3c77
+     lda DECALBIT,X
+     ldx $20f6
+     ora DECALLAGE,X
+     sta $20f6
+     lda DECALBIT,X
+     ldx $24f5
+     ora DECALLAGE,X
+     sta $24f5
+     lda DECALBIT,X
+     ldx $28f4
+     ora DECALLAGE,X
+     sta $28f4
+     lda DECALBIT,X
+     ldx $2cf3
+     ora DECALLAGE,X
+     sta $2cf3
+     lda DECALBIT,X
+     ldx $2cf2
+     ora DECALLAGE,X
+     sta $2cf2
+     lda DECALBIT,X
+     ldx $28f1
+     ora DECALLAGE,X
+     sta $28f1
+     lda DECALBIT,X
+     ldx $24f0
+     ora DECALLAGE,X
+     sta $24f0
+     lda DECALBIT,X
+     ldx $20ef
+     ora DECALLAGE,X
+     sta $20ef
+     lda DECALBIT,X
+     ldx $3c6e
+     ora DECALLAGE,X
+     sta $3c6e
+     lda DECALBIT,X
+     ldx $3c6d
+     ora DECALLAGE,X
+     sta $3c6d
+     lda DECALBIT,X
+     ldx $20ec
+     ora DECALLAGE,X
+     sta $20ec
+     lda DECALBIT,X
+     ldx $24eb
+     ora DECALLAGE,X
+     sta $24eb
+     lda DECALBIT,X
+     ldx $28ea
+     ora DECALLAGE,X
+     sta $28ea
+     lda DECALBIT,X
+     ldx $2ce9
+     ora DECALLAGE,X
+     sta $2ce9
+     lda DECALBIT,X
+     ldx $2ce8
+     ora DECALLAGE,X
+     sta $2ce8
+     lda DECALBIT,X
+     ldx $28e7
+     ora DECALLAGE,X
+     sta $28e7
+     lda DECALBIT,X
+     ldx $24e6
+     ora DECALLAGE,X
+     sta $24e6
+     lda DECALBIT,X
+     ldx $20e5
+     ora DECALLAGE,X
+     sta $20e5
+     lda DECALBIT,X
+     ldx $3c64
+     ora DECALLAGE,X
+     sta $3c64
+     lda DECALBIT,X
+     ldx $3c63
+     ora DECALLAGE,X
+     sta $3c63
+     lda DECALBIT,X
+     ldx $20e2
+     ora DECALLAGE,X
+     sta $20e2
+     lda DECALBIT,X
+     ldx $24e1
+     ora DECALLAGE,X
+     sta $24e1
+     lda DECALBIT,X
+     ldx $28e0
+     ora DECALLAGE,X
+     sta $28e0
+     lda DECALBIT,X
+     ldx $2cdf
+     ora DECALLAGE,X
+     sta $2cdf
+     lda DECALBIT,X
+     ldx $2cde
+     ora DECALLAGE,X
+     sta $2cde
+     lda DECALBIT,X
+     ldx $28dd
+     ora DECALLAGE,X
+     sta $28dd
+     lda DECALBIT,X
+     ldx $24dc
+     ora DECALLAGE,X
+     sta $24dc
+     lda DECALBIT,X
+     ldx $20db
+     ora DECALLAGE,X
+     sta $20db
+     lda DECALBIT,X
+     ldx $3c5a
+     ora DECALLAGE,X
+     sta $3c5a
+     lda DECALBIT,X
+     ldx $3c59
+     ora DECALLAGE,X
+     sta $3c59
+     lda DECALBIT,X
+     ldx $20d8
+     ora DECALLAGE,X
+     sta $20d8
+     lda DECALBIT,X
+     ldx $24d7
+     ora DECALLAGE,X
+     sta $24d7
+     lda DECALBIT,X
+     ldx $28d6
+     ora DECALLAGE,X
+     sta $28d6
+     lda DECALBIT,X
+     ldx $2cd5
+     ora DECALLAGE,X
+     sta $2cd5
+     lda DECALBIT,X
+     ldx $2cd4
+     ora DECALLAGE,X
+     sta $2cd4
+     lda DECALBIT,X
+     ldx $28d3
+     ora DECALLAGE,X
+     sta $28d3
+     lda DECALBIT,X
+     ldx $24d2
+     ora DECALLAGE,X
+     sta $24d2
+     lda DECALBIT,X
+     ldx $20d1
+     ora DECALLAGE,X
+     sta $20d1
+     lda DECALBIT,X
+     ldx $3c50
+     ora DECALLAGE,X
+     sta $3c50
+	
+	 RTS
+
+
+; =============================================================================
+ScrollHGR3    ; SCROLL HGR SINUSOIDALE - NOM DE GARS SCENE FRENCH 
+!zone	 
+		
+.debut
+.Off1	LDX String3HGR			; r�cup�re lettre de la string � afficher
+		BPL .suite				; sup�rieure � $80 ? (dont $FF donc)
+		
+		CPX #$FF
+		BEQ .sc1
+		
+		; fin de chaine "espace" ($FE)
+OFFGUYS2										
+		LDA #>String3HGRP2		; si oui, on remet les compteurs � zero - debut chaine noms ALEATOIRE
+		STA .Off1+2
+OFFGUYS1
+		LDA #<String3HGRP2
+		STA .Off1+1
+		JMP .debut
+
+.sc1	; fin de chaine "noms"						
+		LDA #>String3HGRP2			; si oui, on remet les compteurs � zero - debut chaine nom
+		STA .Off1+2
+		LDA #<String3HGRP2
+		STA .Off1+1
+		JMP .debut			
+		
+.suite	LDY Table4,X			; on r�cup�re l'index dans la table TCar
+		
+		LDX #3
+		
+.boucle_Y
+		
+		LDA TCar, Y
+		AND IndexBit3
+		BEQ .sb1				; pas bit !
+		LDA #$40				; bit
+.sb1	STA TSaveBit3,X		
+		DEY
+		DEX
+		BPL .boucle_Y
+		
+		
+		LDA IndexBit3
+		ASL					; 
+		BPL .s1				; 
+		INC .Off1+1			; on augmente la partie LO de la m�moire de string � lire au prochaine passage 
+		BNE	.s2				; diff�rent de z�ro, on continue 
+		INC .Off1+2			; sinon, on augmente la partie HI
+.s2		LDA #$01			; remise � 1 du mask de bit
+.s1		STA IndexBit3		; save  
+	
+	; ------
+    
+     lda TSaveBit3+0
+     ldx $24a7
+     ora DECALLAGE,X
+     sta $24a7
+     lda DECALBIT,X
+     ldx $20a6
+     ora DECALLAGE,X
+     sta $20a6
+     lda DECALBIT,X
+     ldx $3c25
+     ora DECALLAGE,X
+     sta $3c25
+     lda DECALBIT,X
+     ldx $3824
+     ora DECALLAGE,X
+     sta $3824
+     lda DECALBIT,X
+     ldx $3423
+     ora DECALLAGE,X
+     sta $3423
+     lda DECALBIT,X
+     ldx $3422
+     ora DECALLAGE,X
+     sta $3422
+     lda DECALBIT,X
+     ldx $3821
+     ora DECALLAGE,X
+     sta $3821
+     lda DECALBIT,X
+     ldx $3c20
+     ora DECALLAGE,X
+     sta $3c20
+     lda DECALBIT,X
+     ldx $209f
+     ora DECALLAGE,X
+     sta $209f
+     lda DECALBIT,X
+     ldx $249e
+     ora DECALLAGE,X
+     sta $249e
+     lda DECALBIT,X
+     ldx $249d
+     ora DECALLAGE,X
+     sta $249d
+     lda DECALBIT,X
+     ldx $209c
+     ora DECALLAGE,X
+     sta $209c
+     lda DECALBIT,X
+     ldx $3c1b
+     ora DECALLAGE,X
+     sta $3c1b
+     lda DECALBIT,X
+     ldx $381a
+     ora DECALLAGE,X
+     sta $381a
+     lda DECALBIT,X
+     ldx $3419
+     ora DECALLAGE,X
+     sta $3419
+     lda DECALBIT,X
+     ldx $3418
+     ora DECALLAGE,X
+     sta $3418
+     lda DECALBIT,X
+     ldx $3817
+     ora DECALLAGE,X
+     sta $3817
+     lda DECALBIT,X
+     ldx $3c16
+     ora DECALLAGE,X
+     sta $3c16
+     lda DECALBIT,X
+     ldx $2095
+     ora DECALLAGE,X
+     sta $2095
+     lda DECALBIT,X
+     ldx $2494
+     ora DECALLAGE,X
+     sta $2494
+     lda DECALBIT,X
+     ldx $2493
+     ora DECALLAGE,X
+     sta $2493
+     lda DECALBIT,X
+     ldx $2092
+     ora DECALLAGE,X
+     sta $2092
+     lda DECALBIT,X
+     ldx $3c11
+     ora DECALLAGE,X
+     sta $3c11
+     lda DECALBIT,X
+     ldx $3810
+     ora DECALLAGE,X
+     sta $3810
+     lda DECALBIT,X
+     ldx $340f
+     ora DECALLAGE,X
+     sta $340f
+     lda DECALBIT,X
+     ldx $340e
+     ora DECALLAGE,X
+     sta $340e
+     lda DECALBIT,X
+     ldx $380d
+     ora DECALLAGE,X
+     sta $380d
+     lda DECALBIT,X
+     ldx $3c0c
+     ora DECALLAGE,X
+     sta $3c0c
+     lda DECALBIT,X
+     ldx $208b
+     ora DECALLAGE,X
+     sta $208b
+     lda DECALBIT,X
+     ldx $248a
+     ora DECALLAGE,X
+     sta $248a
+     lda DECALBIT,X
+     ldx $2489
+     ora DECALLAGE,X
+     sta $2489
+     lda DECALBIT,X
+     ldx $2088
+     ora DECALLAGE,X
+     sta $2088
+     lda DECALBIT,X
+     ldx $3c07
+     ora DECALLAGE,X
+     sta $3c07
+     lda DECALBIT,X
+     ldx $3806
+     ora DECALLAGE,X
+     sta $3806
+     lda DECALBIT,X
+     ldx $3405
+     ora DECALLAGE,X
+     sta $3405
+     lda DECALBIT,X
+     ldx $3404
+     ora DECALLAGE,X
+     sta $3404
+     lda DECALBIT,X
+     ldx $3803
+     ora DECALLAGE,X
+     sta $3803
+     lda DECALBIT,X
+     ldx $3c02
+     ora DECALLAGE,X
+     sta $3c02
+     lda DECALBIT,X
+     ldx $2081
+     ora DECALLAGE,X
+     sta $2081
+     lda DECALBIT,X
+     ldx $2480
+     ora DECALLAGE,X
+     sta $2480
+
+     lda TSaveBit3+1
+     ldx $28a7
+     ora DECALLAGE,X
+     sta $28a7
+     lda DECALBIT,X
+     ldx $24a6
+     ora DECALLAGE,X
+     sta $24a6
+     lda DECALBIT,X
+     ldx $20a5
+     ora DECALLAGE,X
+     sta $20a5
+     lda DECALBIT,X
+     ldx $3c24
+     ora DECALLAGE,X
+     sta $3c24
+     lda DECALBIT,X
+     ldx $3823
+     ora DECALLAGE,X
+     sta $3823
+     lda DECALBIT,X
+     ldx $3822
+     ora DECALLAGE,X
+     sta $3822
+     lda DECALBIT,X
+     ldx $3c21
+     ora DECALLAGE,X
+     sta $3c21
+     lda DECALBIT,X
+     ldx $20a0
+     ora DECALLAGE,X
+     sta $20a0
+     lda DECALBIT,X
+     ldx $249f
+     ora DECALLAGE,X
+     sta $249f
+     lda DECALBIT,X
+     ldx $289e
+     ora DECALLAGE,X
+     sta $289e
+     lda DECALBIT,X
+     ldx $289d
+     ora DECALLAGE,X
+     sta $289d
+     lda DECALBIT,X
+     ldx $249c
+     ora DECALLAGE,X
+     sta $249c
+     lda DECALBIT,X
+     ldx $209b
+     ora DECALLAGE,X
+     sta $209b
+     lda DECALBIT,X
+     ldx $3c1a
+     ora DECALLAGE,X
+     sta $3c1a
+     lda DECALBIT,X
+     ldx $3819
+     ora DECALLAGE,X
+     sta $3819
+     lda DECALBIT,X
+     ldx $3818
+     ora DECALLAGE,X
+     sta $3818
+     lda DECALBIT,X
+     ldx $3c17
+     ora DECALLAGE,X
+     sta $3c17
+     lda DECALBIT,X
+     ldx $2096
+     ora DECALLAGE,X
+     sta $2096
+     lda DECALBIT,X
+     ldx $2495
+     ora DECALLAGE,X
+     sta $2495
+     lda DECALBIT,X
+     ldx $2894
+     ora DECALLAGE,X
+     sta $2894
+     lda DECALBIT,X
+     ldx $2893
+     ora DECALLAGE,X
+     sta $2893
+     lda DECALBIT,X
+     ldx $2492
+     ora DECALLAGE,X
+     sta $2492
+     lda DECALBIT,X
+     ldx $2091
+     ora DECALLAGE,X
+     sta $2091
+     lda DECALBIT,X
+     ldx $3c10
+     ora DECALLAGE,X
+     sta $3c10
+     lda DECALBIT,X
+     ldx $380f
+     ora DECALLAGE,X
+     sta $380f
+     lda DECALBIT,X
+     ldx $380e
+     ora DECALLAGE,X
+     sta $380e
+     lda DECALBIT,X
+     ldx $3c0d
+     ora DECALLAGE,X
+     sta $3c0d
+     lda DECALBIT,X
+     ldx $208c
+     ora DECALLAGE,X
+     sta $208c
+     lda DECALBIT,X
+     ldx $248b
+     ora DECALLAGE,X
+     sta $248b
+     lda DECALBIT,X
+     ldx $288a
+     ora DECALLAGE,X
+     sta $288a
+     lda DECALBIT,X
+     ldx $2889
+     ora DECALLAGE,X
+     sta $2889
+     lda DECALBIT,X
+     ldx $2488
+     ora DECALLAGE,X
+     sta $2488
+     lda DECALBIT,X
+     ldx $2087
+     ora DECALLAGE,X
+     sta $2087
+     lda DECALBIT,X
+     ldx $3c06
+     ora DECALLAGE,X
+     sta $3c06
+     lda DECALBIT,X
+     ldx $3805
+     ora DECALLAGE,X
+     sta $3805
+     lda DECALBIT,X
+     ldx $3804
+     ora DECALLAGE,X
+     sta $3804
+     lda DECALBIT,X
+     ldx $3c03
+     ora DECALLAGE,X
+     sta $3c03
+     lda DECALBIT,X
+     ldx $2082
+     ora DECALLAGE,X
+     sta $2082
+     lda DECALBIT,X
+     ldx $2481
+     ora DECALLAGE,X
+     sta $2481
+     lda DECALBIT,X
+     ldx $2880
+     ora DECALLAGE,X
+     sta $2880
+
+     lda TSaveBit3+2
+     ldx $2ca7
+     ora DECALLAGE,X
+     sta $2ca7
+     lda DECALBIT,X
+     ldx $28a6
+     ora DECALLAGE,X
+     sta $28a6
+     lda DECALBIT,X
+     ldx $24a5
+     ora DECALLAGE,X
+     sta $24a5
+     lda DECALBIT,X
+     ldx $20a4
+     ora DECALLAGE,X
+     sta $20a4
+     lda DECALBIT,X
+     ldx $3c23
+     ora DECALLAGE,X
+     sta $3c23
+     lda DECALBIT,X
+     ldx $3c22
+     ora DECALLAGE,X
+     sta $3c22
+     lda DECALBIT,X
+     ldx $20a1
+     ora DECALLAGE,X
+     sta $20a1
+     lda DECALBIT,X
+     ldx $24a0
+     ora DECALLAGE,X
+     sta $24a0
+     lda DECALBIT,X
+     ldx $289f
+     ora DECALLAGE,X
+     sta $289f
+     lda DECALBIT,X
+     ldx $2c9e
+     ora DECALLAGE,X
+     sta $2c9e
+     lda DECALBIT,X
+     ldx $2c9d
+     ora DECALLAGE,X
+     sta $2c9d
+     lda DECALBIT,X
+     ldx $289c
+     ora DECALLAGE,X
+     sta $289c
+     lda DECALBIT,X
+     ldx $249b
+     ora DECALLAGE,X
+     sta $249b
+     lda DECALBIT,X
+     ldx $209a
+     ora DECALLAGE,X
+     sta $209a
+     lda DECALBIT,X
+     ldx $3c19
+     ora DECALLAGE,X
+     sta $3c19
+     lda DECALBIT,X
+     ldx $3c18
+     ora DECALLAGE,X
+     sta $3c18
+     lda DECALBIT,X
+     ldx $2097
+     ora DECALLAGE,X
+     sta $2097
+     lda DECALBIT,X
+     ldx $2496
+     ora DECALLAGE,X
+     sta $2496
+     lda DECALBIT,X
+     ldx $2895
+     ora DECALLAGE,X
+     sta $2895
+     lda DECALBIT,X
+     ldx $2c94
+     ora DECALLAGE,X
+     sta $2c94
+     lda DECALBIT,X
+     ldx $2c93
+     ora DECALLAGE,X
+     sta $2c93
+     lda DECALBIT,X
+     ldx $2892
+     ora DECALLAGE,X
+     sta $2892
+     lda DECALBIT,X
+     ldx $2491
+     ora DECALLAGE,X
+     sta $2491
+     lda DECALBIT,X
+     ldx $2090
+     ora DECALLAGE,X
+     sta $2090
+     lda DECALBIT,X
+     ldx $3c0f
+     ora DECALLAGE,X
+     sta $3c0f
+     lda DECALBIT,X
+     ldx $3c0e
+     ora DECALLAGE,X
+     sta $3c0e
+     lda DECALBIT,X
+     ldx $208d
+     ora DECALLAGE,X
+     sta $208d
+     lda DECALBIT,X
+     ldx $248c
+     ora DECALLAGE,X
+     sta $248c
+     lda DECALBIT,X
+     ldx $288b
+     ora DECALLAGE,X
+     sta $288b
+     lda DECALBIT,X
+     ldx $2c8a
+     ora DECALLAGE,X
+     sta $2c8a
+     lda DECALBIT,X
+     ldx $2c89
+     ora DECALLAGE,X
+     sta $2c89
+     lda DECALBIT,X
+     ldx $2888
+     ora DECALLAGE,X
+     sta $2888
+     lda DECALBIT,X
+     ldx $2487
+     ora DECALLAGE,X
+     sta $2487
+     lda DECALBIT,X
+     ldx $2086
+     ora DECALLAGE,X
+     sta $2086
+     lda DECALBIT,X
+     ldx $3c05
+     ora DECALLAGE,X
+     sta $3c05
+     lda DECALBIT,X
+     ldx $3c04
+     ora DECALLAGE,X
+     sta $3c04
+     lda DECALBIT,X
+     ldx $2083
+     ora DECALLAGE,X
+     sta $2083
+     lda DECALBIT,X
+     ldx $2482
+     ora DECALLAGE,X
+     sta $2482
+     lda DECALBIT,X
+     ldx $2881
+     ora DECALLAGE,X
+     sta $2881
+     lda DECALBIT,X
+     ldx $2c80
+     ora DECALLAGE,X
+     sta $2c80
+
+     lda TSaveBit3+3
+     ldx $30a7
+     ora DECALLAGE,X
+     sta $30a7
+     lda DECALBIT,X
+     ldx $2ca6
+     ora DECALLAGE,X
+     sta $2ca6
+     lda DECALBIT,X
+     ldx $28a5
+     ora DECALLAGE,X
+     sta $28a5
+     lda DECALBIT,X
+     ldx $24a4
+     ora DECALLAGE,X
+     sta $24a4
+     lda DECALBIT,X
+     ldx $20a3
+     ora DECALLAGE,X
+     sta $20a3
+     lda DECALBIT,X
+     ldx $20a2
+     ora DECALLAGE,X
+     sta $20a2
+     lda DECALBIT,X
+     ldx $24a1
+     ora DECALLAGE,X
+     sta $24a1
+     lda DECALBIT,X
+     ldx $28a0
+     ora DECALLAGE,X
+     sta $28a0
+     lda DECALBIT,X
+     ldx $2c9f
+     ora DECALLAGE,X
+     sta $2c9f
+     lda DECALBIT,X
+     ldx $309e
+     ora DECALLAGE,X
+     sta $309e
+     lda DECALBIT,X
+     ldx $309d
+     ora DECALLAGE,X
+     sta $309d
+     lda DECALBIT,X
+     ldx $2c9c
+     ora DECALLAGE,X
+     sta $2c9c
+     lda DECALBIT,X
+     ldx $289b
+     ora DECALLAGE,X
+     sta $289b
+     lda DECALBIT,X
+     ldx $249a
+     ora DECALLAGE,X
+     sta $249a
+     lda DECALBIT,X
+     ldx $2099
+     ora DECALLAGE,X
+     sta $2099
+     lda DECALBIT,X
+     ldx $2098
+     ora DECALLAGE,X
+     sta $2098
+     lda DECALBIT,X
+     ldx $2497
+     ora DECALLAGE,X
+     sta $2497
+     lda DECALBIT,X
+     ldx $2896
+     ora DECALLAGE,X
+     sta $2896
+     lda DECALBIT,X
+     ldx $2c95
+     ora DECALLAGE,X
+     sta $2c95
+     lda DECALBIT,X
+     ldx $3094
+     ora DECALLAGE,X
+     sta $3094
+     lda DECALBIT,X
+     ldx $3093
+     ora DECALLAGE,X
+     sta $3093
+     lda DECALBIT,X
+     ldx $2c92
+     ora DECALLAGE,X
+     sta $2c92
+     lda DECALBIT,X
+     ldx $2891
+     ora DECALLAGE,X
+     sta $2891
+     lda DECALBIT,X
+     ldx $2490
+     ora DECALLAGE,X
+     sta $2490
+     lda DECALBIT,X
+     ldx $208f
+     ora DECALLAGE,X
+     sta $208f
+     lda DECALBIT,X
+     ldx $208e
+     ora DECALLAGE,X
+     sta $208e
+     lda DECALBIT,X
+     ldx $248d
+     ora DECALLAGE,X
+     sta $248d
+     lda DECALBIT,X
+     ldx $288c
+     ora DECALLAGE,X
+     sta $288c
+     lda DECALBIT,X
+     ldx $2c8b
+     ora DECALLAGE,X
+     sta $2c8b
+     lda DECALBIT,X
+     ldx $308a
+     ora DECALLAGE,X
+     sta $308a
+     lda DECALBIT,X
+     ldx $3089
+     ora DECALLAGE,X
+     sta $3089
+     lda DECALBIT,X
+     ldx $2c88
+     ora DECALLAGE,X
+     sta $2c88
+     lda DECALBIT,X
+     ldx $2887
+     ora DECALLAGE,X
+     sta $2887
+     lda DECALBIT,X
+     ldx $2486
+     ora DECALLAGE,X
+     sta $2486
+     lda DECALBIT,X
+     ldx $2085
+     ora DECALLAGE,X
+     sta $2085
+     lda DECALBIT,X
+     ldx $2084
+     ora DECALLAGE,X
+     sta $2084
+     lda DECALBIT,X
+     ldx $2483
+     ora DECALLAGE,X
+     sta $2483
+     lda DECALBIT,X
+     ldx $2882
+     ora DECALLAGE,X
+     sta $2882
+     lda DECALBIT,X
+     ldx $2c81
+     ora DECALLAGE,X
+     sta $2c81
+     lda DECALBIT,X
+     ldx $3080
+     ora DECALLAGE,X
+     sta $3080
+	
+	RTS
+
+WAIT_VSYNC_
+	LDA #$FF
+	STA VSYNC
+-	LDA VSYNC
+	BNE -
+	RTS
+
+WAIT_DISPLAY_
+	LDA #$FE
+	STA DISPLAYSYNC
+-	LDA DISPLAYSYNC
+	BNE -
+	RTS
+
+
+
+
+; =============================================================================
+
+
+!align 255,0			; on aligne sur un d�but de page pour maintenir les cycles constants avec le LDA,X
+StringText
+		!fill 40,$A0
+		!Text "*** Scroll Scroll Scroll Scroll Scroll Scroll ***"
+		!fill 10,$A0		
+
+     
+; = Routine WAIT ======================
+; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 11 cycles obligatoire)
+WAIT_
+!zone           
+		DEY								
+		BEQ .S1						
+                  
+.WL1 	LDX #$0B				            
+.WL2 	DEX							
+		BNE .WL2																
+                      
+		NOP								
+		NOP								
+		DEY								
+		BNE .WL1						
+																                      
+		LDX #$08					
+                   
+.WL3 	DEX							
+		BNE .WL3						
+                							
+		NOP								
+		NOP								
+		RTS								
+											         
+.S1	 	LDX #08					
+                      
+.WL4 	DEX							
+		BNE .WL4						
+																	
+		NOP								
+		RTS
+		+build_check_crosspage WAIT_  ; compilation check
+		
+!align 255,0
+StringGR !byte  0x0, 0x0, 0x0, 0x0, 0x0, 0x17, 0x5, 0xc, 0x3, 0xf, 0xd, 0x5, 0x0, 0x14, 0xf, 0x0, 0x14, 0x8, 0x5, 0x0, 0xe, 0x5, 0x17, 0x0, 0x10, 0x12, 0xf, 0x4, 0x15, 0x3, 0x14, 0x9, 0xf, 0xe, 0x0, 0x6, 0x12, 0xf, 0xd, 0x0, 0xe6, 0xf2, 0xe5, 0xee, 0xe3, 0xe8, 0xe0, 0xd4, 0xcf, 0xd5, 0xc3, 0xc8, 0x1f, 0x0, 0x53, 0x43, 0x52, 0x4f, 0x4c, 0x4c, 0x40, 0x13, 0x3, 0x12, 0xf, 0xc, 0xc, 0x0, 0x33, 0x23, 0x32, 0x2f, 0x2c, 0x2c, 0x1c, 0x0, 0x8, 0x1, 0x16, 0x5, 0x0, 0x19, 0xf, 0x15, 0x0, 0x5, 0x16, 0x5, 0x12, 0x0, 0x13, 0x5, 0x5, 0xe, 0x0, 0x13, 0x15, 0x3, 0x8, 0x0, 0x1, 0x0, 0x14, 0x8, 0x9, 0xe, 0x7, 0x0, 0xf, 0xe, 0x0, 0x1, 0xe, 0x0, 0x1, 0x10, 0x10, 0xc, 0x5, 0x0, 0x9, 0x9, 0x1d, 0x0, 0x14, 0x5, 0x18, 0x14, 0x0, 0xc, 0xf, 0x12, 0x5, 0x13, 0x0, 0x1, 0xe, 0x4, 0x0, 0x8, 0x9, 0x12, 0x5, 0x13, 0x0, 0xd, 0xf, 0x4, 0x5, 0x13, 0x0, 0xf, 0xe, 0x0, 0x14, 0x8, 0x5, 0x0, 0x13, 0x1, 0xd, 0x5, 0x0, 0x13, 0x3, 0x12, 0x5, 0x5, 0xe, 0x0, 0x13, 0x9, 0xd, 0x15, 0xc, 0x14, 0x1, 0xe, 0x5, 0xf, 0x15, 0x13, 0xc, 0x19, 0x1c, 0x0, 0x8e, 0x8f, 0x80, 0x4, 0xf, 0x15, 0x2, 0xc, 0x5, 0x0, 0x2, 0x15, 0x6, 0x6, 0x5, 0x12, 0x1c, 0x0, 0x1, 0xc, 0xc, 0x0, 0x9, 0xe, 0x0, 0x8f, 0x8e, 0x85, 0x80, 0x6, 0x12, 0x1, 0xd, 0x5, 0x1c, 0x0, 0x8, 0x5, 0x19, 0x0, 0xb, 0x9, 0x4, 0x13, 0x0, 0x4, 0xf, 0xe, 0x1e, 0x14, 0x0, 0x14, 0x12, 0x19, 0x0, 0x14, 0x8, 0x9, 0x13, 0x0, 0x1, 0x14, 0x0, 0x8, 0xf, 0xd, 0x5, 0x1c, 0x0, 0x0
+; -------------------------------------
+!align 255,0
+TLetterB	!byte <TCar0,<TCar1,<TCar2,<TCar3,<TCar4,<TCar5,<TCar6,<TCar7,<TCar8,<TCar9,<TCar10,<TCar11,<TCar12,<TCar13,<TCar14
+			!byte <TCar15,<TCar16,<TCar17,<TCar18,<TCar19,<TCar20,<TCar21,<TCar22,<TCar23,<TCar24,<TCar25,<TCar26,<TCar27
+			!byte <TCar28,<TCar29,<TCar30,<TCar31
+TLetterH	!byte >TCar0,>TCar1,>TCar2,>TCar3,>TCar4,>TCar5,>TCar6,>TCar7,>TCar8,>TCar9,>TCar10,>TCar11,>TCar12,>TCar13,>TCar14
+			!byte >TCar15,>TCar16,>TCar17,>TCar18,>TCar19,>TCar20,>TCar21,>TCar22,>TCar23,>TCar24,>TCar25,>TCar26,>TCar27
+			!byte >TCar28,>TCar29,>TCar30,>TCar31
+
+TColor	!byte $FF,$11,$22,$33,$44,$55,$99,$DD ; blanc/rouge/dark bleu/purple/dark green/Gray/Orange/jaune
+
+TSaveBit 	!byte 00,00,00,00
+TSaveBit2	!byte 00,00,00,00,00
+TSaveBit3	!byte 00,00,00,00,00
+
+TABLEHI		
+	!byte	$05,$05,$06,$06,$07,$07
+TABLELO  	; + $27 !
+	!byte	$27,$a7,$27,$a7,$27,$a7
+	
+Table4  !byte 03,07,11,15,19,23,27,31,35,39,43,47,51,55,59,63,67,71,75,79,83,87,91,95,99,103,107,111,115,119,123,127,131,135,139,143,147,151,155,159,163,167,171,175,179,183,187,191
+
+Table5 	!byte  4, 9, 14, 19, 24, 29, 34, 39, 44, 49, 54, 59, 64, 69, 74, 79, 84, 89, 94, 99, 104, 109, 114, 119, 124, 129, 134, 139, 144, 149, 154, 159, 164, 169, 174, 179, 184, 189, 194, 199, 204, 209, 214, 219, 224, 229, 234
+
+!align 255,0
+TCar0	; Espace (00)
+		!byte 0,0,0,0,0,0
+TCar1	;A (01)
+		!byte $3F,$21,$21,$3F,$23,$23
+TCar2	;B
+		!byte $1F,$21,$3F,$23,$23,$3F
+TCar3	;C
+		!byte $3F,$01,$01,$03,$03,$3F
+TCar4	;D
+		!byte $1F,$21,$21,$23,$23,$3F
+TCar5	;E
+		!byte $3F,$01,$3F,$03,$03,$3F
+TCar6   ;F
+		!byte $3F,$01,$3F,$03,$03,$03
+TCar7	;G
+		!byte $3F,$01,$01,$33,$23,$3F
+TCar8	;H
+		!byte $21,$21,$3F,$23,$23,$23
+TCar9	;I
+		!byte $3F,$0C,$0C,$1C,$1C,$3F
+TCar10	;J
+		!byte $3F,$20,$20,$38,$39,$3F
+TCar11	;K
+		!byte $09,$09,$3F,$23,$23,$23
+TCar12	;L
+		!byte $01,$01,$01,$03,$03,$3F
+TCar13	;M
+		!byte $7F,$4F,$49,$49,$49,$49
+TCar14	;N
+		!byte $3F,$21,$21,$23,$23,$23
+TCar15	;O
+		!byte $3F,$21,$21,$23,$23,$3F
+TCar16	;P
+		!byte $3F,$21,$21,$3F,$03,$03
+TCar17	;Q
+		!byte $3F,$21,$21,$2B,$33,$3F
+TCar18	;R
+		!byte $1F,$21,$21,$1F,$23,$23
+TCar19	;S
+		!byte $3F,$01,$3F,$30,$30,$3F
+TCar20	;T
+		!byte $3F,$0C,$0C,$1C,$1C,$1C
+TCar21	;U
+		!byte $21,$21,$21,$23,$23,$3F
+TCar22	;V
+		!byte $21,$21,$23,$23,$12,$0C
+TCar23	;W
+		!byte $49,$49,$49,$4F,$4F,$7E
+TCar24	;X
+		!byte $21,$21,$1E,$23,$23,$23
+TCar25	;Y
+		!byte $21,$21,$3F,$30,$30,$3F
+TCar26	;Z (26)
+		!byte $3F,$20,$3C,$0F,$03,$3F
+TCar27 	; . (27)
+		!byte $00,$00,$00,$00,$0C,$0C
+TCar28	; ! (28)
+		!byte $0C,$0C,$0C,$0C,$00,$0C
+TCar29	; ? (29)
+		!byte $1E,$32,$38,$0C,$00,$0C  
+TCar30	; ' (30)
+		!byte $08,$0C,$00,$00,$00,$00 
+TCar31	; : (31)
+		!byte $00,$0c,$0c,$00,$0c,$0c
+
+		; -------------------------------------
+
+; Scroll HGR
+TCar	; Espace ($00)
+		!byte $00,$00,$00,$00
+		; A ($01)
+		!byte $1E,$33,$3F,$33
+		; B ($02)
+		!byte $0F,$3B,$33,$3F
+		; C ($03)
+		!byte $3E,$03,$03,$3E
+		; D ($04)
+		!byte $1F,$33,$33,$1F
+		; E ($05)
+		!byte $3E,$1F,$03,$3F
+		; F ($06)
+		!byte $3E,$03,$1F,$03
+		; G ($07)
+		!byte $3E,$03,$33,$3E
+		; H ($08)
+		!byte $33,$3F,$33,$33
+		; I ($09)
+		!byte $1E,$0C,$0C,$1E
+		; J ($0A)
+		!byte $30,$30,$30,$1F
+		; K ($0B)
+		!byte $33,$1F,$1B,$33
+		; L ($0C)
+		!byte $03,$03,$03,$3E
+		; M ($0D)
+		!byte $1F,$2B,$2B,$23
+		; N ($0E)
+		!byte $1F,$33,$33,$33
+		; O ($0F)
+		!byte $1E,$33,$33,$1E
+		; P ($10)
+		!byte $1F,$33,$1F,$03
+		; Q ($11)
+		!byte $1E,$33,$3B,$3E
+		; R ($12)
+		!byte $1F,$33,$1F,$33
+		; S ($13)
+		!byte $06,$1C,$30,$1F
+		; T ($14)
+		!byte $3F,$0C,$0C,$0C
+		; U ($15)
+		!byte $33,$33,$33,$1E
+		; V ($16)
+		!byte $33,$33,$1E,$0C
+		; W ($17) 
+		!byte $23,$2B,$2B,$3E
+		; X ($18)
+		!byte $33,$1E,$33,$33
+		; Y ($19)
+		!byte $33,$1E,$0C,$0C
+		; Z ($1A)
+		!byte $3F,$1C,$0E,$3F
+		; . ($1B)
+		!byte $00,$00,$0C,$0C
+		; , ($1C)
+		!byte $00,$00,$18,$0C
+		; ' ($1D)
+		!byte $18,$0C,$00,$00
+		; ! ($1E)
+		!byte $0C,$0C,$00,$0C
+		; ? ($1F)
+		!byte $3E,$32,$00,$18
+		; ( ($20)
+		!byte $18,$0C,$0C,$18
+		; ) ($21)
+		!byte $0C,$18,$18,$0C
+		; 0 ($22)
+		!byte $3F,$33,$33,$3F
+		; 1 ($23)
+		!byte $1E,$1C,$1C,$1C
+		; 2 ($24)
+		!byte $3F,$3C,$07,$3F
+		; 3 ($25)
+		!byte $1F,$3E,$30,$1F
+		; 4 ($26)
+		!byte $03,$1B,$3F,$18
+		; 5 ($27)
+		!byte $3F,$07,$38,$3F
+		; 6 ($28)
+		!byte $3E,$0F,$33,$3E
+		; 7 ($29)
+		!byte $1F,$38,$1E,$0C
+		; 8 ($2A)
+		!byte $3E,$37,$3B,$1F
+		; 9 ($2B)
+		!byte $1F,$33,$3C,$1F
+		; : ($2C)
+		!byte $00,$0C,$00,$0C
+		; - ($2D)
+		!byte $00,$00,$3E,$00
+		; * ($2E)
+		!byte $00,$1C,$3E,$1C
+
+; scroll HGR2
+
+!convtab "specialtxt.bin" {
+String2HGR
+		!fill 40," "			; 40 zero au debut (00 = espace, 01 = A)
+		!Text "I THINK IT'S TIME TO PAY TRIBUTE TO THE EIGHTIES' FRENCH TOUCH. HERE COMES THE HALL OF FAME WITH ALL (I HOPE) THE BEST FRENCH GROUPS AND ACTIVE MEMBERS OF THIS TIME ON OUR FAVORITE MACHINE. WHAT BETTER TO ILLUSTRATE THIS TRIBUTE THEN USING THE MOST SPREAD OUT AND PROBABLY THE FIRST EFFECT PROGRAMMED FOR CRACKTROS AT THIS GLORIOUS TIME: THE HORIZONTAL SCROLLING! THIS VENERABLE YET BEAUTIFUL ANCESTOR REMAINS. BUT NOWADAYS THE FRENCH TOUCH ADDED: SUPER MIXED MODE, SINUS SCROLLS AND MORE... YOU'D BETTER HAVE CYCLES ACCURATE EMULATOR... OR REAL MACHINE!"
+		!byte $FF				; fin de texte !	 
+}
+
+
+!align 255,0
+TCar2HGR 				; SCROLL 2 (rectiligne) HGR
+		; Espace
+		!byte 0,0,0,0,0
+		; A
+        !byte  $3e, $33, $33, $33, $7e
+        ; B
+        !byte  $3, $1f, $33, $33, $1f
+        ; C
+        !byte  $1e, $33, $3, $33, $1e
+        ; D
+        !byte  $30, $3e, $33, $33, $3e
+        ; E
+        !byte  $1e, $33, $3f, $3, $3e
+        ; F
+        !byte  $1e, $33, $3, $f, $3
+        ; G
+        !byte  $1e, $33, $3e, $30, $1e
+        ; H
+        !byte  $3, $1f, $33, $33, $33
+        ; I
+        !byte  $c, $0, $c, $c, $1c
+        ; J
+        !byte  $18, $0, $18, $18, $e
+        ; K
+        ;!byte  $3, $f, $1b, $1f, $33
+        !byte $03,$1F,$33,$1F,$33
+        ; L
+        !byte  $3, $3, $3, $7, $3e
+        ; M
+        !byte  $1e, $3f, $35, $35, $35
+        ; N
+        !byte  $1f, $3f, $33, $33, $33
+        ; O
+        !byte  $1e, $33, $33, $33, $1e
+        ; P
+        !byte  $1e, $33, $33, $1f, $3
+        ; Q
+        !byte  $1e, $33, $33, $3e, $30
+        ; R
+        ;!byte  $1f, $33, $33, $1f, $33
+        ;!byte $1c, $3e, $06, $06, $06
+        ;!byte $3c, $3e, $03, $03, $03
+        !byte $00, $3e, $07, $03, $03
+        ; S
+        !byte  $3e, $3, $1e, $30, $1f
+        ; T
+        !byte  $3, $1f, $3, $3, $3e
+        ; U
+        !byte  $00, $33, $33, $33, $7f
+        ; V
+        ;!byte  $33, $33, $37, $3e, $3c
+		!byte $33,$33,$3B,$1E,$0E
+        ; W
+        !byte  $31, $35, $35, $3f, $1e
+        ; X
+        !byte  $33, $1e, $c, $1e, $33
+        ; Y
+        !byte  $33, $33, $3e, $30, $1f
+        ; Z
+        !byte  $3f, $30, $1e, $3, $3f
+        ; .
+        !byte  $0, $0, $0, $c, $c
+        ; ,
+        !byte  $0, $0, $0, $18, $c
+        ; '
+        !byte  $18, $c, $0, $0, $0
+        ; !
+        !byte  $c, $c, $c, $0, $c
+        ; ?
+        !byte  $1c, $30, $1c, $0, $c
+        ; (
+        !byte  $18, $c, $c, $c, $18
+        ; )
+        !byte  $c, $18, $18, $18, $c
+        ; 0
+        !byte  $7f, $63, $6b, $63, $7f
+        ; 1
+        !byte  $18, $1c, $18, $18, $3c
+        ; 2
+        !byte  $3f, $60, $7f, $3, $7f
+        ; 3
+        !byte  $3e, $61, $7c, $61, $3e
+        ; 4
+        !byte  $2, $1b, $1b, $7f, $18
+        ; 5
+        !byte  $7f, $3, $3f, $70, $3f
+        ; 6
+        !byte  $3c, $6, $3f, $63, $3e
+        ; 7
+        !byte  $3e, $70, $3c, $18, $18
+        ; 8
+        !byte  $3e, $63, $7f, $63, $3e
+        ; 9
+        !byte  $3e, $63, $7e, $60, $3f
+        ; :
+        !byte  $0, $0, $c, $0, $c
+        ; -
+        !byte  $0, $0, $1c, $0, $0
+		
+		
+!align 255,0
+	
+DECALLAGE 	!byte $0, $0, $1, $1, $2, $2, $3, $3, $4, $4, $5, $5, $6, $6, $7, $7
+			!byte $8, $8, $9, $9, $a, $a, $b, $b, $c, $c, $d, $d, $e, $e, $f, $f 
+			!byte $10, $10, $11, $11, $12, $12, $13, $13, $14, $14, $15, $15, $16, $16, $17, $17
+			!byte $18, $18, $19, $19, $1a, $1a, $1b, $1b, $1c, $1c, $1d, $1d, $1e, $1e, $1f, $1f
+			!byte $20, $20, $21, $21, $22, $22, $23, $23, $24, $24, $25, $25, $26, $26, $27, $27
+			!byte $28, $28, $29, $29, $2a, $2a, $2b, $2b, $2c, $2c, $2d, $2d, $2e, $2e, $2f, $2f
+			!byte $30, $30, $31, $31, $32, $32, $33, $33, $34, $34, $35, $35, $36, $36, $37, $37
+			!byte $38, $38, $39, $39, $3a, $3a, $3b, $3b, $3c, $3c, $3d, $3d, $3e, $3e, $3f, $3f
+			
+
+
+DECALBIT 	!byte $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40
+			!byte $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40
+			!byte $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40
+			!byte $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40
+			!byte $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40
+			!byte $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40
+			!byte $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40
+			!byte $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40, $0, $40
+			
+!convtab "specialtxt.bin" {
+StringHGR
+		!fill 80," "
+		!byte $FE 				; fin des espaces                                       			
+StringHGRP2
+		!Text "FF59 CONNEXION * AGENCE FRANCAISE DE PIRATAGE * APPLE CHEMICAL SOFTWARE * ALIEN CRACKING SOFTWARE * ASSOCIATION OF BROADCASTING CRACKERS * ARTISTES ASSOCIES * BABY CRACK GANG * BANK OF PIRATED SOFTWARE * BINARY CRACK BAND * THE BRAIN TRUST * LES BRIGADES D'OEUVRES OBSCURES * BRUTAL DELUXE * CDC * CLEAN CRACK BAND * COPYART CORPORATION * COCHONOU CRACK BAND * CRACKING ELITE SOFTWARE * CRACK MONSTER BAND * LES CRACKERS BELIN * CRACK BOOM UUH * CTHULHU MYTHOS SOFTWARE * DEFCON 4 * ELITE CRACK BAND * ELEMENTAL POWER * FREE TOOL ASSOCIATION * FRENCH UNION NETWORK * FRENCH UNITED CRACKERS KLAN * GS ALLIANCE * HACKERFORCE * HELLFIRE CLUB * THE HIGLANDERS TEAM * LAMBORGHINI TEAM * LYON'S GANG * MAJOLAN'S ASSOCIATES * MASTERS CRACKING SERVICE * MV GANG * ONCE PRODUCT * PHOENIX CORPORATION * RAMBO PIRAT CRACK BAND * SERGENT CLAUDE * SOLEX CRACK BAND * SPARTACUS CRACK BAND * SPY NETWORK * THE VILLAGE * THIEVES OF DESTINY * TROLL AND CO * VISUAL EYES * THE WARRIORS OF DESTINY * WORLD OPERATION FOR PIRATING REVOLUTION * ZE ENFOIRES * "
+		!byte $FF				; fin de texte !	 
+}
+
+TSaveBit4	!byte 00,00,00,00,00,00
+
+!align 255,0
+Scroll4L1 !byte 0x0, 0xfe, 0xf1, 0x8f, 0xbf, 0xf8, 0xc7, 0x83, 0x9c, 0x0, 0x0, 0xfc, 0xe3, 0x9f, 0xfe, 0xf0, 0x8f, 0x87, 0xb8, 0x0, 0x80, 0xf8, 0xc7, 0xbf, 0xfc, 0xe1, 0x9f, 0x8e, 0xf0, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0
+Scroll4L2 !byte 0x80, 0xfe, 0xf1, 0x8f, 0xff, 0xf8, 0xc7, 0x83, 0x9c, 0x80, 0x80, 0xfc, 0xe3, 0x9f, 0xfe, 0xf1, 0x8f, 0x87, 0xb8, 0x80, 0x80, 0xf8, 0xc7, 0xbf, 0xfc, 0xe3, 0x9f, 0x8e, 0xf0, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0
+Scroll4L3 !byte 0x80, 0x8e, 0xf0, 0x80, 0xe3, 0x98, 0xc0, 0x83, 0x9c, 0x80, 0x80, 0x9c, 0xe0, 0x81, 0xc6, 0xb1, 0x80, 0x87, 0xb8, 0x80, 0x0, 0xb8, 0xc0, 0x83, 0x8c, 0xe3, 0x80, 0x8e, 0xf0, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0
+Scroll4L4 !byte 0x80, 0xee, 0xf1, 0x80, 0xbf, 0x98, 0xc6, 0x83, 0x9c, 0x80, 0x80, 0xdc, 0xe3, 0x81, 0xfe, 0xb0, 0x8c, 0x87, 0xb8, 0x80, 0x80, 0xb8, 0xc7, 0x83, 0xfc, 0xe1, 0x98, 0x8e, 0xf0, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0
+
+!align 255,0
+Scroll4L5 !byte 0x80, 0xe0, 0x81, 0x80, 0x80, 0x80, 0x86, 0x80, 0x80, 0x80, 0x80, 0xc0, 0x83, 0x80, 0x80, 0x80, 0x8c, 0x80, 0x80, 0x80, 0x80, 0x80, 0x87, 0x80, 0x80, 0x80, 0x98, 0x80, 0x80, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0
+Scroll4L6 !byte 0x80, 0xfe, 0xf1, 0x8f, 0xf3, 0xf8, 0xc7, 0xbf, 0xfc, 0x83, 0x80, 0xfc, 0xe3, 0x9f, 0xe6, 0xf1, 0x8f, 0xff, 0xf8, 0x87, 0x80, 0xf8, 0xc7, 0xbf, 0xcc, 0xe3, 0x9f, 0xfe, 0xf1, 0x8f, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0
+; -----------------------------------------------------------------------------
+!convtab "specialtxt.bin" {
+String3HGR
+		!fill 80," "			; 40 zero au debut (00 = espace, 01 = A)
+		!byte $FE
+String3HGRP2
+		!Text "ADAM * ADAN * AELGOR * ALDO RESET * THE ALIEN * ANIBAL GS * ANTIC'S * APPLE SEED * THE ARTIST * B. CAPSLOCK * BANDIT II * BELPHEGOR * BERU * BKI * THE BLACK WIZARD * BOB SHIP * BONES * BRIAN MOEBIUS * CAPTAIN CRACK * CETOINE * CHARLIE DOS * CHIP SELECT * CHRIS * CHPI * COCA * COPPERFIELD * THE COUGAR * DAG MENTAR * DANY SECTOR * DARKNESS * DARK WIZARD * DAVID MICROCOSM * THE DEAD MAN * DECKARD * DENY * DERF * DIABOLIK * DIGITAL X * DOM * DONALD * EDDIE HAWK * EINSTEIN 2 * EL MATHOS * ELRIK * ERIC IRQ * FALKEN * FEROX * GANDALF * GOLD GS * THE GOG'S * GODFATHER * GOLDPOM * HACKER CROLL * JB ART * JIMBO FARRAR * JOJO * THE JOKERSOFT * JPL * THE KID * KRISTO * LAURENT RUEIL * LO44 * LOGO * LOT * THE LONESOME * LOOCKHEED * THE LUCK JIM * LUKE SKYWALKER * LUCKY PROCESS * M1 * THE MAD MECHANIC * MAX A GAZ * MAX HEADROOM * MERLIN * MISTER DD * MISTER Z * MK V * THE MONZ * MR. CYRUS * MR. SEB * MV CAMILLO * THE NEWSRUNNER * NIBBLE * NUMERO 6 * OLIVER TWIST * OPAL * P. POWER * PAD * PAT PADDLE * PATCHMAN * PAUL * PERFECT BUG * PYTHAGORE * QTIPS * RAT * RICHARD SHIFT * RICHIE * SAM * LE SHADOCK * SHARP * SHEHERAZADE * SHYRKAN * THE SILICONMAN * SILK * THE SOFTMAN * SPK * SPHINX * STEPHEN SNOOPER * SUPER HACKER * TEASER * TETARD * TIGER * TONY NMI * TSUNOO * TYM * THE WILDMAN * WILLIAM COMTE * THE WHITE MAN * YOG SOTHOTH * ZARDOS * ZORRO * "
+		!byte $FF				; fin de texte !	 
+}

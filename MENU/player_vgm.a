@@ -1,0 +1,149 @@
+; French Touch framework
+; (c) Cyril Lambin, Grouik (French Touch)
+
+;  This program is free software: you can redistribute it and/or modify
+;  it under the terms of the GNU Affero General Public License as
+;  published by the Free Software Foundation, either version 3 of the
+;  License, or (at your option) any later version.
+;
+;  This program is distributed in the hope that it will be useful,
+;  but WITHOUT ANY WARRANTY; without even the implied warranty of
+;  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;  GNU Affero General Public License for more details.
+;
+;  You should have received a copy of the GNU Affero General Public License
+;  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+; ====================================================================================
+; VGM 1.71 player
+;
+; by Fenarinarsa/FRENCH TOUCH
+; 
+; Very simple player, works for 1 or 2 AYs, Mockingboard in slot #4 mandatory
+; The VGM file format is not optimized for size but for versatility
+; so we use it only to debug not for the final version.
+;
+
+
+!cpu 6502
+
+!source "../sysconst.a"
+!source "../macros.a"
+;!source "boot/setup.a"
+
+PlayPtr		= $78 ;16b
+Register		= $7A
+Value		= $7B		
+
+VGM_DATA		= $6000+$34+$E1
+
+	* = $F000
+
+PLAYER
+	JMP PLAYER_VGM
+	JMP PLAYER_VGM_INIT
+	JMP PLAYER_YMRESET
+
+PLAYER_VGM_INIT
+	JSR PLAYER_YMRESET
+
+	+set_ptr VGM_DATA,PlayPtr
+
+	RTS
+
+PLAYER_YMRESET
+!zone
+	LDA #$FF
+	STA $C403
+	STA $C483
+    	LDA #$07
+          STA $C402
+          STA $C482
+
+	LDA #$00
+	STA $C400
+	STA $C480
+	LDA #$04
+	STA $C400
+	STA $C480
+	RTS
+
+
+
+; =============================================================================
+PLAYER_VGM
+!zone
+	!zone psg
+	STA _RAMRDaux
+
+	LDY #0
+	STY .end+1
+.start	LDY .end+1
+	LDA (PlayPtr),Y
+	CMP #$62
+	BEQ .end
+	CMP #$63
+	BEQ .end
+	CMP #$66
+	BNE +
+	+set_ptr VGM_DATA,PlayPtr
+	JMP .start
++	CMP #$A0
+	BNE *		; bad command
+	INY
+	LDA (PlayPtr),Y
+	STA Register
+	INY
+	LDA (PlayPtr),Y
+	STA Value	
+	INY
+	STY .end+1
+	JSR SetRegister
+	JMP .start
+.end	LDY #0
+	INY
+	TYA
+	CLC
+	ADC PlayPtr
+	BCC +
+	INC PlayPtr+1
++	STA PlayPtr
+	STA _RAMRDmain
+	RTS
+
+SetRegister
+	LDX #$04
+	LDA Register
+	BMI AY2
+
+	STA $C401			; ORA1 (data)
+	LDA Value
+	LDY #$07			; Set fct "Set PSG Reg #"
+	STY $C400			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $C400			; ORB1 (fct)
+	STA $C401			; ORA1 (data)
+	LDY #$06			; Set fct "Write DATA"
+	STY $C400			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $C400			; ORB1 (fct)
+	RTS
+
+AY2
+	AND #$0F
+	STA $C481			; ORA1 (data)
+	LDA Value
+	LDY #$07			; Set fct "Set PSG Reg #"
+	STY $C480			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $C480			; ORB1 (fct)
+	STA $C481			; ORA1 (data)
+	LDY #$06			; Set fct "Write DATA"
+	STY $C480			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $C480			; ORB1 (fct)
+	RTS
+
+
+
+EO_PLAYER

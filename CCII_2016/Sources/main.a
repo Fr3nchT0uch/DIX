@@ -1,0 +1,1384 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; CRAZY CYCLES 2
+; version 0.05
+
+; 0.05 	= ajout fin
+; 0.041 = ajout intro
+; 0.03 	= mise en sous routine du chargement des PART (pour gagner de la place)
+; 0.02 	= correction PLAYER (ne tenait pas compte offset Markers) 
+; 0.01 	= premi�re version TEST
+
+; taille MAXI = 9 secteurs soit 9 * 256 = 2304 octets
+
+; A FAIRE : REORGANISER LE MAIN pour "combler" l'espace g�n�r� par !align 255,0
+
+!convtab "a2txt.bin" ; 
+!sl "mainlabel.a"
+!source "../../sysconst.a"
+!source "../../macros.a"
+
+DEBUG = 0
+
+; INCLUDE
+
+	*= $F100 ; ORG = $F100 (RAM Langage Card)
+
+; PSEUDO CATALOG Track/SectorDebut-Track/SectorFin (inclus)
+
+; T00/S00 			: BOOT0	($800) x1
+; T00/S01-S09 		: MAIN	($F100) x8
+; T00/S0A-S0F		: FLOAD ($FA00) x6
+
+; PART I
+; T01/S00 - T01/S03	: SCREEN PART I 	- MAIN 	($0400)	(04)
+; T01/S04 - T01/S07 : SCREEN PART I		- AUX	($0400)	(04)
+; T01/S08 - T01/S0E : ZIC PART I 		- MAIN	($8000)	(07)
+; T02/S00 - T05/S0F : 2 HGRs			- MAIN 	($2000)	(64)
+; T06/S00 - T08/S0D : CODE				- MAIN	($6000) (46)
+
+PART1_SCREENMAIN_BLOCK = 1
+PART1_SCREENAUX_BLOCK = 1
+PART1_ZIC_BLOCK = 1
+PART1_2HGR_BLOCK = 1
+PART1_MAIN = 1
+
+; PART II
+; T09/S00 - T09/S03	: SCREEN PART II 	- MAIN 	($0400)	(04)
+; T09/S04 - T09/S07 : SCREEN PART II	- AUX	($0400)	(04)
+; T09/S08 - T09/S0E : ZIC PART II 		- MAIN	($8000)	(07)
+; T0A/S00 - T0B/S0F : HGR				- MAIN 	($2000)	(32)
+; T0C/S00 - T0D/S08 : CODE				- MAIN	($4000) (25)
+
+; PART III
+; T0E/S00 - T0E/S03	: SCREEN PART III 	- MAIN 	($0400)	(04)
+; T0E/S04 - T0E/S07 : SCREEN PART III	- AUX	($0400)	(04)
+; T0E/S08 - T0E/S0C : ZIC PART III 		- MAIN	($8000)	(05)
+; T0F/S00 - T12/S0F : 2 HGRs			- MAIN 	($2000)	(64)
+; T13/S00 - T14/S03 : CODE				- MAIN	($6000) (20)
+
+; PART IV
+; T15/S00 - T15/S03	: SCREEN PART IV 	- MAIN 	($0400)	(04)
+; T15/S04 - T15/S07 : SCREEN PART IV	- AUX	($0400)	(04)
+; T15/S08 - T15/S0F : ZIC PART IV 		- MAIN	($8000)	(08)
+; T16/S00 - T19/S0F : 2 HGRs			- MAIN 	($2000)	(64)
+; T1A/S00 - T1A/S0D : CODE				- MAIN	($6000) (14)
+
+; CONSTANTES SYSTEME ===================
+;VERTBLANK	 		= $C019	;
+
+; CONSTANTES PROGRAMME =================
+DATADECOMP			= $800		; AUX
+
+; SOUS-ROUTINES BOOT0
+EXECFROMBOOT2  		= $857 	; sous routine de d�tection type APPLE II (utilise ROM)
+
+; SOUS-ROUTINES PROGRAMMES EXTERNES
+HYPLOD				= $FA00	; routine Fast Load
+
+PART1				= $6000
+PART2				= $4000
+PART3				= $6000
+PART4				= $6000
+
+
+
+;======PARAMETRES DU FAST LOAD
+                        ;-PARAMETRES D'ENTREE
+; PISDEP   =   $30       ;PISTE DE DEPART
+; SECDEP   =   $31       ;SECTEUR DE DEPART
+; BUFFER   =   $32       ;ADRESSE OU L'ON CHARGE
+; TOTSEC   =   $34       ;TOTAL DES SECTEURS A CHARGER
+                        
+;                         ;-PARAMETRES SORTIE
+;                           ;-PARAMETRES DE SORTIE
+; ERRNUM   =   $35       ;CODE ERREUR
+; SECERR   =   $36       ;SECTEUR OU S'EST PRODUIT L'ERREUR (S'IL Y EN A UN!)
+; PISERR   =   $37       ;PISTE IDEM
+
+; PAGE ZERO ===========================
+; adresses fixes
+;
+; system
+bSLOT	= $02
+bMachine 	= $0A	; byte MACHINE ($7F/IIE | $FF/GS)
+bRefresh	= $0B	; byte type NTSC/60Hz - PAL/50Hz (00 = 50HZ | 01 = 60 HZ)
+
+MB_BASEADDR = $10
+
+OUT1		= $20 ; +$25
+OUT2		= $22 ; +$27
+
+Mark		= $24
+; -------------------------------------
+LIGNE		= $40
+HAUTEUR		= $41
+FirstBlockToRead	= $E8 ;16b
+MusicLength	= $EA
+HGRandCodeLength	= $EB
+
+SP_DEVICE = $43
+SP_DEST = $44
+SP_BLOCK = $46
+
+Temp		= $6F
+
+
+; F4~FE MUTUAL INTs
+DISPLAYSYNC	= $F4
+VSYNC		= $F5
+T2Timing		= $F6
+WaitSyncPTR	= $F8
+WaitDisplayPTR	= $FA
+T1RoutPTR		= $FC  ;16b
+T2SyncCodePTR 	= $FE   ;16b
+
+; -------------------------------------
+; adresses P0 r�utilisables
+;
+; d�compression LZ4
+Tmp			= $D6
+token		= $D7 
+dest		= $D8	; + $F9
+src1		= $DA	; + $FB
+src2 		= $DC  	; + $FD
+lenL		= $DE 
+lenH		= $DF
+; -------------------------------------
+;	======== DEBUT PROGRAMME =========
+START	
+ 	JMP DETECTREFRESH
+	JMP PLAYERYM
+ 		
+DEBUT2				
+!zone 				 
+ 		 ; ========= DETECT REFRESH ===========
+DETECTREFRESH
+!zone
+	LDA #' '
+	JSR FILL_TEXT
+	SEI
+	; setup Smartport
+	LDA bSLOT
+	STA READ_FILE+1
+	LSR
+	LSR
+	LSR
+	LSR
+	ORA #$C0
+	STA modread+2
+
+	; setup T1/T2
+	; LDA #<TIMER_HANDLER
+	; STA $FFFE
+	; LDA #>TIMER_HANDLER
+	; STA $FFFF
+
+
+	LDA #0
+	STA T2SyncCodePTR+1
+	STA T1RoutPTR+1
+
+
+	; LDA #%11100000      	; Enable T1+T2
+	; LDY #$0E
+	; STA (MB_BASEADDR),Y           ; Interrupt Enable Register
+	; LDY #$04
+	; LDA (MB_BASEADDR),Y 	; clear T1 IFR
+	; LDY #$08
+	; LDA (MB_BASEADDR),Y 	; clear T2 IFR
+	CLI
+
+	STA _HIRESon
+
+
+ 	JSR WAIT_VSYNC
+
+
+; -------------------------------------
+ 	
+; =============================================================================
+INTRO
+!zone
+; affichage message intro
+
+	;	JSR WAIT_VSYNC
+	+print_debugtop 'A'
+		LDX #11
+.b1		LDA Title1,X
+		STA $528+14,X
+		DEX
+		BPL .b1
+		
+		LDX #15
+		JSR WAITIIE
+		
+		JSR WAIT_VSYNC
+		
+		LDX #11
+.b2		LDA Title2,X
+		STA $6A8+14,X
+		DEX
+		BPL .b2
+; -----------------------------------------------------------------------------
+; effacement PAGE 1 HIRES
+		LDX #32
+		LDY #00
+		LDA #$FF
+.bc1	STA $2000,Y
+		DEY
+		BNE .bc1
+		INC .bc1+2
+		DEX
+		BNE .bc1
+	+print_debugtop 'B'
+		LDX #10
+		JSR WAITIIE
+	+print_debugtop 'C'
+; -------------------------------------
+TRANS_INTRO					; transition VBL entre TEXT et HIRES
+!zone 
+	LDA #00              
+	STA LIGNE           
+	LDA #189               
+	STA HAUTEUR          
+
+	JSR WAIT_VSYNC	
+.BP                 
+
+	INC LIGNE
+	LDA LIGNE
+	CMP #95           
+	BEQ .FIN              
+	DEC HAUTEUR          
+	DEC HAUTEUR          
+		
+	JSR WAIT_DISPLAY
+
+	INC $200
+	INC $200
+	INC $200
+	INC $200
+	INC $200
+	INC $200
+	INC $200
+	INC $200
+
+;	LDY #120		; 120 = PAL / 70 = NTSC
+;	JSR WAIT
+
+	STA $C050 
+	LDY LIGNE	
+	JSR WAIT
+
+	STA $C051 
+	LDY HAUTEUR
+	JSR WAIT
+
+	STA $C050
+
+	JMP .BP								
+                         
+.FIN 	
+					
+; -------------------------------------                         
+SUITE
+!zone	
+	+print_debugtop 'D'
+		LDX #11
+.b3		LDA Title3,X
+		STA $528+14,X
+		DEX
+		BPL .b3
+
+		LDX #11
+.b4		LDA Title4,X
+		STA $6A8+14,X
+		DEX
+		BPL .b4
+; -------------------------------------
+		JSR TRANS_INTRO2
+	STA _TEXTon
+		
+; effacement2 PAGE 1 HIRES
+		LDX #32
+		LDY #00
+		TYA
+.bc1	STA $2000,Y
+		DEY
+		BNE .bc1
+		INC .bc1+2
+		DEX
+		BNE .bc1
+		
+		LDX #10
+		JSR WAITIIE
+
+; =============================================================================
+.INITMB		
+		; PREMIER init MB (OUT1/OUT2)
+		LDA   	#$FF
+		LDY	  	#$03
+		STA 	(MB_BASEADDR),Y	; STA   $C403		; DDRA1
+		LDY 	#$83
+		STA 	(MB_BASEADDR),Y	; STA   $C483		; DDRA2
+		LDA   	#$07
+		LDY 	#$02
+		STA		(MB_BASEADDR),Y	; STA   $C402		; DDRB1
+		LDY 	#$82
+		STA		(MB_BASEADDR),Y	; STA   $C482		; DDRB2
+
+		LDA 	OUT2+1
+		STA		OUT1+1		;
+		LDA 	#01
+		STA 	OUT1
+	;JMP PARTIE_IV
+; =============================================================================
+PARTIE_I
+!zone
+	+print_debugtop 'E'
+		JSR WAIT_VSYNC
+
+		; on passe en mode HIRES pour le chargement
+		LDA $C057
+		LDA $C050	
+
+; =============================================================================
+; CHARGEMENT PARTIE I
+	SEI
+
+	;JMP *
+	+set_ptr 640, FirstBlockToRead
+	LDA #4		; music length
+	STA MusicLength
+	LDA #32+25	; HGR + code length
+	STA HGRandCodeLength	
+
+	+print_debugtop 'F'
+	JSR LOADPART
+
+	+print_debugtop '0'	
+		 		
+
+
+		JSR RESETMOCKIN
+	+print_debugtop '1'	
+		; ---
+		; =============================
+	;STA _AN3on
+	;STA _HIRESon
+	;STA _TEXToff
+	JSR PART1
+	LDA #0
+	STA T1RoutPTR+1
+	STA T2SyncCodePTR+1	
+	LDA $C057
+	LDA $C054
+	JSR RESETMOCKIN
+; =============================================================================	
+PARTIE_II
+!zone
+	SEI
+	+set_ptr 703, FirstBlockToRead
+		LDA #4		; music length
+		STA MusicLength
+		LDA #16+13	; HGR + code length
+		STA HGRandCodeLength			
+		JSR LOADPART					
+		JSR RESTOREOFF
+		JSR PART2
+		LDA #0
+		STA T1RoutPTR+1
+		STA T2SyncCodePTR+1
+		JSR RESETMOCKIN
+
+; =============================================================================	
+PARTIE_III
+!zone
+	SEI
+	+set_ptr 740, FirstBlockToRead
+		LDA #3
+		STA MusicLength
+		LDA #32+10
+		STA HGRandCodeLength			
+		JSR LOADPART			
+		JSR RESTOREOFF
+		JSR PART3
+		LDA #0
+		STA T1RoutPTR+1
+		STA T2SyncCodePTR+1
+		LDA $C054
+		JSR RESETMOCKIN
+; =============================================================================	
+PARTIE_IV
+!zone
+	SEI
+	+set_ptr 789, FirstBlockToRead
+
+		LDA #4
+		STA MusicLength
+		LDA #32+7
+		STA HGRandCodeLength			
+		JSR LOADPART
+		JSR RESTOREOFF
+		JSR PART4
+		LDA #0
+		STA T1RoutPTR+1
+		STA T2SyncCodePTR+1
+		LDA $C054			; page1
+		JSR RESETMOCKIN
+; =============================================================================			
+	CLI	
+		; effacement PAGE 1 TEXT
+	LDA #' '
+	JSR FILL_TEXT
+; 		LDX #4
+; 		LDY #00
+; 		LDA #$A0
+; .bc1	STA $400,Y
+; 		DEY
+; 		BNE .bc1
+; 		INC .bc1+2
+; 		DEX
+; 		BNE .bc1
+
+		JSR WAIT_VSYNC
+		LDX #39
+.be		LDA End,X
+		STA $5A8,X
+		DEX
+		BPL .be
+
+		JSR TRANS_INTRO2
+	LDA _TEXTon
+
+	LDX #100
+-	JSR WAIT_VSYNC
+	DEX
+	BNE -
+
+; 		STA $C010
+; .bk		LDA $C000
+; 		BPL .bk
+	SEI
+	RTS
+		; reboot !
+		; LDA #$8D
+		; STA $300
+		; LDA #$82
+		; STA $301
+		; LDA #$C0
+		; STA $302
+		; LDA #$4C
+		; STA $303
+		; LDA #$62
+		; STA $304
+		; LDA #$FA
+		; STA $305		
+		; JMP $300
+; =============================================================================
+; =============================================================================
+; SOUS ROUTINES
+; =============================================================================
+LOADPART
+!zone
+; =============================================================================
+; CHARGEMENT SCREEN LORES 
+
+		; === CHARGEMENTS =====
+		; MAIN
+	SEI
+	LDA #0
+	STA SP_BLOCK+1
+	STA SP_BLOCKS2READ+1
+	STA SP_DEST
+
+	LDA FirstBlockToRead
+	STA SP_BLOCK
+	LDA FirstBlockToRead+1
+	STA SP_BLOCK+1
+	LDA #4
+	STA SP_BLOCKS2READ
+	LDA #$B4
+	STA SP_DEST+1
+	+print_debugtop 'G'
+	JSR READ_FILE
+
+	+print_debugtop 'H'
+
+	; Screen holes must be preserved for Smartport
+	; (emulators don't care but the real Apple IIs do)
+	LDX #$77
+-	LDA $B400,X
+	STA $400,X
+	LDA $B500,X
+	STA $500,X
+	LDA $B600,X
+	STA $600,X
+	LDA $B700,X
+	STA $700,X
+	DEX
+	BPL -
+
+	LDX #$F7
+-	LDA $B400,X
+	STA $400,X
+	LDA $B500,X
+	STA $500,X
+	LDA $B600,X
+	STA $600,X
+	LDA $B700,X
+	STA $700,X
+	DEX
+	BMI -
+
+	; STA _80STOREoff		; 80STOREOFF
+	; STA _RAMRDmain		; read MAIN Memory
+	; STA _RAMWRTaux 		; write AUX Memory
+	; STA _ALTZPoff		; zero Page = Main (+ $FXXX MAIN)
+
+	STA _80STOREon
+	STA _PAGE2on
+
+	; copy to AUX
+	LDX #0
+-	LDA $B800,X
+	STA $400,X
+	LDA $B900,X
+	STA $500,X
+	LDA $BA00,X
+	STA $600,X
+	LDA $BB00,X
+	STA $700,X
+	DEX
+	BNE -
+
+	STA _PAGE2off
+	STA _80STOREoff
+
+
+	;STA _RAMWRTmain		; restore write MAIN Memory
+
+	+print_debugtop 'I'
+;	CLI
+;		JSR WAIT_VSYNC
+;	SEI	
+	STA _TEXToff
+	STA _80COLon			; 80 colonnes
+	STA _AN3off			; SETAN3 / DHGR
+	LDA _HIRESoff		; LORES
+		;STA _TEXTon
+
+; =============================================================================
+; chargement ZIC
+	;INC SP_BLOCK
+	;INC SP_BLOCK
+.zic	LDA MusicLength
+	STA SP_BLOCKS2READ
+	LDA #$80
+	STA SP_DEST+1
+	+print_debugtop 'J'
+	JSR READ_FILE
+
+		; LDA FirstBlockToRead
+		; STA PISDEP			; piste 
+ 		; LDA #08
+ 		; STA SECDEP			; secteur 08
+		; LDA #00
+		; STA BUFFER
+ 		; LDA #$80			; buffer -> $8000
+		; STA BUFFER+1
+		; LDA #08				; nb secteurs (5, 7 ou 8 - on lit 8 sectors � chaque fois)
+		; STA TOTSEC		
+		; JSR HYPLOD			; chargement !
+
+; =============================================================================
+; DECOMPRESSION MUSIC
+; =============================================================================			
+		
+	+print_debugtop 'K'
+	LDA #$80
+		JSR DECOMP
+	STA _RAMWRTmain			; restore write MAIN Memory
+	;STA _TEXTon
+; =============================================================================			 		
+ 		; chargement HGR(s) + CODE 
+	+print_debugtop 'L'
+	LDA HGRandCodeLength
+	STA SP_BLOCKS2READ
+	LDA #$20
+	STA SP_DEST+1
+	JSR READ_FILE
+	+print_debugtop 'M'
+
+	RTS
+
+READ_FILE
+	LDX #05	; slot
+modread	JSR $C50A      ; read 1 block
+	INC SP_BLOCK         ; next block
+	BNE +
+	INC SP_BLOCK+1  
++	INC SP_DEST+1         ; RAM +512 bytes
+	INC SP_DEST+1
+	DEC SP_BLOCKS2READ
+	BNE READ_FILE
+	RTS
+
+SP_BLOCKS2READ
+	!byte 16        ; nb of 512 bytes blocks to read
+
+; -------------------------------------
+DECOMP
+!zone
+; routine de d�compression LZ4
+; code: XXL and FOX (from Atari Scene)
+; modified: FT
+;
+; dans A - partie haute adresse data compress�es
+ 
+; init
+
+		LDA #$80
+		STA src2+1					
+		LDA #$00					; commence en $00
+		STA src2
+		LDA #<DATADECOMP
+		STA dest
+		LDA #>DATADECOMP
+		STA dest+1
+		
+		LDY #0
+		STY lenH
+		STY lenL	
+
+; init m�moire
+		
+		STA $C000			; 80STOREOFF
+		STA $C002			; read MAIN Memory
+		STA $C005 			; write AUX Memory
+		STA $C008			; zero Page = Main
+
+; -------------------------------------
+; d�comp LZ4 routine
+; -------------------------------------				
+.BP
+             		jsr   	.GET_BYTE                  
+                  	sta    	token
+               		lsr
+               		lsr
+               		lsr
+               		lsr
+                  	beq    	.read_offset                     ; there is no literal
+                  	cmp    	#$0f
+                  	jsr    	.getLength
+                  	
+.b_literals         jsr    	.GET_BYTE
+                  	jsr    	.store
+                  	bne    	.b_literals
+                  	
+.read_offset       	jsr    	.GET_BYTE		; offset L
+                  	tax
+                  	sec
+                  	eor    	#$ff
+                  	adc    	dest
+                  	sta    	src1
+                  	txa
+                  	php							
+                  	jsr    	.GET_BYTE		; offset H
+                  	plp
+                  	bne    	.not_done
+                  	tax
+                  	beq    	.unlz4_done	; sortie routine !
+.not_done          	eor    	#$ff
+                  	adc    	dest+1				; calcul offset H (absolu)
+                  	STA		src1+1				; sauvegarde de l'offset apr�s correction hors page $C0 : $C0->$D0 / $D0->$E0
+                  	LDY 	#00					; remise � 0 de Y
+                  	; c=1
+		            lda    	token
+                  	and    	#$0f
+                  	adc    	#$03        ; 3+1=4
+                  	cmp    	#$13
+                  	jsr    	.getLength
+
+.b1                 STA 	$C003			; read AUX Memory
+					lda    	(src1),Y
+                  	STA 	$C002			; read MAIN Memory
+                  	INC 	src1
+                  	BNE 	.s1
+                  	INC 	src1+1 	
+.s1                 jsr    	.store
+                  	bne    	.b1
+                  	jmp		.BP                  
+
+
+.store             	sta    	(dest),Y
+                  	INC		dest
+                  	BEQ 	.s2               	
+		            dec    	lenL
+                  	beq    	.s2b
+.unlz4_done         rts
+.s2b                dec    	lenH
+		        	rts
+.s2					INC 	dest+1
+					dec    	lenL
+                  	beq    	.s2b
+		        	rts
+															
+
+.getLength_next    	jsr    	.GET_BYTE
+                  	tax
+                  	clc
+	                adc    	lenL
+                  	bcc    	s3
+                  	inc    	lenH
+s3   	            inx
+
+.getLength         	sta    	lenL
+                  	beq    	.getLength_next
+                  	tax
+                  	beq    	.s4
+                  	inc    	lenH
+.s4 	            rts
+	
+.GET_BYTE			LDA		(src2),Y		
+					INC 	src2		
+					BEQ 	.s5
+					RTS					
+.s5					INC 	src2+1			
+					RTS
+
+
+; =============================================================================
+!align 255,0
+PLAYERYM
+!zone
+
+
+
+		STA $C003			; 4 read AUX Memory
+		LDY #00			
+
+		JSR PLAYOUT
+
+		LDA OUT1			; 3 permutation g/d
+		EOR #$80			; 2
+		STA OUT1			; 3
+		LDA OUT2			; 3
+		EOR #$80			; 2
+		STA OUT2			; 3
+
+		JSR PLAYOUT
+
+
+		INC .OFFR0+1		; 6
+		BNE +		; 2/3
+		INC .OFFR0+2		; 6
+
++		INC .OFFR1+1		; 6
+		BNE +
+		INC .OFFR1+2		; 6
+
++		INC .OFFR2+1		; 6
+		BNE +
+		INC .OFFR2+2		; 6
+
++		INC .OFFR3+1		; 6
+		BNE +
+		INC .OFFR3+2		; 6
+
++		INC .OFFR4+1		; 6
+		BNE +
+		INC .OFFR4+2		; 6
+
++		INC .OFFR5+1		; 6
+		BNE +
+		INC .OFFR5+2		; 6
+
++		INC .OFFR6+1		; 6
+		BNE +
+		INC .OFFR6+2		; 6
+
++		INC .OFFR7+1		; 6
+		BNE +
+		INC .OFFR7+2		; 6
+
++		INC .OFFR8+1		; 6
+		BNE +
+		INC .OFFR8+2		; 6
+
++		INC .OFFR9+1		; 6
+		BNE +
+		INC .OFFR9+2		; 6
+
++		INC .OFFR10+1		; 6
+		BNE +
+		INC .OFFR10+2		; 6
+
++		INC .OFFR11+1		; 6
+		BNE +
+		INC .OFFR11+2		; 6
+
++		INC .OFFR12+1		; 6
+		BNE +
+		INC .OFFR12+2		; 6
+
++		INC .OFFR13+1		; 6
+		BNE +
+		INC .OFFR13+2		; 6
++
+						; <= 14*67 cycles
+OFFR14
+.smark	; info marker
+		LDA $AC10			; 4
+		BEQ .suiteb 		; 2/3
+		INC Mark			; 5
+		JMP .suite			; 3
+
+.suiteb INC Temp			; 5
+		NOP					; 2
+
+.suite	INC .smark+1		; 6
+		BNE .smarkb2		; 2/3
+		INC .smark+2		; 6
+		JMP .end			; 3
+
+.smarkb2
+		INC Temp			; 5
+		LDA Temp			; 3  
+							; <= 
+
+.end	; <=== cycles : 22 + 14*67 + 31 = 991 cycles !
+		
+		STA $C002			; 4 read MAIN Memory
+		RTS					; 6
+							
+		; 991 + 4 + 6 = 1001 cycles
+
+PLAYOUT	
+						; = 22 cycles
+	; 2
+							; = 22 cycles
+		; all registers NOT COMPRESSED !
+		; cycles ==>
+		; registre 0
+		LDA #00				; 2	registre 0
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+OFFR0
+.OFFR0	LDA $800			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+.sr1	; registre 1
+		LDA #01				; 2	registre 1
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR1
+.OFFR1	LDA $13B8			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+
+.sr2	; registre 2	
+		LDA #02				; 2	registre 2
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR2
+.OFFR2	LDA $1F70			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+
+.sr3	; registre 3	
+		LDA #03				; 2	registre 3
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR3
+.OFFR3	LDA $2B28			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+
+.sr4	; registre 4
+		LDA #04				; 2	registre 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR4
+.OFFR4	LDA $36E0			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+
+.sr5	; registre 5
+		LDA #05				; 2	registre 5
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR5
+.OFFR5	LDA $4298			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+.sr6	; registre 6
+		LDA #06				; 2	registre 6
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR6
+.OFFR6	LDA $4E50			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+
+.sr7	; registre 7
+		LDA #07				; 2	registre 0
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR7
+.OFFR7	LDA $5A08			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+.sr8	; registre 8
+		LDA #08				; 2	registre 8
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR8
+.OFFR8	LDA $65C0			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+
+.sr9	; registre 9	
+		LDA #09				; 2	registre 9
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR9
+.OFFR9	LDA $7178			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+
+.sr10	; registre 10	
+		LDA #10				; 2	registre 10
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR10
+.OFFR10	LDA $7D30			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+
+.sr11	; registre 11
+		LDA #11				; 2	registre 11
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR11
+.OFFR11	LDA $88E8			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+
+.sr12	; registre 12
+		LDA #12				; 2	registre 12
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR12
+.OFFR12	LDA $94A0			; 4
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+
+.sr13	; registre 13
+		LDA #13				; 2	registre 13
+		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$07			; 2	Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+
+OFFR13
+.OFFR13	LDA $A058			; 4
+	CMP #$FF
+	BEQ +
+		STA (OUT1),Y		; 6	ORA1 (data)		STA (OUT1),Y		; 6	ORA1 (data)
+		LDA #$06			; 2	Set fct "Write DATA"
+		STA (OUT2),Y		; 6	ORB1 (fct)
+		LDA #$04			; 2	Set fct "Inactive"
+		STA (OUT2),Y		; 6	ORB1 (fct)
++
+							; <= 14*67 cycles
+	RTS
+
+; -----------------------------------------------------------------------------
+RESTOREOFF
+!zone
+
+		LDA #$00
+		STA OFFR0+1
+		LDA #$08
+		STA OFFR0+2
+		
+		LDA #$B8
+		STA OFFR1+1
+		LDA #$13
+		STA OFFR1+2
+
+		LDA #$70
+		STA OFFR2+1
+		LDA #$1F
+		STA OFFR2+2
+		
+		LDA #$28
+		STA OFFR3+1
+		LDA #$2B
+		STA OFFR3+2
+		
+		LDA #$E0
+		STA OFFR4+1
+		LDA #$36
+		STA OFFR4+2
+		
+		LDA #$98
+		STA OFFR5+1
+		LDA #$42
+		STA OFFR5+2
+		
+		LDA #$50
+		STA OFFR6+1
+		LDA #$4E
+		STA OFFR6+2
+		
+		LDA #$08
+		STA OFFR7+1
+		LDA #$5A
+		STA OFFR7+2
+		
+		LDA #$C0
+		STA OFFR8+1
+		LDA #$65
+		STA OFFR8+2
+		
+		LDA #$78
+		STA OFFR9+1
+		LDA #$71
+		STA OFFR9+2
+		
+		LDA #$30
+		STA OFFR10+1
+		LDA #$7D
+		STA OFFR10+2
+		
+		LDA #$E8
+		STA OFFR11+1
+		LDA #$88
+		STA OFFR11+2
+		
+		LDA #$A0
+		STA OFFR12+1
+		LDA #$94
+		STA OFFR12+2
+		
+		LDA #$58
+		STA OFFR13+1
+		LDA #$A0
+		STA OFFR13+2
+		
+		LDA #$10
+		STA OFFR14+1
+		LDA #$AC
+		STA OFFR14+2
+		
+		RTS
+; =============================================================================
+; Reset Registres de la Mockingboard
+RESETMOCKIN
+!zone
+		; volume OFF
+		LDY #00
+		LDX #08
+.bc1	TXA
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		
+		LDA #00				; volume = 0
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		INX
+		CPX #11				; 
+		BNE .bc1
+
+		LDA OUT1			; permutation g/d
+		EOR #$80
+		STA OUT1
+		LDA OUT2
+		EOR #$80
+		STA OUT2
+		
+		LDX #08
+.bc2	TXA
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		
+		LDA #00				; volume = 0
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		INX
+		CPX #11				; 
+		BNE .bc2
+		; -------------------
+
+		; reset
+		LDY 	#$00
+		TYA					; 00 = Set fct "Reset"
+		STA 	(OUT2),Y	; STA $C400
+		LDA 	#$04		; Set fct "Inactive"
+		STA 	(OUT2),Y	; STA $C400
+		LDY 	#$80
+		LDA 	#$00		; Set fct "Reset"		
+		STA		(OUT2),Y	; STA $C480	
+		LDA 	#$04		; Set fct "Inactive"
+		STA		(OUT2),Y	; STA $C480
+		RTS
+; =============================================================================
+; = Routine WAIT ======================
+; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 11 cycles obligatoire)
+!align 255,0
+WAIT
+!zone           
+		DEY								
+		BEQ .S1						
+                  
+.WL1 	LDX #$0B				            
+.WL2 	DEX							
+		BNE .WL2																
+                      
+		NOP								
+		NOP								
+		DEY								
+		BNE .WL1						
+																                      
+		LDX #$08					
+                   
+.WL3 	DEX							
+		BNE .WL3						
+                							
+		NOP								
+		NOP								
+		RTS								
+											         
+.S1	 	LDX #08					
+                      
+.WL4 	DEX							
+		BNE .WL4						
+																	
+		NOP								
+		RTS
+	+build_check_crosspage WAIT
+; =============================================================================
+WAITIIE	; d'apr�s la routine ROM Apple IIe (6502) - X * 0.1seconde environ
+!zone
+			
+.s3
+		LDA #198
+		SEC
+.s2		PHA
+.s1		SBC #$01
+		BNE .s1
+		PLA
+		SBC #$01
+		BNE .s2
+		DEX
+		BNE .s3
+		RTS
+; =============================================================================
+
+WAIT_VSYNC
+	LDA #$FF
+	STA VSYNC
+-	LDA VSYNC
+	BNE -
+	RTS
+
+WAIT_DISPLAY
+	LDA #$FF
+	STA DISPLAYSYNC
+-	LDA DISPLAYSYNC
+	BNE -
+	RTS
+
+; =============================================================================
+TRANS_INTRO2					; transition VBL entre TEXT et HIRES
+!zone
+	LDA #95              
+	STA LIGNE           
+	LDA #2               
+	STA HAUTEUR          
+	
+;	JSR WAIT_VSYNC	
+.BP                 
+
+	DEC LIGNE
+;	LDA LIGNE
+	;CMP #95           
+	BEQ .FIN              
+	INC HAUTEUR          
+	INC HAUTEUR          
+		
+	JSR WAIT_DISPLAY
+	INC $200
+	INC $200
+	INC $200
+	INC $200
+	INC $200
+	INC $200
+	INC $200
+	INC $200
+
+;	LDY #120		; 120 = PAL / 70 = NTSC
+;	JSR WAIT
+
+	STA $C050 
+	LDY LIGNE	
+	JSR WAIT
+
+	STA $C051 
+	LDY HAUTEUR
+	JSR WAIT
+
+	STA $C050
+
+	JMP .BP								
+                         
+.FIN 	
+	RTS
+
+FILL_TEXT
+; preserves screen holes
+; A=fill data
+	LDX #$77
+	LDY #$F7
+-	STA $400,X
+	STA $500,X
+	STA $600,X
+	STA $700,X
+	STA $400,Y
+	STA $500,Y
+	STA $600,Y
+	STA $700,Y
+	DEY
+	DEX
+	BPL -
+	RTS
+
+; =============================================================================
+; attention � l'alignement
+;..............0000000000111111111122222222223333333333
+;..............0123456789012345678901234567890123456789 
+End		!text "          fr3nch.t0uch.free.fr          " 
+Title1	!text "FRENCH TOUCH"
+Title2	!text "  PRESENTS  "
+Title3	!text "CRAZY CYCLES"
+Title4	!text "     II     "
+COUNTREF !byte 00 		

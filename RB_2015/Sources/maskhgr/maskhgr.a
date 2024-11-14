@@ -1,0 +1,11 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; COLOR BARS
+; version 0.01
+; 
+
+
+	*= $D000 ; ORG = $D000
+
+
+!bin "IMAGE2CC.BIN"

@@ -1,0 +1,1807 @@
+; ACME 0.96.4
+; 
+; OLDSKOOL FORT ET VERT
+; INTRO 8KB
+; SHADOW PARTY 2021 VERSION
+; (c) [FRENCH TOUCH]
+;
+; CODE: GROUiK
+; MUSIC: DUBMOOD + zOOm
+; GFX: GROUiK
+; IIC SYNC: FENARINARSA
+;
+; 05/2021 : v0.14 - released at Shadow Party 2021
+; 11/2021 : v0.15 - IIc compatibility
+; 
+!cpu 6502
+!convtab "a2txt.bin" ; 
+!sl "lbl_main.txt"
+!source "../macros.a"
+!source "../sysconst.a"
+
+; =============================================================================
+; SYSTEM/CONSTANT
+VERTBLANK   	= $C019 ;
+; =============================================================================
+; ZERO PAGE individual
+IIc_detect	= $03	; from boot.a
+bCPU		= $01	; from boot.a
+
+MB_BASEADDR 	= $10 ;16b
+OUT1	  	= $12 ;16b
+OUT2        	= $14 ;16b
+oldREGD		= $16
+
+MBpatch_start = $18 ; +$19
+MBpatch_end   = $1A ; +$1B
+
+; USED by PLAYER PYM + INT
+; -------------------------------------
+iTFrames		= $4D
+
+Tick        	= $4E   	; +$4F
+
+nREG0		= $50
+nREG1		= $51
+nREG2		= $52
+nREG4		= $53
+nREG5		= $54
+nREG6		= $55
+nREG7		= $56
+nREG8		= $57
+nREG9		= $58
+nREGA		= $59
+nREGB		= $5A
+nREGD		= $5B
+
+iREG0       	= $5C
+iREG1       	= $5D
+iREG2       	= $5E
+iREG4       	= $5F
+iREG5       	= $60
+iREG6       	= $61
+iREG7       	= $62
+iREG8       	= $63
+iREG9       	= $64
+iREGA       	= $65
+iREGB       	= $66
+iREGC       	= $67
+iREGD       	= $68
+
+vREG0       	= $69
+vREG1       	= $6A
+vREG2       	= $6B
+vREG4       	= $6C
+vREG5       	= $6D
+vREG6       	= $6E
+vREG7       	= $6F
+vREG8       	= $70
+vREG9       	= $71
+vREGA       	= $72
+vREGB       	= $73
+vREGC       	= $74
+vREGD       	= $75
+
+dREG0       	= $76	; +$77
+dREG1       	= $78	; +$79
+dREG2       	= $7A	; +$7B
+dREG4       	= $7C 	; +$7D
+dREG5       	= $7E	; +$7F
+dREG6       	= $80	; +$81
+dREG7       	= $82	; +$83
+dREG8       	= $84	; +$85
+dREG9       	= $86	; +$87
+dREGA       	= $88	; +$89
+dREGB       	= $8A	; +$8B
+dREGC       	= $8C	; +$8D
+dREGD       	= $8E	; +$8F
+
+count1Pat   	= $90
+indexPat    	= $91
+bMark		= $92
+
+; ZP for effects parts
+temp2		= $2F 	; same 
+row		= $2F
+L5		= $2E
+L4		= $2D
+L3		= $2C
+L2		= $2B
+L1		= $2A
+L0		= $29
+GRColor2		= $28
+count 		= $27
+count2		= $26
+count3		= $25
+IndexBar1		= $24
+IndexBar2		= $F3
+temp		= $F2
+IndexBar3		= $F1
+IndexBar4		= $F0
+IndexStar		= $EF
+IndexLinePic	= $EE
+IndexDataPic	= $ED
+IndexLineColor	= $EC
+GRColor		= $EB
+IndexSlice	= $EA
+countswap		= $E9
+indexswap		= $E8
+indexsineff4	= $E7
+cdest		= $E5		; +$E6
+Indexcolor	= $E4
+modlines		= $DE		; +$DF +$E0 +$E1 +$E2 +$E3  
+
+; F4~FE INTs 
+DISPSYNC		= $F4
+VSYNC		= $F5
+T2Timing    	= $F6 ;16b
+WaitSyncPTR 	= $F8 ;16b
+WaitDisplayPTR 	= $FA ;16b
+T1RoutPTR 	= $FC ;16b 
+T2SyncCodePTR 	= $FE ;16b
+
+DEFAULT_SYNC_TIMER = 7479
+; =================================================================================================
+
+	* = $E000
+; =================================================================================================
+MAIN
+!zone
+	; 65C02 patch
+	SEI
+	LDA bCPU
+	BEQ +
+	LDA #<ROUTINE_RUN_65C02
+	STA MODROUT+1
+	LDA #>ROUTINE_RUN_65C02
+	STA MODROUT+2
++	+set_ptr DEFAULT_SYNC_TIMER,T2Timing
+
+        ; Patch Mockingboard registers
+        +set_ptr Init_MB,MBpatch_start
+        +set_ptr EO_Init_INT,MBpatch_end
+        JSR MB_PATCH
+        +set_ptr L_STARS,MBpatch_start
+        +set_ptr EFFECT3,MBpatch_end
+        JSR MB_PATCH
+
+		; GEN Starfield Tables
+		; LDY #00 (Y=0 from decomp)
+		LDA #01
+-		STA TableByteStar,Y
+		ASL
+		BPL +
+		LDA #01
++		INY
+		BNE -
+
+		; LDY #00
+.modt		LDA #00
+		LDX #07
+-		STA TableABS,Y
+		INY
+		BEQ +
+		DEX
+		BNE -
+		INC .modt+1
+		BNE .modt				; always
++
+		; LDY #00
+		LDA #00
+-		STA TBUFFER,Y			; set tables TBUFFER + TNewstar to 0
+		INY
+		BNE -
+		LDY #$20
+-		STA $00,Y				; init a lot of vars in ZP ($20~$F3)
+		INY
+		CPY #$F4
+		BNE -
+
+		; GEN THB / THH Tables (for PAGE2)
+		; LDX #00		
+-		TYA 
+		AND #$C0
+		STA temp
+		LSR 
+		LSR 
+		ORA temp
+		STA temp
+		TYA 
+		STA temp2
+		ASL 
+		ASL 
+		ASL 
+		ROL temp2
+		ASL 
+		ROL temp2
+		ASL 
+		ROR temp
+		LDA temp
+		STA THB,Y
+		LDA temp2
+		AND #$1F
+		ORA #$40
+		STA THH,Y
+		INY
+		CPY #192
+		BNE -
+		
+
+		; GEN unrolled CODE for Scrolling Part 
+		LDY #179
+---		LDA #39
+		STA temp
+		
+		; x = 39
+		LDA #$EA			; NOP : LDA modlinex
+		STA TPatternCode
+		LDA #$A5
+		STA TPatternCode+1
+.mod1		LDA #<modlines
+		STA TPatternCode+2
+		INC .mod1+1		; next "modline"
+		JMP .next
+		
+--		; x !=39
+		LDA #$BD			; LDA TBITS,X
+		STA TPatternCode
+		LDA #<TBITS
+		STA TPatternCode+1
+		LDA #>TBITS
+		STA TPatternCode+2
+.next
+		LDA THB,Y
+		CLC
+		ADC temp
+		; complete pattern
+		STA TPatternCode+4
+		STA TPatternCode+10
+		LDA THH,Y
+		STA TPatternCode+5
+		STA TPatternCode+11
+		
+.copy		; copy pattern
+		LDX #11
+-		
+		LDA TPatternCode,X
+.mod_dest		STA SCROLLTEXTCODE,X
+		DEX
+		BPL -
+		LDA .mod_dest+1
+		CLC
+		ADC #12
+		STA .mod_dest+1
+		BCC +
+		INC .mod_dest+2
++		; ------------
+		DEC temp
+		BPL --
+		INY
+		INY
+		CPY #191
+		BNE ---
+		LDA #$60			; RTS
+		STA SCROLLTEXTCODE+$B40
+
+		; init VARs
+		; y = 0
+		LDA #>ScrollText	
+		STA mod_letter+2			
+		LDA #<ScrollText
+		STA mod_letter+1
+		LDA #5+1				; row for space	
+		STA row            	
+		LDA #YPIC
+		STA IndexLinePic
+		LDA #128
+		STA IndexBar2
+		LSR				; LDA #64
+		STA IndexBar3
+		LDA #192
+		STA IndexBar4
+		STA indexsineff4
+		LDA #$FF
+		STA count
+		LDA #02
+		STA count2
+
+		; Set Lores1
+		LDY #00
+		LDA #$F2
+-		STA $800,Y
+		STA $900,Y
+		STA $A00,Y
+		STA $B00,Y
+		INY
+		BNE -
+
+; =================================================================================================
+Init_MB     	; init Mockingboard             
+!zone
+		; y = 0
+		; 
+		LDY #0
+		STY OUT2
+		INY
+		STY OUT1
+		LDA MB_BASEADDR+1
+		STA OUT2+1
+		STA OUT1+1
+            	; init MB (6522/AY1) / (6522/AY2)
+            	LDA #$FF
+           	STA $CF03          		
+            	STA $CF83
+            	LDA #$07
+            	STA $CF02          
+            	STA $CF82
+            	; ---------
+            	; clean REGISTER AY1 / AY2
+            	LDA #$00
+            	STA $CF00
+            	STA $CF80
+            	LDA #$04
+            	STA $CF00
+            	STA $CF80
+            	; ---------
+            	LDA #PATTERNSIZE
+            	STA count1Pat
+            	LDX #00			; init with pattern 0
+            	JSR INIT_PATTERN
+; -------------------------------------
+Init_INT    	; init interrupt
+!zone       
+		SEI
+            	; IIe/IIc
+           ; 	LDA $C083
+	;	LDA $C083			; write/read to RAM bank2 (Langage Card)
+	
+	+set_ptr INT_ROUT,T2SyncCodePTR
+	+set_ptr PLAYER_PYM,T1RoutPTR
+
+            	; init INT - T1/6522/1 
+            	LDA #%01000000      	; T1 Continuous Interrupt (FREE MODE) / PB7 disabled / (T2 One Shot - don't care here)
+            	STA $CF0B           	; Auxiliary Control Register
+
+            	LDA #%11100000      	; Enable T1 & T2
+            	STA $CF0E           	; Interrupt Enable Register
+
++		JMP SYNC
+EO_Init_INT
+; =================================================================================================
+; avoid cross page!
+WAIT65              ; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 8 cycles obligatoire -> LDY #xx / JSR WAIT65)
+WAIT65ZP = * + 1    ; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 9 cycles obligatoire -> LDY ZP / JSR WAIT65Z)
+!zone           
+		LDA $EA     ; 3 (dummy)  -> on arrive sur NOP si JSR WAIT65Z
+WAIT62      	; = attend 1*62 cycles exactement (JSR/RTS compris -> LDY #01 / JSR WAIT63)
+            	DEY			; 2					
+		BEQ .S1	    ; 3/2			
+                  
+.WL1 	    	LDX #$0B				            
+.WL2 	    	DEX							
+		BNE .WL2	; 2 + (2+3)*10 + 2 + 2 = 56															
+                      
+		NOP			; 2					
+		NOP			; 2					
+		DEY			; 2					
+		BNE .WL1	; (56+2+2+2+3)*(Y-2) + 56 + 2 + 2 + 2 + 2 = 65*Y - 2*65 + 64 = 65*Y - 66				
+
+WAIT59      	; = attend 1*59 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT59)											                      
+		LDX #$08					
+.WL3 	    	DEX							
+		BNE .WL3	; 2 + (2+3)*7 + 2 + 2 = 41					
+                							
+		NOP			; 2					
+		NOP			; 2					
+		RTS			; 6
+
+                    ; WAIT62 = 2 + 2 + (65-66) + 41 + 2 + 2 + 6 + (8) = 62 
+                    ; WAIT65 = 3 + 2 + 2 + (65*Y-66) + 41 + 2 + 2 + 6 + (8) = 65*Y
+                    ; WAIT59 = 41 + 2 + 2 + 6 + (8) = 59 					
+
+WAIT57      	; = attend 1*57 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT57)											         
+.S1		NOP         ; 2
+WAIT55      	; = attend 1*55 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT55)	
+            	LDX #08					
+                      
+.WL4 	    	DEX							
+		BNE .WL4    ; 2 + (2+3)*7 + 2 + 2 = 41					
+		RTS         ; 6
+                    ; = 49
+
+                    ; WAIT65 = 3 + 2 + 3 + 49 + (8) = 65
+                    ; WAIT62 = 2 + 3 + 49 + (8) = 62
+                    ; WAIT57 = 49 + (8) = 57
+                    ; WAIT55 = 47 + (8) = 55
+
+
+	; check for crosspage at compilation time
+	+build_check_crosspage WAIT65
+
+; =================================================================================================
+TTH		!byte $08,$08,$09,$09,$0A,$0A,$0B,$0B,$08,$08,$09,$09,$0A,$0A,$0B,$0B,$08,$08,$09,$09,$0A,$0A,$0B,$0B
+TTL  		!byte $00,$80,$00,$80,$00,$80,$00,$80,$28,$A8,$28,$A8,$28,$A8,$28,$A8,$50,$D0,$50,$D0,$50,$D0,$50,$D0
+; =================================================================================================
+
+; ****************************************************************************************
+;  VIDEO SYNC (PAL)
+;  Working on IIe and IIc
+; ****************************************************************************************
+
+SYNC
+
+; ****************************************************************************************
+;  DEMO START
+; ****************************************************************************************
+
+STARTDEMO
+	; init SCREEN
+	BIT $C050
+	BIT $C057
+	BIT $C052
+	BIT $C055
+	CLI
+; =================================================================================================
+; STORYBOARD
+		; f = 0
+		; NOEFFECT
+		; 1 bar
+		; low speed
+Loop1	JSR TESTKBD	
+	LDA bMark
+		BEQ Loop1
+		DEC bMark		; reinit
+		
+		; f = 256
+		; DISPLAY PIC (FT)
+		; 1 bar
+		; low speed
+
+		LDA #<EFFECT2
+		STA mod_effect1+1
+		LDA #>EFFECT2
+		STA mod_effect1+2
+
+Loop2		JSR TESTKBD	
+	LDA bMark
+		BEQ Loop2
+		DEC bMark		; reinit
+
+		; f = 512
+		; DISPLAY PIC (PRESENT)
+		; 1 bar
+		; low speed
+		
+		LDA #<PRESENT_PIC
+		STA mod_picture+1
+		LDA #>PRESENT_PIC
+		STA mod_picture+2
+		LDA #YPIC+4
+		STA IndexLinePic
+		LDA #YPIC+28
+		STA mod_effect2_1+1
+		LDA #00 
+		STA IndexDataPic
+
+Loop3		JSR TESTKBD	
+	LDA bMark
+		BEQ Loop3
+		DEC bMark
+
+		; f = 768
+		; OLDSKOOL appearance
+		; 1 bar
+		; low speed
+
+		LDA #<EFFECT4
+		STA mod_effect1+1
+		LDA #>EFFECT4
+		STA mod_effect1+2
+		LDA #YPIC
+		STA IndexLinePic
+
+Loop4		JSR TESTKBD	
+	LDA bMark
+		BEQ Loop4
+		DEC bMark
+
+		; f = 1152
+		; OLDSKOOL appearance (finished)
+		; 2 bars
+		; change bars color
+		; speed = 2
+		LDA #$99
+		STA add_bar2
+		LDA #$E6
+		STA mod_bar1_2
+		STA mod_bar2_2
+		STA mod_bar3_2
+		STA mod_bar4_2
+		LDA #<EFFECT3B
+		STA mod_effect2+1
+		LDA #>EFFECT3B
+		STA mod_effect2+2
+		LDA #$F6
+		STA GRColor
+
+Loop5		JSR TESTKBD	
+	LDA bMark
+		BEQ Loop5
+		DEC bMark
+
+		; f = 1280
+		; 3 bars
+		; change bars color
+		LDA #$99
+		STA add_bar3
+		LDA #$F7
+		STA GRColor
+
+Loop6		JSR TESTKBD	
+	LDA bMark
+		BEQ Loop6
+		DEC bMark
+
+		; f = 1408
+		; 4 bars
+		; change bars color
+		LDA #$99
+		STA add_bar4
+		LDA #$7E
+		STA GRColor
+
+Loop7		JSR TESTKBD	
+	LDA bMark
+		BEQ Loop7
+		DEC bMark
+
+		; f = 1536
+		; speed high
+		; change bars color
+		LDA #$E6
+		STA mod_bar1_1
+		STA mod_bar2_1
+		STA mod_bar3_1
+		STA mod_bar4_1
+		LDA #$FC
+		STA GRColor
+
+Loop7b		JSR TESTKBD	
+	LDA bMark
+		BEQ Loop7b
+		DEC bMark
+
+		; f = 1664
+		; add swap AN3
+		LDA #$EA
+		STA mod_swap
+		LDA #112
+		STA count3
+
+Loop8		JSR TESTKBD	
+	LDA bMark
+		BEQ Loop8
+		DEC bMark
+
+		; f = 2048
+		; stop swap AN3
+		; change bars color / new pattern
+		; accelerate "AN3" for scroll
+		LDA #$60
+		STA mod_swap
+		LSR mod_scroll+1
+		LDA #<EFFECT3
+		STA mod_effect2+1
+		LDA #>EFFECT3
+		STA mod_effect2+2
+		LDA #$FF
+		STA GRColor
+		LDA #$00
+		STA GRColor2
+
+Loop9		JSR TESTKBD	
+	LDA bMark
+		BEQ Loop9
+		DEC bMark
+
+		; f = 2304
+		; starfield
+		; bars : back to stadnard pattern
+		; accelerate "AN3" for scroll
+		LDA #<EFFECT1
+		STA mod_effect1+1
+		LDA #>EFFECT1
+		STA mod_effect1+2
+		LDA #<EFFECT3B
+		STA mod_effect2+1
+		LDA #>EFFECT3B
+		STA mod_effect2+2
+		LDA #$0F
+		STA GRColor
+		LSR mod_scroll+1
+
+Loop10		JSR TESTKBD	
+	LDA bMark
+		BEQ Loop10
+		DEC bMark	
+
+		; f = 2560
+		; change bars color
+		; accelerate "AN3" for scroll
+		; reactivate swap AN3
+		LDA #$EA
+		STA mod_swap
+		LDA #16
+		STA count3
+		LDA #$5F
+		STA GRColor
+		LSR mod_scroll+1
+
+Loop11		JSR TESTKBD	
+	LDA bMark
+		BEQ Loop11
+		DEC bMark
+
+		; f = 2816
+		LDX #12
+-		LDA TEXTFT,x
+		STA $9A8+13,X
+		DEX
+		BPL -
+		BIT $C051
+
+Loop12		JSR TESTKBD	
+	LDA bMark
+		BEQ Loop12
+		DEC bMark
+
+		; f = framemax
+
+.end			
+	SEI
+	RTS
+
+
+TESTKBD
+    LDA $C000       ; test ESC
+	CMP #27+$80
+	BEQ +
+    RTS
++   STA $C010
+    PLA     ; unstack RTS
+    PLA
+    SEI
+    RTS ; end
+
+TEXTFT		!TEXT	"FRENCH  TOUCH"
+; =================================================================================================
+INT_ROUT    
+!zone
+
+		CLI
+		JSR WAIT59
+		NOP
+		;LDA $44
+MODROUT		JSR ROUTINE_RUN		
+
+		RTS
+; =================================================================================================
+PLAYER_PYM	; alt L/R AY version				
+!zone
+
+		LDA OUT2			; switch l/r
+		EOR #$80
+		STA OUT2
+		TAX
+		INX
+		STX OUT1
+
+		LDX #00
+		
+.loopREG		LDY #00
+		LDA TableREG,X		; reg#	
+		STA (OUT1),Y					
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+
+		LDA vREG0,X		; reg value
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		
+		DEC nREG0,X
+		BNE +
+
+		LDA TableREG2,X
+		STA .mod1+1
+		STA .mod2+1
+        		LDY iREG0,X
+.mod1        	LDA (dREG0),Y
+		STA nREG0,X
+		INY
+.mod2		LDA (dREG0),Y
+		STA vREG0,X
+		INY
+        		STY iREG0,X
+
++		INX
+		CPX #11
+		BNE .loopREG
+
+.rd		; REGISTER 13	; skip if = $FF (warning 2 AY!)
+		LDA vREGD
+		TAY
+		BPL +			; if not $FF play it 
+		LDA oldREGD		; if $FF check previous value
+		BMI .rdb			; if $FF too, skip
+		LDY #$FF			; else $FF is new oldREGD
+
++		STY oldREGD		; save oldREGD
+		TAX			; save vREGD		
+		LDY #00
+		LDA #$0D				
+		STA (OUT1),Y		; reg#				
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+
+		TXA			; reg value
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		
+.rdb		DEC nREGD
+		BNE .checkpattern
+        		LDY iREGD
+        		LDA (dREGD),Y
+		STA nREGD
+		INY
+		LDA (dREGD),Y
+		STA vREGD
+		INY
+        		STY iREGD
+		
+.checkpattern
+        		DEC count1Pat		       	; end of ONE pattern ?
+        		BEQ ++               		; if yes, next pattern!
+.end		INC Tick           			; inc frame counter                                             
+            	BNE +
+		INC Tick+1                                                                          
++           	LDA Tick+1
+		LDX iTFrames
+            	CMP THFrames,X
+            	BNE .quit
+            	LDA Tick
+            	CMP TLFrames,X
+            	BNE .quit
+		INC bMark				; = 1
+		INC iTFrames
+.quit		RTS
+
+++       		; next pattern
+		LDA #PATTERNSIZE
+        		STA count1Pat
+        		INC indexPat
+        		LDX indexPat
+
+INIT_PATTERN
+        		; init pattern
+        		LDA D_REG0,X
+        		STA dREG0
+        		LDA D_REG0+NBPATTERNS,X
+        		STA dREG0+1
+        		LDY #00
+        		LDA (dREG0),Y
+		STA nREG0
+		INY
+		LDA (dREG0),Y
+		STA vREG0
+		INY
+        		STY iREG0
+        		LDA D_REG1,X
+        		STA dREG1
+        		LDA D_REG1+NBPATTERNS,X
+        		STA dREG1+1
+        		LDY #00
+        		LDA (dREG1),Y
+		STA nREG1
+		INY
+		LDA (dREG1),Y
+		STA vREG1
+		INY
+        		STY iREG1
+        		LDA D_REG2,X
+        		STA dREG2
+        		LDA D_REG2+NBPATTERNS,X
+        		STA dREG2+1
+        		LDY #00
+        		LDA (dREG2),Y
+		STA nREG2
+		INY
+		LDA (dREG2),Y
+		STA vREG2
+		INY
+        		STY iREG2
+        		LDA D_REG4,X
+        		STA dREG4
+        		LDA D_REG4+NBPATTERNS,X
+        		STA dREG4+1
+        		LDY #00
+        		LDA (dREG4),Y
+		STA nREG4
+		INY
+		LDA (dREG4),Y
+		STA vREG4
+		INY
+        		STY iREG4
+        		LDA D_REG5,X
+        		STA dREG5
+        		LDA D_REG5+NBPATTERNS,X
+        		STA dREG5+1
+        		LDY #00
+        		LDA (dREG5),Y
+		STA nREG5
+		INY
+		LDA (dREG5),Y
+		STA vREG5
+		INY
+        		STY iREG5
+        		LDA D_REG6,X
+        		STA dREG6
+        		LDA D_REG6+NBPATTERNS,X
+        		STA dREG6+1
+        		LDY #00
+        		LDA (dREG6),Y
+		STA nREG6
+		INY
+		LDA (dREG6),Y
+		STA vREG6
+		INY
+        		STY iREG6
+        		LDA D_REG7,X
+        		STA dREG7
+        		LDA D_REG7+NBPATTERNS,X
+        		STA dREG7+1
+        		LDY #00
+        		LDA (dREG7),Y
+		STA nREG7
+		INY
+		LDA (dREG7),Y
+		STA vREG7
+		INY
+        		STY iREG7
+        		LDA D_REG8,X
+        		STA dREG8
+        		LDA D_REG8+NBPATTERNS,X
+        		STA dREG8+1
+        		LDY #00
+        		LDA (dREG8),Y
+		STA nREG8
+		INY
+		LDA (dREG8),Y
+		STA vREG8
+		INY
+        		STY iREG8
+        		LDA D_REG9,X
+        		STA dREG9
+        		LDA D_REG9+NBPATTERNS,X
+        		STA dREG9+1
+        		LDY #00
+        		LDA (dREG9),Y
+		STA nREG9
+		INY
+		LDA (dREG9),Y
+		STA vREG9
+		INY
+        		STY iREG9
+        		LDA D_REGA,X
+        		STA dREGA
+        		LDA D_REGA+NBPATTERNS,X
+        		STA dREGA+1
+        		LDY #00
+        		LDA (dREGA),Y
+		STA nREGA
+		INY
+		LDA (dREGA),Y
+		STA vREGA
+		INY
+        		STY iREGA
+        		LDA D_REGB,X
+        		STA dREGB
+        		LDA D_REGB+NBPATTERNS,X
+        		STA dREGB+1
+        		LDY #00
+        		LDA (dREGB),Y
+		STA nREGB
+		INY
+		LDA (dREGB),Y
+		STA vREGB
+		INY
+        		STY iREGB
+        		LDA D_REGD,X
+        		STA dREGD
+        		LDA D_REGD+NBPATTERNS,X
+        		STA dREGD+1
+        		LDY #00
+        		LDA (dREGD),Y
+		STA nREGD
+		INY
+		LDA (dREGD),Y
+		STA vREGD
+		STA oldREGD
+        		INY
+        		STY iREGD
+		JMP .end
+; =================================================================================================
+PATTERNSIZE  = 64		; MAX 128
+NBPATTERNS   = 48		; MAX 255
+FRAMEMAX     = 2920
+
+D_REG0 = $6000
+D_REG1 = $6536
+D_REG2 = $65E4
+D_REG4 = $6C12
+D_REG5 = $6FAC
+D_REG6 = $71C8
+D_REG7 = $7312
+D_REG8 = $75F4
+D_REG9 = $78DE
+D_REGA = $7B74
+D_REGB = $7D66
+D_REGD = $7EEC
+
+; =================================================================================================
+; pattern for generated code
+TPatternCode 	!byte $BD,<TBITS,>TBITS,$AE,$FF,$FF,$1D,<TDECALL,>TDECALL,$8D,$FF,$FF
+; timings for storyboard
+TLFrames		!byte <256, <512, <768,<1152,<1280,<1408,<1536,<1664,<2048,<2304,<2560,<2816,<FRAMEMAX
+THFrames		!byte >256, >512, >768,>1152,>1280,>1408,>1536,>1664,>2048,>2304,>2560,>2816,>FRAMEMAX
+; -----------------------------------------------------------------------------
+; starfield data
+TDeplacement 	!byte $1A,$1A,$1A,$1A,$1A,$1A,$1A,$1A,$1A,$1A,$1A,$1A,$1A,$1A,$1A,$1A
+TNewABS		!byte $73,$76,$7D,$84,$8B,$8B,$92,$94
+TNewORD		!byte $42,$46,$51,$52,$57,$5C,$62,$65
+TNewAdd		!byte $FE,$FE,$FE,$FF,$01,$02,$02,$03
+; player tables
+TableREG		!byte 00,01,02,04,05,06,07,08,09,10,11
+TableREG2		!byte <dREG0,<dREG1,<dREG2,<dREG4,<dREG5,<dREG6,<dREG7,<dREG8,<dREG9,<dREGA,<dREGB 
+
+
+; =================================================================================================
+!align 255,0
+ROUTINE_RUN_65C02	; x = 0
+		; first DISPLAY LINE
+!zone
+; -------------------------------------------------------------------------------------------------
+; DISPLAY PART
+		LDY #33
+		; PART I
+LLines_P1c		
+		; 65 cycles
+		LSR TBUFFER,X			; 7 (6502 ONLY! 6 if 65C02)	; current line
+		!by $03   ; 65C02 fix	
+		BCS P1_1c				; 2/3			; = 1 ?
+		BNE P1_2c				; 2/3			; = 2 ?
+					
+		; 7+2+2 = 11
+mod_AN3_1c
+P1_0c		STA $C05F				; +4
+		JSR full_hgr			; +6 + [34]
+		DEY				; +2
+		NOP : NOP				; +4
+		BEQ P2c				; +2/3
+		JMP LLines_P1c			; +3
+						; = 11 + 6 + [34] + 3 + 2 + 4 + 2 + 3 = 65
+
+		; 7+3 = 10
+P1_1c		STA $C05F				; +4
+		JSR full_gr			; +6 + [38]
+		DEY				; +2
+		BEQ P2c				; +2/3
+		JMP LLines_P1c			; +3
+						; = 10 + 6 + [38] + 2 + 2 + 2 + 3 = 65
+
+		; 7+2+3 = 12
+P1_2c		STA $C05F				; +4
+		STA $C056				; +4
+		JSR full_gr2			; + [32]
+		DEY				; +2
+		BEQ P2c				; +2/3
+		JMP LLines_P1c			; +3
+						
+						
+P2c		LDY #120				; 3+2
+		
+		; PART II
+LLines_P2c	
+		; 65 cycles
+		LSR TBUFFER,X
+		!by $03   ; 65C02 fix		
+		BCS P2_1c				
+		BNE P2_2c							
+mod_AN3_2c
+P2_0c		STA $C05F				
+		JSR full_hgr
+		DEY
+		NOP : NOP
+		BEQ P3c			
+		JMP LLines_P2c			
+
+P2_1c		STA $C05F
+		JSR full_gr
+		DEY
+		BEQ P3c				
+		JMP LLines_P2c			
+
+		; 7+2+3 = 12
+P2_2c		STA $C05F				; 4
+		STA $C056				; 4
+		NOP : NOP : NOP : NOP		; 8
+		STA $C057				; 4
+		NOP : LDA $AC			; 5
+		LDA #00				; 2				
+		STA TBUFFER,X			; 5
+		INX				; 2
+		DEY				; 2
+		NOP : STA $AC			; 5
+		STA $C056				; 4
+		STA $AC				; 3
+		BEQ P3c				; 2
+		JMP LLines_P2c			; 3
+						; = 65 
+		
+P3c		LDY #23
+		
+		; PART III
+LLines_P3c	
+		; 65 cycles
+		LSR TBUFFER,X
+		!by $03   ; 65C02 fix			
+		BCS P3_1c				
+		BNE P3_2c							
+mod_AN3_3c
+P3_0c		STA $C05F				
+		JSR full_hgr
+		DEY
+		NOP : NOP
+		BEQ NEXTc				
+		JMP LLines_P3c			
+
+P3_1c		STA $C05F
+		JSR full_gr
+		DEY
+		BEQ NEXTc				
+		JMP LLines_P3c			
+
+P3_2c		STA $C05F
+		STA $C056
+		JSR full_gr2
+		DEY
+		BEQ NEXTc				
+		JMP LLines_P3c
+
+NEXTc	JMP NEXT
+
+; =================================================================================================
+!align 255,0
+ROUTINE_RUN	; x = 0
+		; first DISPLAY LINE
+!zone
+; -------------------------------------------------------------------------------------------------
+; DISPLAY PART
+		LDY #33
+		; PART I
+LLines_P1		
+		; 65 cycles
+		LSR TBUFFER,X			; 7 (6502 ONLY! 6 if 65C02)	; current line
+		BCS P1_1				; 2/3			; = 1 ?
+		BNE P1_2				; 2/3			; = 2 ?
+					
+		; 7+2+2 = 11
+mod_AN3_1
+P1_0		STA $C05F				; +4
+		JSR full_hgr			; +6 + [34]
+		DEY				; +2
+		NOP : NOP				; +4
+		BEQ P2				; +2/3
+		JMP LLines_P1			; +3
+						; = 11 + 6 + [34] + 3 + 2 + 4 + 2 + 3 = 65
+
+		; 7+3 = 10
+P1_1		STA $C05F				; +4
+		JSR full_gr			; +6 + [38]
+		DEY				; +2
+		BEQ P2				; +2/3
+		JMP LLines_P1			; +3
+						; = 10 + 6 + [38] + 2 + 2 + 2 + 3 = 65
+
+		; 7+2+3 = 12
+P1_2		STA $C05F				; +4
+		STA $C056				; +4
+		JSR full_gr2			; + [32]
+		DEY				; +2
+		BEQ P2				; +2/3
+		JMP LLines_P1			; +3
+						
+						
+P2		LDY #120				; 3+2
+		
+		; PART II
+LLines_P2	
+		; 65 cycles
+		LSR TBUFFER,X		
+		BCS P2_1				
+		BNE P2_2							
+mod_AN3_2
+P2_0		STA $C05F				
+		JSR full_hgr
+		DEY
+		NOP : NOP
+		BEQ P3				
+		JMP LLines_P2			
+
+P2_1		STA $C05F
+		JSR full_gr
+		DEY
+		BEQ P3				
+		JMP LLines_P2			
+
+		; 7+2+3 = 12
+P2_2		STA $C05F				; 4
+		STA $C056				; 4
+		NOP : NOP : NOP : NOP		; 8
+		STA $C057				; 4
+		NOP : LDA $AC			; 5
+		LDA #00				; 2				
+		STA TBUFFER,X			; 5
+		INX				; 2
+		DEY				; 2
+		NOP : STA $AC			; 5
+		STA $C056				; 4
+		STA $AC				; 3
+		BEQ P3				; 2
+		JMP LLines_P2			; 3
+						; = 65 
+		
+P3		LDY #23
+		
+		; PART III
+LLines_P3	
+		; 65 cycles
+		LSR TBUFFER,X			
+		BCS P3_1				
+		BNE P3_2							
+mod_AN3_3
+P3_0		STA $C05F				
+		JSR full_hgr
+		DEY
+		NOP : NOP
+		BEQ NEXT				
+		JMP LLines_P3			
+
+P3_1		STA $C05F
+		JSR full_gr
+		DEY
+		BEQ NEXT				
+		JMP LLines_P3			
+
+P3_2		STA $C05F
+		STA $C056
+		JSR full_gr2
+		DEY
+		BEQ NEXT				
+		JMP LLines_P3
+
+NEXT		STA $C057			; restore default mode			
+; -------------------------------------------------------------------------------------------------
+; SCROLL PART I: swap hires colors
+		DEC count
+		BNE +
+mod_scroll	LDA #$FF
+		STA count		
+		LDA mod2+1
+		EOR #($5E XOR $5F)
+		STA mod2+1
++
+mod2		STA $C05F
+; -------------------------------------------------------------------------------------------------
+; RASTER BARS PART
+
+		LDX IndexBar1		
+		LDY TableSinus,X		
+		LDA TableSinSens,X
+		BEQ +
+		LDA #$02
+		!byte $2C
++		LDA #$01
+		LDX #20
+-		STA TBUFFER,Y		
+		INY			
+		DEX
+		BNE -
+mod_bar1_1	BIT IndexBar1			; ($E6 = INC) 
+mod_bar1_2	BIT IndexBar1
+		INC IndexBar1
+
+		LDX IndexBar2		
+		LDY TableSinus,X		
+		LDA TableSinSens,X
+		BEQ +
+		LDA #$02
+		!byte $2C
++		LDA #$01
+		LDX #20
+		STX temp
+-		LDX TBUFFER,Y
+		CPX #01
+		BEQ +
+add_bar2
+		BIT TBUFFER			; ($2C= BIT / $99 = STA)	
++		INY			
+		DEC temp
+		BNE -
+mod_bar2_1	BIT IndexBar2
+mod_bar2_2	BIT IndexBar2
+		INC IndexBar2
+
+		LDX IndexBar3		
+		LDY TableSinus,X		
+		LDA TableSinSens,X
+		BEQ +
+		LDA #$02
+		!byte $2C
++		LDA #$01
+		LDX #20
+		STX temp
+-		LDX TBUFFER,Y
+		CPX #01
+		BEQ +
+add_bar3
+		BIT TBUFFER			; ($2C= BIT / $99 = STA)			
++		INY			
+		DEC temp
+		BNE -
+mod_bar3_1	BIT IndexBar3
+mod_bar3_2	BIT IndexBar3
+		INC IndexBar3
+
+		LDX IndexBar4		
+		LDY TableSinus,X		
+		LDA TableSinSens,X
+		BEQ +
+		LDA #$02
+		!byte $2C
++		LDA #$01
+		LDX #20
+		STX temp
+-		LDX TBUFFER,Y
+		CPX #01
+		BEQ +
+add_bar4
+		BIT TBUFFER			; ($2C= BIT / $99 = STA)		
++		INY			
+		DEC temp
+		BNE -
+mod_bar4_1	BIT IndexBar4
+mod_bar4_2	BIT IndexBar4
+		INC IndexBar4
+; -------------------------------------------------------------------------------------------------
+; SCROLL PART Ib: swap hires colors (back to default)
+		STA $C05F
+; -------------------------------------------------------------------------------------------------
+		JSR SWAPAN3
+		DEC count2
+		BEQ +
+mod_effect1	JSR NOEFFECT
+mod_effect2	JSR NOEFFECT
+		RTS
+; -------------------------------------------------------------------------------------------------
++		LDA #02
+		STA count2
+; -------------------------------------------------------------------------------------------------
+; SCROLL PART II: new row/letter
+		; row for current letter	
+		DEC row
+		BNE .next_row
+
+		INC mod_letter+1
+		BNE mod_letter
+		INC mod_letter+2
+mod_letter	LDX ScrollText-1
+		BPL .skip
+		; reinit
+		LDA #>ScrollText	
+		STA mod_letter+2			
+		LDA #<ScrollText
+		STA mod_letter+1			
+		LDX ScrollText
+.skip		
+		LDA TNBROW, X
+          	STA row
+          	LDA TLINE0, X
+		STA L0
+          	LDA TLINE1, X
+		STA L1
+          	LDA TLINE2, X
+		STA L2
+          	LDA TLINE3, X
+		STA L3
+          	LDA TLINE4, X
+		STA L4
+		LDA TLINE5, X
+		STA L5
+
+.next_row		
+		LDX #05
+-		LSR L0,X
+		BCS +
+		LDA #$80
+		!byte $2C
++		LDA #160
+		STA modlines,X
+		DEX
+		BPL -
+; -------------------------------------------------------------------------------------------------
+; SCROLL PART III - scroll text
+		JMP SCROLLTEXTCODE
+; =================================================================================================
+TLINE0 		!byte 0, 15, 15, 15, 7, 15, 15, 15, 9, 1, 4, 9, 1, 27, 17, 15, 15, 15, 15, 15, 31, 9, 9, 21, 9, 9, 15, 0, 0, 0, 1, 1, 0, 0, 7, 2, 7, 14, 119
+TLINE1 		!byte 0, 9, 9, 1, 9, 1, 1, 1, 9, 1, 4, 9, 1, 31, 19, 9, 9, 9, 9, 1, 4, 9, 9, 21, 9, 9, 8, 0, 0, 0, 1, 0, 0, 56, 5, 3, 4, 17, 20
+TLINE2 		!byte 0, 9, 9, 1, 9, 1, 1, 1, 9, 1, 4, 5, 1, 21, 23, 9, 9, 9, 9, 1, 4, 9, 9, 21, 9, 9, 4, 0, 0, 1, 1, 1, 2, 44, 5, 2, 4, 8, 20
+; =================================================================================================
+; avoid cross page here too!
+full_hgr		; 34 CYCLES 
+!zone
+		STA $C057				; 4
+		LDA $AC
+		LDA #00				; 2				
+		STA TBUFFER,X			; 5
+		INX 				; 2
+		NOP : NOP : NOP : NOP 		; 8
+		LDA $AC		 		; 3  
+		RTS				; 6
+
+full_gr		; 38 CYCLES
+		STA $C056				; 4
+		NOP				; 2
+		; 32 cycles
+full_gr2		LDA #00				; 2				
+		STA TBUFFER,X			; 5
+		INX 				; 2
+		NOP : NOP : NOP			; 6 
+		NOP : NOP : LDA $AC 		; 7
+		NOP : NOP				; 4
+		RTS				; 6
+; =================================================================================================
+TDECALL 		!byte 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 129, 129, 128, 128, 130, 128, 130, 128, 128, 128, 128, 128, 132, 132, 128, 128, 133, 133, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 136, 136, 136, 128, 137, 137, 128, 128, 138, 138, 138, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 144, 144, 144, 128, 145, 128, 128, 128, 146, 128, 146, 128, 128, 128, 128, 128, 148, 148, 148, 128, 149, 149, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128
+TBITS		!byte 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 192, 160, 128, 128, 192, 128, 128, 128, 128, 160, 128, 128, 128, 128, 128, 128, 192, 128, 128, 128, 192, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 192, 160, 128, 128, 192, 128, 128, 128, 192, 160, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 192, 160, 128, 128, 128, 128, 128, 128, 128, 160, 128, 128, 128, 128, 128, 128, 192, 160, 128, 128, 192, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128
+
+TLINE3 		!byte 0, 15, 15, 1, 9, 7, 7, 13, 15, 1, 4, 3, 1, 21, 29, 9, 15, 9, 15, 15, 4, 9, 9, 21, 6, 15, 2, 0, 2, 0, 1, 1, 7, 52, 5, 2, 7, 4, 20
+TLINE4 		!byte 0, 9, 9, 1, 9, 1, 1, 9, 9, 1, 5, 5, 1, 21, 25, 9, 1, 13, 5, 8, 4, 9, 6, 31, 9, 6, 1, 0, 2, 1, 0, 1, 2, 28, 5, 2, 1, 0, 20
+TLINE5 		!byte 0, 9, 15, 15, 7, 15, 1, 15, 9, 1, 7, 9, 7, 21, 17, 15, 1, 15, 9, 15, 4, 15, 6, 27, 9, 6, 15, 1, 1, 0, 1, 1, 0, 0, 7, 2, 7, 4, 119
+TNBROW 		!byte 5, 5, 5, 5, 5, 5, 5, 5, 5, 2, 4, 5, 4, 6, 6, 5, 5, 5, 5, 5, 6, 5, 5, 6, 5, 5, 5, 2, 3, 4, 2, 2, 4, 8, 4, 3, 4, 6, 8
+; =================================================================================================
+EFFECT1		; starfield 3D
+!zone
+XMIN = 70
+XMAX = 175
+YMIN = 60
+YMAX = 125
+
+		LDA #$0F
+		STA IndexStar
+L_STARS
+		LDX IndexStar
+		LDA TNewStar,X
+		BNE .s0				
+		JMP .NEWSTAR				
+		
+		; erase old star
+.s0		LDA TSaveYLo,X
+		STA .OFF1+1
+		LDA TSaveYHi,X
+		STA .OFF1+2
+		
+		LDY TAbscisse,X
+		LDA TableABS,Y
+		TAY
+		LDA #00
+.OFF1		STA $2000,Y
+
+		; compute new coord
+		LDA TAbscisse,X
+		CLC
+		ADC TAddABS,X
+		LDY TDeplacement,X
+		BPL .go1
+		CLC
+		ADC TAddABS,X
+		
+.go1		CMP #XMIN
+		BCC .ns1
+		CMP #XMAX
+		BCC .s1
+.ns1		JMP .NEWSTAR
+		
+.s1		STA TAbscisse,X
+
+		LDA TOrdonne,X
+		CLC
+		ADC TAddORD,X
+		LDY TDeplacement,X
+		BPL .go2
+		CLC
+		ADC TAddORD,X
+		
+.go2		CMP #YMIN
+		BCC .ns2
+		CMP #YMAX
+		BCC .s2
+.ns2		JMP .NEWSTAR
+		
+.s2		STA TOrdonne,X
+		
+.DISPLAYSTAR
+		LDY TAbscisse,X
+		LDA TableByteStar,Y
+		DEC TDeplacement,X
+		BPL .go4
+		
+		CMP #$40
+		BEQ .go3
+		INY
+		ORA TableByteStar,Y
+		JMP .go4
+.go3		DEY
+		ORA TableByteStar,Y
+.go4
+		STA .OFF2+1
+		LDY TOrdonne,X
+		LDA THB,Y
+		STA .OFF3+1
+		STA TSaveYLo,X
+		LDA THH,Y
+		STA .OFF3+2
+		STA TSaveYHi,X
+		
+		LDY TAbscisse,X
+		LDA TableABS,Y
+		TAY
+.OFF2		LDA #$00
+.OFF3		STA $2000,Y
+ 		
+ 		DEC IndexStar
+ 		BMI .go5
+ 		JMP L_STARS		
+.go5 	
+		RTS
+ ; --------------------------------------------------------		
+.NEWSTAR
+		LDA $CF04
+		AND #07
+		TAY
+		LDA TNewABS,Y
+		STA TAbscisse,X
+		LDA TNewAdd,Y
+		STA TAddABS,X
+		
+		LDA $CF05
+		AND #07
+		TAY
+		LDA TNewORD,Y
+		STA TOrdonne,X
+		LDA TNewAdd,Y
+		STA TAddORD,X
+		
+		LDA #$1A
+		STA TDeplacement,X
+		STA TNewStar,X
+		JMP .DISPLAYSTAR
+; =============================================================================
+EFFECT3		; change GR Colors	(alt)
+!zone
+		LDX IndexLineColor
+		LDA TTL,X
+		STA cdest
+		LDA TTH,X
+		STA cdest+1
+		INX
+		CPX #24
+		BNE +
+		LDX #00
++		STX IndexLineColor
+
+		LDY Indexcolor
+		LDX #10
+
+-		LDA GRColor
+		INY
+		CPY #40
+		BNE +
+		LDY #00
++		STA (cdest),Y
+		LDA GRColor2
+		INY
+		CPY #40
+		BNE +
+		LDY #00
++		STA (cdest),Y
+		INY
+		CPY #40
+		BNE +
+		LDY #00
++		STA (cdest),Y
+		LDA GRColor
+		INY
+		CPY #40
+		BNE +
+		LDY #00
++		STA (cdest),Y
+
+		DEX
+		BNE -
+
+		INY
+		CPY #40
+		BNE +
+		LDY #00
++		INY
+		CPY #40
+		BNE +
+		LDY #00
++		STY Indexcolor
+
+NOEFFECT		RTS		
+; =============================================================================	
+EFFECT3B		; change GR Colors (default)
+!zone
+		LDX IndexLineColor
+		LDA TTL,X
+		STA .mod_dest+1
+		LDA TTH,X
+		STA .mod_dest+2
+		INX
+		CPX #24
+		BNE +
+		LDX #00
++		STX IndexLineColor
+
+		LDX #39
+		LDA GRColor
+.mod_dest
+-		STA $0000,X
+		DEX
+		BPL -
+		RTS
+; =============================================================================
+!align 255,0	
+TableSinus
+		!by 154,155,155,156,156,157,157,157,157,158,158,158,158,158,158,158
+      		!by 158,158,157,157,157,156,156,156,155,154,154,153,153,152,151,150
+      		!by 149,148,148,147,146,144,143,142,141,140,139,137,136,135,133,132
+      		!by 130,129,127,126,124,123,121,119,118,116,114,112,111,109,107,105
+      		!by 103,102,100,98,96,94,92,90,88,86,84,82,81,79,77,75
+      		!by 73,71,69,67,65,63,61,59,58,56,54,52,50,48,47,45
+      		!by 43,41,40,38,36,35,33,32,30,29,27,26,24,23,22,20
+      		!by 19,18,16,15,14,13,12,11,10,9,8,7,7,6,5,4
+      		!by 4,3,3,2,2,1,1,1,1,0,0,0,0,0,0,0
+      		!by 0,0,1,1,1,2,2,2,3,4,4,5,5,6,7,8
+      		!by 9,10,10,11,12,14,15,16,17,18,19,21,22,23,25,26
+      		!by 28,29,31,32,34,35,37,39,40,42,44,46,47,49,51,53
+      		!by 55,56,58,60,62,64,66,68,70,72,74,76,77,79,81,83
+      		!by 85,87,89,91,93,95,97,99,100,102,104,106,108,110,111,113
+      		!by 115,117,118,120,122,123,125,126,128,129,131,132,134,135,136,138
+      		!by 139,140,142,143,144,145,146,147,148,149,150,151,151,152,153,154
+	
+ 
+TableSinSens	!byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+; -----------------------------------------------------------------------------
+FT_PIC		!byte 124, 127, 67, 127, 15, 126, 127, 97, 3, 6, 124, 127, 112, 1, 3, 112, 127, 115, 127, 63, 120, 127, 121, 79, 31, 124, 127, 124, 103, 15, 124, 1, 112, 31, 60, 126, 0, 120, 79, 31, 63, 0, 124, 103, 15, 124, 127, 115, 127, 63, 126, 127, 121, 79, 31, 63, 0, 124, 127, 15, 124, 127, 115, 127, 15, 126, 127, 121, 127, 31, 63, 0, 124, 127, 15, 124, 1, 112, 127, 63, 126, 0, 120, 127, 31, 63, 0, 124, 103, 15, 124, 1, 112, 31, 63, 126, 127, 121, 79, 31, 127, 127, 124, 103, 15, 124, 1, 64, 7, 12, 126, 127, 97, 3, 6, 124, 127, 112, 1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 120, 127, 1, 127, 7, 60, 120, 64, 127, 15, 30, 60, 0, 0, 0, 126, 127, 121, 15, 30, 63, 120, 124, 7, 64, 31, 60, 0, 0, 0, 96, 15, 120, 15, 30, 63, 120, 124, 7, 64, 127, 63, 0, 0, 0, 96, 15, 120, 15, 30, 63, 120, 124, 7, 64, 127, 63, 0, 0, 0, 96, 15, 120, 15, 30, 63, 120, 124, 7, 64, 31, 60, 0, 0, 0, 96, 15, 120, 127, 31, 127, 127, 124, 127, 67, 31, 60, 0, 0, 0, 96, 15, 96, 127, 7, 127, 127, 112, 127, 79, 31, 60, 0, 0
+PRESENT_PIC	!byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 126, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 31, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 24, 70, 127, 67, 127, 67, 127, 67, 127, 67, 127, 67, 99, 115, 127, 27, 118, 103, 115, 103, 115, 7, 112, 7, 112, 7, 112, 103, 3, 30, 24, 118, 103, 115, 127, 112, 127, 115, 127, 115, 127, 115, 127, 3, 30, 24, 118, 127, 112, 127, 112, 7, 0, 96, 115, 7, 112, 127, 3, 30, 24, 118, 7, 112, 103, 115, 127, 115, 127, 115, 127, 115, 115, 3, 30, 24, 118, 1, 112, 103, 115, 127, 112, 127, 112, 127, 112, 97, 3, 30, 24, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 24, 126, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+OLD_PIC		!byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 124, 127, 124, 1, 127, 31, 127, 103, 127, 103, 127, 121, 63, 126, 0, 12, 96, 76, 1, 3, 24, 3, 102, 24, 102, 64, 25, 48, 102, 0, 12, 96, 76, 1, 3, 24, 3, 102, 24, 102, 64, 25, 48, 102, 0, 76, 103, 76, 1, 51, 24, 115, 103, 0, 102, 76, 25, 51, 102, 0, 76, 103, 76, 1, 115, 25, 115, 103, 0, 102, 76, 25, 51, 102, 0, 76, 103, 76, 1, 115, 25, 3, 102, 96, 103, 76, 25, 51, 102, 0, 76, 103, 76, 1, 115, 25, 3, 102, 0, 102, 76, 25, 51, 102, 0, 76, 103, 76, 1, 51, 24, 63, 102, 0, 102, 76, 25, 51, 102, 0, 12, 96, 76, 31, 3, 24, 3, 102, 24, 102, 64, 25, 48, 102, 15, 12, 96, 12, 24, 3, 24, 3, 102, 24, 102, 64, 25, 48, 6, 12, 124, 127, 124, 31, 127, 31, 127, 103, 127, 103, 127, 121, 63, 126, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 96, 24, 86, 101, 96, 48, 48, 13, 75, 97, 0, 0, 0, 0, 0, 96, 24, 86, 99, 96, 48, 112, 13, 71, 97, 0, 0, 0
+
+!convtab "specialtxt.bin" {
+ScrollText
+		!Text "                          OLDSKOOL FORT ET VERT FOR APPLE & RELEASED AT SHADOW PARTY 2021! MUSIC:DUBMOOD+Z00M*CODE+GFX:GROUiK. GREETZ TO ARKOS*BRUTAL DELUXE*COSINE*DEFENCE FORCE*DESIRE*IMPHOBIA*NINJAFORCE. DO YOU THINK YOU CAN DO BETTER GFX ? I AGREE... SO CONTACT US!"
+		!byte $FF
+}
+; =============================================================================
+EFFECT2		; display PIC
+YPIC = 75
+XPIC = 11
+!zone
+		LDX IndexLinePic
+mod_effect2_1	CPX #(YPIC+32)
+		BEQ +		; do nothing
+		LDA THB,X
+		STA .mod_dest+1
+		LDA THH,X
+		STA .mod_dest+2
+		INX
+		INX
+		STX IndexLinePic
+
+		LDY IndexDataPic
+		LDX #XPIC
+mod_picture
+.loop		LDA FT_PIC,Y 
+.mod_dest		STA $0000,X
+		INY
+		INX
+		CPX #(XPIC+15)
+		BNE .loop
+		STY IndexDataPic
++		RTS
+; =============================================================================
+EFFECT4		; OLDSKOOL appearance
+!zone	
+		LDX IndexLinePic
+		CPX #(YPIC+32)
+		BEQ ++			; reinit
+
+		LDA THB,X
+		STA .mod_dest+1
+		LDA THH,X
+		STA .mod_dest+2
+		INX
+		INX
+		STX IndexLinePic
+		
+		LDX indexsineff4
+		LDA TableSinus,X
+		STA .mod_sin+1
+		INC indexsineff4
+		LDY IndexDataPic
+
+		LDX #XPIC
+
+.lx		LDA #$FF
+.mod_sin		CMP #$AC
+		BCC +
+		LDA OLD_PIC,Y
+		!byte $2C
++		LDA #00
+.mod_dest		STA $0000,X
+		LDA .lx+1
+		ADC #$E7
+		STA .lx+1
+		INY
+		INX
+		CPX #(XPIC+15)
+		BNE .lx
+		STY IndexDataPic
+		RTS
+
+++		LDA #YPIC
+		STA IndexLinePic
+		LDA #00 
+		STA IndexDataPic
+		RTS
+; =============================================================================
+SWAPAN3
+!zone
+mod_swap		RTS			; RTS/NOP ($60/$EA)
+		LDA countswap		; during a swap ?
+		BNE +
+		DEC count3
+		BNE .skip
+		LDA #DURATION
+		STA countswap		; init swap timing
+		INC indexswap
+		LDX indexswap
+		LDA TableSwap,X		; reinit count3
+		STA count3
+		LDA #$5E			; active swap
+		STA mod_AN3_1+1
+		STA mod_AN3_2+1
+		STA mod_AN3_3+1
+		STA mod_AN3_1c+1
+		STA mod_AN3_2c+1
+		STA mod_AN3_3c+1
+		RTS
+
+		; during a swap
++		DEC countswap
+		BNE .skip	
+		LDA #$5F			; desactive swap
+		STA mod_AN3_1+1
+		STA mod_AN3_2+1
+		STA mod_AN3_3+1
+		STA mod_AN3_1c+1
+		STA mod_AN3_2c+1
+		STA mod_AN3_3c+1
+.skip		RTS
+; -----------------------------------------------------------------------------
+DURATION = 3
+TableSwap		!byte 0,16-DURATION,64-DURATION, 40-DURATION, 16-DURATION, 8-DURATION, 64-DURATION, 32-DURATION,4-DURATION,4-DURATION,4-DURATION,4-DURATION,4-DURATION,4-DURATION,4-DURATION
+		!byte 32-DURATION,32-DURATION,32-DURATION,32-DURATION,32-DURATION,32-DURATION,32-DURATION,8-DURATION,8-DURATION,4-DURATION,4-DURATION,4-DURATION,4-DURATION,4-DURATION,4-DURATION
+; =============================================================================
+; addresses for dynamic data
+THB     		= $2000
+THH     		= $2100	
+; data saved for each star (dynamic data)
+TSaveYLo		= $2300
+TSaveYHi		= $2310
+TAbscisse		= $2320
+TOrdonne		= $2330
+TAddABS		= $2340
+TAddORD		= $2350
+TableABS		= $2400
+TableByteStar	= $2500
+TBUFFER		= $2600
+TNewStar		= TBUFFER + 180
+
+dummy		= $2FFF
+SCROLLTEXTCODE 	= $3000
+; =============================================================================
+
+; =============================================================================
+; patch all STAs/STXs to mockinboard registers
+
+MB_PATCH
+!zone
+    LDA MBpatch_end+1
+    STA .modmb1+1
+    LDA MBpatch_end
+    STA .modmb2+1
+.loop
+    LDY #0
+    LDA (MBpatch_start),Y
+    CMP #$8D    ; "STA xxxx"
+    BEQ .yes2
+    CMP #$8C    ; "STY xxxx"
+    BEQ .yes2
+    CMP #$8E    ; "STX xxxx"
+    BNE .not
+.yes2
+    INY
+    LDA (MBpatch_start),Y
+    CMP #$00
+    BEQ .yes
+    CMP #$01
+    BEQ .yes
+    CMP #$02
+    BEQ .yes
+    CMP #$03
+    BEQ .yes
+    CMP #$40
+    BEQ .yes
+    CMP #$41
+    BEQ .yes
+    CMP #$80
+    BEQ .yes
+    CMP #$81
+    BEQ .yes
+    CMP #$82 
+    BEQ .yes
+    CMP #$83
+    BNE .not
+.yes
+    INY
+    LDA (MBpatch_start),Y
+    CMP #$CF        ; "STA $CFxx" or "STX $CFxx"
+    BNE .not
+    ; patching
+    LDA MB_BASEADDR+1
+    STA (MBpatch_start),Y
+.not
+    INC MBpatch_start
+    BNE +
+    INC MBpatch_start+1
++   LDA MBpatch_start+1
+.modmb1
+    CMP #$00
+    BNE .loop
+    LDA MBpatch_start
+.modmb2
+    CMP #$00
+    BNE .loop
+    RTS
+ENDMAIN

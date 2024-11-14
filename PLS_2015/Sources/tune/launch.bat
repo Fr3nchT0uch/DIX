@@ -1,0 +1,1 @@
+InsertZIC.py "..\dsk\test.dsk" 4 0 ZIC >log1.txt

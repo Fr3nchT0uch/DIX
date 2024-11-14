@@ -1,0 +1,126 @@
+; ACME 0.96.4
+; 
+;
+; v 0.02 - issue with INT not reset by REBOOT fixed (see comment in code)
+;
+!cpu 6502
+!convtab "a2txt.bin"    ; chars table (normal)
+
+!sl "lbl_boot.txt"
+
+; include
+!source "floadc_lbl.a"
+
+    		*= $800 ; ORG = $800
+
+; =============================================================================
+; Constants
+MAIN        	= $D000
+; =============================================================================
+; ZERO PAGE 
+bIIc            = $10                   ; IIc or not IIc!
+Temp            = $FF
+; =============================================================================
+
+!byte 01 		; RESERVED: number of sectors loaded by BOOT0 (hardware)
+
+START
+!zone
+
+		    ; x = $60 (slot #6)
+
+            ; $801/$802/$803
+		    JMP INIT			    
+            	    
+            DEC OffHi			                                                              
+LOAD
+OffHi = * + 1
+		    LDA #$FF			        ; offset (hi) last sector BOOT1 (FLOAD)
+		    CMP #(>FLOAD-1) 	    	; end ?
+		    BEQ +
+		    STA $27
+nSector = * + 1
+		    LDA #04  			        ; n# of the last sector to load (inverse order)
+		    STA $3D		     
+		    JMP $C65C			        ; using ROM carte Disk II routine to load sectors
+			            		        ; back to $801 at the end of the ROM routine
+					                    ; warning: use of $26,$27,$2B,$3C,$3D,$40,$41  
++	        ; Loading MAIN (with FLOAD)
+            LDX #$00                
+            STX FIRSTSEC              	; sector
+            STX CURTRK
+            STX BUFFER              	; buffer low = $00
+            INX                     	; = 1
+            STX TRACK_TO_REACH            ; track 
+            LDA #>MAIN              	; 
+            STA BUFFER+1            	; buffer high = $D00
+            LDA #24			            ; (WARNING 1 sector = 128 bytes)          
+            STA COUNT_TOTAL
+		    LDA #$FF
+		    STA State_Loader              
+            JSR FLOAD               	; loading
+	
+            JMP MAIN			        ; finished!                                       
+
+INIT	    JSR $FC58			        ; HOME (ROM)
+	
+            LDX #00
+            LDA $FBC0                   ; check if prog is running on a IIc (check method is OK for the goal here)
+            BNE +
+            LDA #$FF
+        	STA $C403       		    ; if IIc, activate MB4C
+        	STA $C404
+            LDX #$80                    ; IIc ON "value"
++           STX bIIc                    ; = $80 if IIc / 00 if IIe
+            ; *** added to prevent issue during fload if Reboot with CTRL-OA-RESET during INT active (INT are NOT reset)
+            ; => first CLI encountered during fload re-enable previous INT
+            LDA #%01100000      		; disable all INT (T1/T2/6522-1/2)   
+            STA $C40E           		; VIA_IER/1                    
+            ;STA $C48E                   ; VIA_IER/2
+            ; ***
+		
+		    ; Text
+		    LDX #39
+-		    LDA TEXT,X
+		    STA $5A8,X
+		    DEX
+		    BPL -
+		    ; jingle / Tribute to 'Déplombage Mode d'Emploi' / Godfather (code from DPME III)
+		    LDY #$D0
+-		    BIT $C030
+		    LDA #$09
+		    JSR $FCA8
+		    DEY
+		    BNE -
+		    LDX #02
+		    STX Temp
+--		    LDY #$D0
+-		    BIT $C030
+MODJING		LDA #$07
+		    JSR $FCA8
+		    DEY
+		    BNE -
+		    LDA #$05
+		    STA MODJING+1
+		    DEC Temp
+		    BNE --
+		    ; ---------------------
+
+		    ; Loading FLOAD (using DISK II ROM)
+		    LDA $C083
+		    LDA $C083			        ; write/read to RAM bank2 (Langage Card)
+		    LDA #$CE			        ; $801 => DEC nSector
+		    STA $801			
+		    LDA #<nSector		
+		    STA $802			
+		    LDA #>nSector		
+		    STA $803
+            LDX #$60                	; SLOT#6*$10
+		    JMP LOAD                	; loading 'FLOAD routine' 
+		
+; =================================================================================================
+;                  0000000000000000111111111111111122222222
+;                  0123456789ABCDEF0123456789ABCDEF01234567
+;                       *****                    *****       
+TEXT 		!text "          FRENCH TOUCH PRESENT          ",00
+EO_BOOT

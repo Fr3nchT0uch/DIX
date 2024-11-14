@@ -1,0 +1,976 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; UNLIMITED BOBS
+; Routines Fast Load/Hyper Boot (c) 1986 - SAM/EA
+; adapt�e pour ACME 0.90 - 2014
+; version 0.85
+
+!convtab "a2txt.bin" ; 
+!sl "mainlabel.a"
+!source "../../macros.a"
+!source "../../sysconst.a"
+
+!source "../move/movelabel.a"
+DEBUG = 0
+
+	*= $F100 ; ORG = $F100 (RAM Langage Card)
+
+; PSEUDO CATALOG Track/SectorDebut-Track/SectorFin (inclus)
+; T00/S00 			: BOOT0
+; T00/S01-S09 		: MAIN
+; T00/S0A-S0F		: FLOAD
+
+; T01/S00-T04/S0F	: PAGES HGR 1/2 (32x2 secteurs)
+; T05/S00-T06/S0F	: ROUTINE MOVE + TABLES + SPRITES (32 secteurs)
+
+; CONSTANTES SYSTEME ===================
+;VERTBLANK	 = $C019	; 
+	
+; CONSTANTES PROGRAMME  ;
+PLAN1		= $1000
+PLAN2		= $9000
+PLAN3		= $A000
+PLAN4		= $B000
+
+; SOUS-ROUTINES BOOT0
+EXECFROMBOOT2  =	$857 ; sous routine de d�tection type APPLE II (utilise ROM)
+
+
+
+
+; PAGE ZERO ===========================
+ADRHIR		= $06 ; + $07
+
+bMachine 	= $200	; byte MACHINE (0 = IIc)
+
+LIGNE		= $4A
+HAUTEUR		= $4B
+bEfface		= $4c
+SText		= $4D ; +$4E
+
+MB_BASEADDR = $12
+
+nPage		= $18
+nPlan		= $19
+nCourbe		= $1A
+XBob		= $1B
+YBob		= $1C
+ABob		= $1D
+
+RND			= $1E
+COUNT		= $1F
+bScroll		= $20
+AScroll     = $21
+bMixed		= $22
+
+ParamE0		= $54
+ParamE1		= $55
+ParamE2		= $56
+ParamE3 	= $57
+
+D1			= $62
+D2			= $63
+D3			= $64
+D4			= $65
+
+Tick		= $E4 ;16b
+PleaseEnd		= $E6
+ExpoMode		= $E7
+
+Temp1		= $E9
+Temp2		= $EA
+Temp3		= $EB
+
+; F6~FE 
+DISPLAYSYNC	= $F4
+VSYNC		= $F5
+T2Timing    = $F6
+WaitSyncPTR = $F8
+WaitDisplayPTR = $FA
+T1RoutPTR = $FC
+T2SyncCodePTR = $FE
+
+
+
+;	initialisation Hyper Load =========
+START	
+!zone
+	STA ExpoMode
+
+	+print_debug '1'
+ 	SEI
+	; LDA #<TIMER_HANDLER
+	; STA $FFFE
+	; LDA #>TIMER_HANDLER
+	; STA $FFFF
+	; LDA MB_BASEADDR+1
+	; STA MODMBCLEAR+2
+
+	LDA #0
+	STA PleaseEnd
+	STA Tick
+	STA Tick+1
+
+	; LDA #%00100000      	; Disable Timer 2
+	; LDY #$0E
+	; STA (MB_BASEADDR),Y           ; Interrupt Enable Register
+	; LDY #$04
+	; LDA (MB_BASEADDR),Y 	; clear T1 IFR
+	; LDY #$08
+	; LDA (MB_BASEADDR),Y 	; clear T2 IFR
+
+	
+	+print_debug '2'
+
+	LDA #$08
+	JSR HOME	
+	LDA #$04
+	JSR HOME		
+		;JMP EXECFROMBOOT2
+ 		
+ ; affichage Text Intro ===============
+DEBUT2
+	
+	LDX #39
+.bd	LDA TextIntro1,x
+	STA $5A8,x
+	LDA TextIntro2,x                                    
+	STA $628,x
+	DEX
+	BPL .bd
+
+	+print_debug '3'
+	CLI
+	
+	; wait a bit
+	LDX #60
+-	JSR WAIT_VSYNC
+	JSR WAIT_VSYNC
+	DEX
+	BNE -
+
+	LDA #$7F  ; force IIe
+	STA bMachine
+	STA $C057 ; highres
+	;
+ 		
+; 		LDA #01
+ ;		STA DRVNUM
+ ;		STA DLFLAG
+ ;		LDA #00
+ ;		STA ICURTRK1
+ 		
+; chargement image HGR + MOVE + TABLES + SPRITES ===============
+ ;		LDA #00			; secteur 0
+ ;		STA SECDEP
+ ;		STA BUFFER		; buffer low
+ ;		LDA #01			; track 1
+ ;		STA PISDEP		;
+ ;		LDA #$20		; buffer high
+;		STA BUFFER+1
+;		LDA #(32+32+32)	; nb Sector
+;		STA TOTSEC		
+;		JSR HYPLOD		; chargement !
+; =====================================
+	LDA #$FF
+	STA bEfface
+	JSR EFFACEPLANS
+	LDA $C052		; mixed off
+; =====================================
+TRANS					; transition VBL entre TEXT et HIRES
+!zone 
+	LDA #00              
+	STA LIGNE           
+	LDA #189               
+	STA HAUTEUR          
+;
+;	LDA bMachine                                                                   
+;.L1	CMP VERTBLANK         
+;	BPL .L1 
+	JSR WAIT_VSYNC	
+.BP                 
+
+	INC LIGNE
+	LDA LIGNE
+	CMP #95           
+	BEQ .FIN              
+	DEC HAUTEUR          
+	DEC HAUTEUR          
+		
+	JSR WAIT_DISPLAY
+	LDA $4000,X
+	LDA $4000,X
+	LDA $4000,X
+	LDA $4000,X
+	LDA $4000,X
+	LDA $4000,X
+	LDA $4000,X
+	LDA $4000,X
+	LDA $4000,X
+	LDA $4000,X
+
+	; LDY #120		; 120 = PAL / 70 = NTSC
+	; JSR WAIT
+
+	STA $C050 
+	LDY LIGNE	
+	JSR WAIT
+
+	STA $C051 
+	LDY HAUTEUR
+	JSR WAIT
+
+	STA $C050
+
+	JMP .BP								
+                         
+.FIN 	
+
+; =====================================
+; trace lignes blanches partie Mixed Text
+	LDX #39
+	LDA #$20
+.loop	STA $7D0,X
+	STA $BD0,X
+	STA $650,X
+	STA $A50,X
+	STA $6D0,X
+	STA $AD0,X
+	DEX
+	BPL .loop
+	
+	LDA #$3C 		; :
+	STA $650+17
+	STA $A50+17
+	
+	LDA #$3E 		; :
+	STA $650+22
+	STA $A50+22
+		
+; =====================================
+INIT
+!zone
+	LDA #00
+	STA nPage
+	STA nCourbe
+	STA nPlan
+	STA bScroll
+	STA AScroll
+	
+	STA bMixed		; 
+	
+	STA ParamE1
+	STA ParamE2
+	STA ParamE3
+	LDA #$60
+	STA ParamE0
+	
+	LDA #$30
+	STA D1
+	STA D2
+	STA D3
+	STA D4
+	
+	LDA #<TEXTSCROLL
+	STA SText
+	LDA #>TEXTSCROLL
+	STA SText+1 ;
+
+
+
+; mixed ou pas - suivant machine
+
+;	LDA bMachine
+;	BMI MAIN			; IIGS on passe (donc mixed off par d�faut)
+	LDA $C053  			; Mixed ON only sur IIe/IIc
+	LDA #01				; bool�en mixed on
+	STA bMixed                
+	
+; ------------------------------
+
+MAIN
+!zone
+
+.BP
+	JSR AffPage				; affichage nPAGE /scroll text
+	JSR DetectAction		; détection Joy/key
+	JSR Modif				; modifications routines
+CALBOB	JSR CalculBob1			; calcul du prochain Bob
+	JSR PaintBob			; display Bob vers PLAN
+	JSR Compteur			;
+	JSR CalcScrollText		; next position scrolling text
+COPLAN	JSR $0000				; d�placement nPLAN vers nPAGE
+
+	LDA ExpoMode
+	BEQ CheckEsc
+	INC Tick
+	BNE +
+	INC Tick+1
+	LDA Tick+1
+	CMP #$0B			; stop after 2mn
+	BEQ END
++
+
+CheckEsc	LDA PleaseEnd
+	BEQ .BP
+
+END	RTS
+
+WAIT_VSYNC
+	LDA #$FF
+	STA VSYNC
+-	LDA VSYNC
+	BNE -
+	RTS
+
+WAIT_DISPLAY
+	LDA #$FF
+	STA DISPLAYSYNC
+-	LDA DISPLAYSYNC
+	BNE -
+	RTS
+
+; TIMER_HANDLER
+; 	PHA
+; 	LDA #0
+; 	STA VSYNC
+; MODMBCLEAR
+; 	LDA $C504
+; 	;LDA $C508
+; 	PLA
+; 	RTI
+
+; =============================================================================
+; SOUS ROUTINES
+; =============================================================================
+
+; =====================================
+; = EFFACEMENT PAGE TEXT 2 (pour le scrolling) =
+; A = HB de l'adresse de l'écran à effacer ($04 ou $08)
+HOME
+!zone
+	STA .off+2
+	LDA #$A0		; espace 	
+	LDY #03			; 
+	LDX #00
+.off		
+.b1	STA $800,X		; 
+	INX				;  
+	BNE .b1			; 
+	INC .off+2		; 
+	DEY 			; 
+	BPL .b1			; 
+	RTS	
+
+AffPage
+!zone
+		
+;	LDA bMachine                                                                   
+;.L1	CMP VERTBLANK         
+;	BPL .L1 		; wait fin VBL courant
+				
+;	LDA bMachine      
+;.L2 	CMP VERTBLANK         
+;	BMI .L2 		; wait fin display courant
+	JSR WAIT_VSYNC
+
+	; d�but VBL
+	LDA nPage
+	BNE .s1
+	LDA #$07
+	JMP .s2
+.s1	LDA #$0B
+.s2	STA .off+2
+		
+
+	; affichage Scroll
+	LDX #39
+.bp	LDA BufText,X
+.off	STA $750,X
+	DEX
+	BPL .bp
+
+	; chgt de PAGE
+	
+	LDA nPage	;
+	BNE +		;
+	; nPage = 0 : affichage Page1
+	STA $C054
+.s		EOR #01		; on inverse nPage 
+	STA nPage	; on sauve
+	rts			; sortie !
+	; nPage = 1 : affichage Page2
++		STA $C055
+	BNE .s		; always jmp
+	rts
+; =============================================================================
+DetectAction
+!zone
+		ROL $C062		; bouton 2 ?
+		bcs .Action2	; si bouton 2	
+		ROL $C061		; bouton 1 ?
+		bcc .key		; d�tection keyboard si rien au joy
+		JMP .Action1	; si bouton 1
+.key	LDA $C000
+		bmi .s
+.sortie	RTS
+.s		STA $C010
+		CMP #$A0		; space bar
+		BEQ .Action3
+		CMP #$8D		; return
+		BEQ .Mixed
+		CMP #27+$80		; esc
+		BEQ .End
+		RTS
+
+.End	INC PleaseEnd
+	RTS
+
+.Mixed
+		LDA bMixed
+		BEQ	.actifM		; mixed off, on (re)active
+
+		; on d�sactive
+		LDA #01
+		STA AScroll		; on d�sactive le scrolling
+		LDA $C052		; Mixed Off
+		LDA #00
+		STA bMixed
+		RTS
+		
+.actifM		
+		LDA #00
+		STA AScroll		; on r�active le scrolling
+		LDA $C053		; Mixed on
+		LDA #01
+		STA bMixed		;
+		RTS
+		
+; inversion fond noir/blanc		
+.Action3
+		LDA bEfface
+		EOR #$FF
+		STA bEfface
+		JMP .suite2		; on recommence l'affichage au param actuel mais fond invers�
+; ---------------------------------------------------------------------		
+.Action2				; random Sprite et random Courbe
+; random Sprite		
+		LDA RND
+		EOR $C054
+		ASL
+		BCC .noEor2
+.doEor2 EOR #$1D
+.noEor2	
+		AND #07
+		TAX
+		
+		LDA TableMaskAB,X
+		STA OMaskA+1
+		LDA TableMaskAH,X
+		STA OMaskA+2
+		LDA TableMaskBB,X
+		STA OMaskB+1
+		LDA TableMaskBH,X
+		STA OMaskB+2
+		LDA TableMaskCB,X
+		STA OMaskC+1
+		LDA TableMaskCH,X
+		STA OMaskC+2
+		
+		LDA TableSpriteAB,X
+		STA OSpritA+1
+		LDA TableSpriteAH,X
+		STA OSpritA+2
+		LDA TableSpriteBB,X
+		STA OSpritB+1
+		LDA TableSpriteBH,X
+		STA OSpritB+2
+		LDA TableSpriteCB,X
+		STA OSpritC+1
+		LDA TableSpriteCH,X
+		STA OSpritC+2
+; -------------------------------
+; random Courbe
+		LDA RND
+		BEQ .doEor
+		ASL
+		BCC .noEor
+.doEor	EOR #$1D
+.noEor	STA RND				; on sauve pour le prochain "tirage"
+		LSR					; pour avoir un peu + de 0 
+		JMP .suite
+; -------------------------------
+.Action1					; incr�mentation courbe classique (sprite en cours)
+; 'inc' Courbe
+		INC nCourbe
+		LDA nCourbe
+; -------------------------------
+.suite	AND #$1F			; Courbe entre 0 et 31 only
+		STA nCourbe			; 
+
+		; calcul Bobs 
+.suite2	LDX nCourbe			; modification routine Calcul du prochain BOB
+		LDA TableCourbeH,X
+		STA CALBOB+2
+		LDA TableCourbeB,X
+		STA CALBOB+1
+
+		LDA TableParamE0,X
+		STA ParamE0
+		LDA TableParamE1,X
+		STA ParamE1
+		LDA TableParamE2,X
+		STA ParamE2
+		LDA TableParamE3,X
+		STA ParamE3
+		
+		; plans
+		JSR EFFACEPLANS		; effacement des 4 Plans
+
+		; scrolling
+		LDA #03
+		STA bScroll
+		
+		; compteur
+		LDA #$30
+		STA D1
+		STA D2
+		STA D3
+		STA D4
+		JSR AFFICHECOMPTEUR
+		
+		RTS
+;                       0            1           2            3          4          5            6          7
+TableCourbeH !byte >CalculBob1,>CalculBob2,>CalculBob5,>CalculBob1,>CalculBob2,>CalculBob3,>CalculBob5,>CalculBob4
+;                       8            9          10           11         12         13            14         15
+			 !byte >CalculBob1,>CalculBob2,>CalculBob2,>CalculBob5,>CalculBob2,>CalculBob3,>CalculBob2,>CalculBob4
+;                      16           17          18           19         20         21            22         23
+			 !byte >CalculBob1,>CalculBob2,>CalculBob2,>CalculBob5,>CalculBob2,>CalculBob3,>CalculBob3,>CalculBob3
+;                      24           25          26           27         28         29            30         31
+			 !byte >CalculBob1,>CalculBob2,>CalculBob5,>CalculBob1,>CalculBob2,>CalculBob3,>CalculBob3,>CalculBob4
+
+;                       0            1           2            3          4          5            6          7
+TableCourbeB !byte <CalculBob1,<CalculBob2,<CalculBob5,<CalculBob1,<CalculBob2,<CalculBob3,<CalculBob5,<CalculBob4
+;                       8            9          10           11         12         13            14         15
+			 !byte <CalculBob1,<CalculBob2,<CalculBob2,<CalculBob5,<CalculBob2,<CalculBob3,<CalculBob2,<CalculBob4
+;                      16           17          18           19         20         21            22         23			 
+			 !byte <CalculBob1,<CalculBob2,<CalculBob2,<CalculBob5,<CalculBob2,<CalculBob3,<CalculBob3,<CalculBob3
+;                      24           25          26           27         28         29            30         31
+			 !byte <CalculBob1,<CalculBob2,<CalculBob5,<CalculBob1,<CalculBob2,<CalculBob3,<CalculBob3,<CalculBob4
+
+;                   0   1   2   3    4  5   6   7     8   9  10  11  12  13  14  15   16  17  18  19  20  21  22  23   24  25  26  27  28  29  30  31			 
+TableParamE0 !byte $60,$C0,$C0,$C2,$00,$00,$E0,$00, $C0,$40,$80,$C2,$C0,$00,$00,$00, $E0,$C0,$80,$00,$10,$E0,$00,$20, $00,$40,$80,$62,$10,$00,$00,$00
+TableParamE1 !byte $00,$C0,$00,$3E,$00,$00,$00,$80, $00,$40,$40,$3E,$C0,$40,$C0,$40, $00,$C0,$40,$00,$50,$E0,$80,$20, $C0,$40,$40,$EE,$10,$40,$E0,$40
+TableParamE2 !byte $00,$00,$00,$00,$00,$00,$00,$00, $00,$00,$00,$00,$C0,$00,$00,$00, $00,$00,$00,$00,$E0,$E0,$00,$40, $00,$00,$00,$00,$10,$00,$00,$00
+TableParamE3 !byte $00,$00,$00,$00,$00,$00,$00,$40, $00,$00,$80,$00,$00,$00,$00,$80, $00,$00,$80,$00,$00,$00,$00,$00, $00,$00,$80,$00,$00,$00,$00,$E0
+; =============================================================================
+Modif
+!zone
+		INC nPlan		; incr�mente PLAN sur lequel copier le bob
+		LDA nPlan
+		AND #$03		; plan entre 0 et 3
+		STA nPlan
+	
+		INC RND			; pour le random
+
+		TAX				; nplan
+		LDA TablePlanADC,X
+		STA ADDPLAN+1
+		
+		; suivant le plan, on effectuera le transfert vers Hires1 ou Hires2
+		LDA TableCopyPlanH,X
+		STA COPLAN+2
+		LDA TableCopyPlanB,X
+		STA COPLAN+1
+
+		RTS
+		
+TablePlanADC 	!byte $10,$90,$A0,$B0		; table + adresses Hautes Plan
+TableCopyPlanH 	!byte >CopyPlan0vP1,>CopyPlan1vP2,>CopyPlan2vP1,>CopyPlan3vP2
+TableCopyPlanB 	!byte <CopyPlan0vP1,<CopyPlan1vP2,<CopyPlan2vP1,<CopyPlan3vP2
+; =============================================================================
+PaintBob
+!zone
+		; calcul X/Y/Sprite/
+		LDX YBob
+		LDA TableY,x
+		STA YBob
+		
+		LDX XBob
+		LDA TableX,x
+		STA XBob
+
+		TAX				; Xbob - on r�cup�re l'abscisse Hires
+		LDA TableDiv7,x	; /7 (0-279 => 0-39)
+		STA Temp1		; on sauve
+		LDY TableMod7,x	; Modulo7 (pour avoir la valeur du sprite entre 0 et 6)		
+		LDA TMultiple14,Y ; index adresse sprite suivant le modulo
+		STA Temp3
+		
+		LDY #14
+		STY COUNT
+
+.LOOP	LDX YBob		; Y Bob
+		LDA TablePlanB,X
+		STA ADRHIR
+		CLC
+		LDA TablePlanH,X
+ADDPLAN	ADC #$10
+		STA ADRHIR+1
+		
+		LDX Temp3		; Sprite Bob
+		LDY	Temp1		; X Bob (/7)
+		
+							; Part I
+		LDA (ADRHIR),Y		; on r�cup�re le fond
+OMaskA	AND MaskBoulA,X		; and MASK
+OSpritA	ORA Boule1A,X		; OR Sprite
+		STA (ADRHIR),Y		; on copy sur le fond
+
+		INY
+		
+		LDA (ADRHIR),Y		; part II
+OMaskB	AND MaskBoulB,X
+OSpritB	ORA Boule1B,X
+		STA (ADRHIR),Y
+		
+		INY
+		
+		LDA (ADRHIR),Y		; part III
+OMaskC	AND MaskBoulC,X
+OSpritC	ORA Boule1C,X
+		STA (ADRHIR),Y
+		
+		INC YBob
+		INC Temp3
+		DEC COUNT			; 
+		BNE .LOOP
+		
+		RTS
+		
+		
+TMultiple14	!byte	00,14,28,42,56,70,84  ; table multiple de 14 pour les tables Sprite/Mask
+TablePlanB	!byte	0, 29, 58, 87, 116, 145, 174, 203, 232, 5, 34, 63, 92, 121, 150, 179, 208, 237, 10, 39, 68, 97, 126, 155, 184, 213, 242, 15, 44, 73, 102, 131, 160, 189, 218, 247, 20, 49, 78, 107, 136, 165, 194, 223, 252, 25, 54, 83, 112, 141, 170, 199, 228, 1, 30, 59, 88, 117, 146, 175, 204, 233, 6, 35, 64, 93, 122, 151, 180, 209, 238, 11, 40, 69, 98, 127, 156, 185, 214, 243, 16, 45, 74, 103, 132, 161, 190, 219, 248, 21, 50, 79, 108, 137, 166, 195, 224, 253, 26
+TablePlanH 	!byte 	0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10, 10, 11
+; -------------------------------------
+TableX !byte 0, 1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23, 24, 26, 27, 28, 29, 31, 32, 33, 34, 35, 37, 38, 39, 40, 42, 43, 44, 45, 47, 48, 49, 50, 52, 53, 54, 55, 57, 58, 59, 60, 62, 63, 64, 65, 66, 68, 69, 70, 71, 73, 74, 75, 76, 78, 79, 80, 81, 83, 84, 85, 86, 88, 89, 90, 91, 93, 94, 95, 96, 97, 99, 100, 101, 102, 104, 105, 106, 107, 109, 110, 111, 112, 114, 115, 116, 117, 119, 120, 121, 122, 124, 125, 126, 127, 128, 130, 131, 132, 133, 135, 136, 137, 138, 140, 141, 142, 143, 145, 146, 147, 148, 150, 151, 152, 153, 155, 156, 157, 158, 159, 161, 162, 163, 164, 166, 167, 168, 169, 171, 172, 173, 174, 176, 177, 178, 179, 181, 182, 183, 184, 186, 187, 188, 189, 190, 192, 193, 194, 195, 197, 198, 199, 200, 202, 203, 204, 205, 207, 208, 209, 210, 212, 213, 214, 215, 217, 218, 219, 220, 221, 223, 224, 225, 226, 228, 229, 230, 231, 233, 234, 235, 236, 238, 239, 240, 241, 243, 244, 245, 246, 248, 249, 250, 251, 252, 254, 255
+TableY !byte 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21, 22, 22, 23, 23, 24, 24, 25, 25, 26, 26, 27, 28, 28, 29, 29, 30, 30, 31, 31, 32, 33, 33, 34, 34, 35, 35, 36, 36, 37, 37, 38, 39, 39, 40, 40, 41, 41, 42, 42, 43, 44, 44, 45, 45, 46, 46, 47, 47, 48, 48, 49, 50, 50, 51, 51, 52, 52, 53, 53, 54, 55, 55, 56, 56, 57, 57, 58, 58, 59, 59, 60, 61, 61, 62, 62, 63, 63, 64, 64, 65, 66, 66, 67, 67, 68, 68, 69, 69, 70, 70, 71, 72, 72, 73, 73, 74, 74, 75, 75, 76, 77, 77, 78, 78, 79, 79, 80, 80, 81, 81, 82, 83, 83, 84, 84, 85, 85, 86, 86, 87, 88, 88, 89, 89, 90, 90, 91, 91, 92, 92, 93, 94, 94, 95, 95, 96, 96, 97, 97, 98, 99, 99, 100, 100, 101, 101, 102, 102, 103, 103, 104, 105, 105, 106, 106, 107, 107, 108, 108, 109, 110, 110, 111, 111, 112, 112, 113, 113, 114, 114, 115, 116, 116, 117, 117, 118, 118, 119, 119, 120, 121, 121, 122, 122, 123, 123, 124, 124, 125, 125, 126, 127, 127, 128, 128, 129, 129, 130, 130, 131, 132, 132, 133, 133, 134, 134, 135, 135, 136, 136, 137, 138, 138, 139, 139, 140
+; =============================================================================
+; =============================================================================
+; = EFFACEMENT PLANS =
+EFFACEPLANS
+!zone
+
+		LDA #>PLAN1
+		STA .off1+2
+		LDA #>PLAN2
+		STA .off2+2
+		LDA #>PLAN3
+		STA .off3+2
+		LDA #>PLAN4
+		STA .off4+2
+
+		LDA bEfface
+		LDX #00		 
+		LDY #$0b		
+.b1
+.off1	STA PLAN1,X		
+.off2	STA PLAN2,X		
+.off3	STA PLAN3,X		
+.off4	STA PLAN4,X		 
+		INX			 		 
+		BNE .b1			 
+		INC .off1+2		 
+		INC .off2+2
+		INC .off3+2		
+		INC .off4+2		
+		DEY 		 
+		BPL .b1			 		
+		RTS
+
+; = Routine WAIT ======================
+; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 11 cycles obligatoire)
+WAIT
+!zone           
+		DEY								
+		BEQ .S1						
+                  
+.WL1 	LDX #$0B				            
+.WL2 	DEX							
+		BNE .WL2																
+                      
+		NOP								
+		NOP								
+		DEY								
+		BNE .WL1						
+																                      
+		LDX #$08					
+                   
+.WL3 	DEX							
+		BNE .WL3						
+                							
+		NOP								
+		NOP								
+		RTS								
+											         
+.S1	 	LDX #08					
+                      
+.WL4 	DEX							
+		BNE .WL4						
+																	
+		NOP								
+		RTS
+	+build_check_crosspage WAIT ; compilation check
+; =====================================================================================================================
+; CALCUL DES BOBS
+
+; routine 1
+CalculBob1
+!zone
+		INC ParamE0
+		INC ParamE1
+		LDX ParamE1
+		CPX #$F8
+		BEQ .c1		
+.s1		LDA TableSinus3,X
+		STA YBob
+		LDX ParamE0
+		LDA TableSinus1,X
+		STA XBob		
+		RTS
+		
+.c1		LDX #00
+		STX ParamE1
+		BEQ .s1
+; -------------------------------------
+; routine 2
+CalculBob2
+!zone
+
+		INC ParamE0
+		INC ParamE2
+		INC ParamE2
+		LDA ParamE1
+		CLC
+		ADC #2
+		CMP #$F8
+		BNE .s1
+		LDA #0
+.s1		STA ParamE1
+		LDA ParamE3
+		CLC 
+		ADC #1
+		CMP #$F8
+		BNE .s2
+		LDA #0
+.s2		STA ParamE3
+
+		LDX ParamE0
+		LDA TableSinus1,X
+		LDX ParamE1
+		CLC
+		ADC TableSinus2,X
+		ROR 
+		STA XBob
+		LDX ParamE2
+		LDA TableSinus1,X
+		LDX ParamE3
+		CLC
+		ADC TableSinus2,X
+		ROR
+		STA YBob		
+		RTS
+; -------------------------------------
+; routine 3
+CalculBob3
+!zone
+		INC ParamE0
+		INC ParamE2
+		INC ParamE2
+		LDA ParamE1
+		CLC
+		ADC #1
+		CMP #$F8
+		BNE .s1
+		LDA #0
+.s1		STA ParamE1
+		LDA ParamE3
+		CLC 
+		ADC #2
+		CMP #$F8
+		BNE .s2
+		LDA #0
+.s2		STA ParamE3
+
+		LDX ParamE0
+		LDA TableSinus1,X
+		LDX ParamE1
+		CLC
+		ADC TableSinus2,X
+		ROR 
+		STA XBob
+		LDX ParamE2
+		LDA TableSinus1,X
+		LDX ParamE3
+		CLC
+		ADC TableSinus2,X
+		ROR
+		STA YBob		
+		RTS
+; -------------------------------------
+CalculBob4
+!zone
+		INC ParamE0
+		INC ParamE0
+		INC ParamE2
+		INC ParamE2
+		LDA ParamE1
+		CLC
+		ADC #2
+		CMP #$F8
+		BNE .s1
+		LDA #0
+.s1		STA ParamE1
+		LDA ParamE3
+		CLC 
+		ADC #2
+		CMP #$F8
+		BNE .s2
+		LDA #0
+.s2		STA ParamE3
+
+		LDX ParamE0
+		LDA TableSinus1,X
+		LDX ParamE1
+		CLC
+		ADC TableSinus2,X
+		ROR 
+		STA XBob
+		LDX ParamE2
+		LDA TableSinus1,X
+		LDX ParamE3
+		CLC
+		ADC TableSinus2,X
+		ROR
+		STA YBob		
+		RTS
+; -------------------------------------
+CalculBob5
+!zone
+		INC ParamE0
+		INC ParamE1
+		LDX ParamE1
+		CPX #$F8
+		BEQ .c1		
+.s1		LDA TableSinus4,X
+		STA YBob
+		LDX ParamE0
+		LDA TableSinus1,X
+		STA XBob		
+		RTS
+		
+.c1		LDX #00
+		STX ParamE1
+		BEQ .s1
+
+; =============================================================================
+Compteur
+!zone
+		LDA nPlan
+		BNE .affiche		; on n'augmente qu'un plan sur 4
+		
+		INC D1
+		LDA D1
+		CMP #$3A
+		BNE .affiche
+		INC D2
+		LDX #$30
+		STX D1
+		LDA D2
+		CMP #$3A
+		BNE .affiche
+		INC D3
+		STX D2
+		LDA D3
+		CMP #$3A
+		BNE .affiche
+		INC D4
+		STX D3
+		LDA D4
+		CMP #$3A
+		BNE .affiche
+		STX D4
+
+AFFICHECOMPTEUR		
+.affiche
+
+		LDA nPage
+		BNE .p2
+		
+		LDA D1
+		STA $653+18
+		LDA D2
+		STA $652+18
+		LDA D3
+		STA $651+18
+		LDA D4
+		STA $650+18
+		RTS
+		
+.p2		LDA D1
+		STA $A53+18
+		LDA D2
+		STA $A52+18
+		LDA D3
+		STA $A51+18
+		LDA D4
+		STA $A50+18
+		RTS
+; =============================================================================
+CalcScrollText ; on "affiche" dans le buffer la prochaine position du scrolling text
+!zone
+		
+		LDA AScroll
+		BNE .out
+		LDA bScroll
+		CMP #03
+		BEQ .action
+		INC bScroll
+.out	RTS
+; part I : scroll droite vers gauche
+.action	LDX #00			
+		STX bScroll
+		
+.bs1	LDA BufText+1,X	
+		STA BufText,X
+		INX				
+		CPX #39			; octets trait�s : 0 � 39 
+		BNE .bs1		
+		
+; part II : entr�e d'un nouveau caract�re issu de la chaine � afficher
+		LDY #00
+		LDA (SText),Y	; 
+		BEQ .ss1		; 
+		STA BufText+39
+		INC SText
+		BEQ .s1
+		RTS
+.s1		INC SText+1
+		RTS			; 
+		
+.ss1	; remise � zero de l'indexText si on est arriv� au bout
+		LDA #<TEXTSCROLL
+		STA SText
+		LDA #>TEXTSCROLL
+		STA SText+1 	;
+		STA AScroll		; on met autre chose que 0 pour couper le scroll
+		RTS
+; =============================================================================
+TextIntro1
+;!text  ":        FRENCH TOUCH  PRESENTS        :",0
+!byte $3A,$20,$20,$20,$20,$20,$20,$20,$20,$06,$12,$05,$0E,$03,$08,$20,$14,$0F,$15,$03,$08,$20,$20,$10,$12,$05,$13,$05,$0E,$14,$13,$20,$20,$20,$20,$20,$20,$20,$20,$3A
+TextIntro2
+;!text  ":             MINI DEMO II             :",0
+!byte $3A,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$0D,$09,$0E,$09,$20,$04,$05,$0D,$0F,$20,$09,$09,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$3A
+
+

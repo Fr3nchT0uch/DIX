@@ -1,0 +1,9 @@
+	CLIP9M	= $ac0a	; unused
+	CLIP5M	= $66ab	; unused
+	CLIP7M	= $9d7c	; unused
+	CLIP1M	= $1000	; unused
+	CLIP3M	= $4455	; unused
+	CLIPBM	= $b35e	; unused
+	CLIP4M	= $5cff	; unused
+	CLIP6M	= $862c	; unused
+	CLIP2M	= $25ae	; unused

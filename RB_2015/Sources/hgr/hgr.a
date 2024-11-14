@@ -1,0 +1,13 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; COLOR BARS
+; version 0.01
+; 
+
+
+	*= $2000 ; ORG = $2000
+
+
+!bin "PI.FINAL#064000"
+;!bin "PI.FINAL#064000"
+;!bin "PI.FINAL#064000"

@@ -1,0 +1,45 @@
+
+InsertNFO v0.1 - 2014
+
+
+Injection de TDOCODE soit 11 secteurs (0XB00 octets) de T00/S01 … T00/S0B
+
+Injection de CX-PSY_MIR soit 18 secteurs (0X1200 octets) de T00/S0C … T01/S0D
+
+Injection de GW-MIR92_MIR soit 19 secteurs (0X1300 octets) de T01/S0E … T03/S00
+
+Injection de DE-SI_MIR soit 23 secteurs (0X1700 octets) de T03/S01 … T04/S07
+
+Injection de SWT-AIR1_AIR soit 24 secteurs (0X1800 octets) de T04/S08 … T05/S0F
+
+Injection de ZV-V01D soit 47 secteurs (0X2F00 octets) de T06/S00 … T08/S0E
+
+Injection de LI-CESS soit 59 secteurs (0X3B00 octets) de T08/S0F … T0C/S09
+
+Injection de QS-FX2_ICE soit 17 secteurs (0X1100 octets) de T0C/S0A … T0D/S0A
+
+Injection de MS-SANC1_ICE soit 31 secteurs (0X1F00 octets) de T0D/S0B … T0F/S09
+
+Injection de NM-IG_ICE soit 30 secteurs (0X1E00 octets) de T0F/S0A … T11/S07
+
+Injection de BR-KOROVA5 soit 27 secteurs (0X1B00 octets) de T11/S08 … T13/S02
+
+Injection de CYBRACD1 soit 42 secteurs (0X2A00 octets) de T13/S03 … T15/S0C
+
+Injection de LG-ATEM_MIR soit 16 secteurs (0X1000 octets) de T15/S0D … T16/S0C
+
+Injection de rbs soit 25 secteurs (0X1900 octets) de T16/S0D … T18/S05
+
+Injection de fiad soit 28 secteurs (0X1C00 octets) de T18/S06 … T1A/S01
+
+Injection de b2bacid soit 12 secteurs (0XC00 octets) de T1A/S02 … T1A/S0D
+
+Injection de SK-RIV_ICE soit 22 secteurs (0X1600 octets) de T1A/S0E … T1C/S03
+
+Injection de NB-MOBC_MIR soit 14 secteurs (0XE00 octets) de T1C/S04 … T1D/S01
+
+Injection de WE-SCUM soit 24 secteurs (0X1800 octets) de T1D/S02 … T1E/S09
+
+Injection de OUTROCODE soit 27 secteurs (0X1B00 octets) de T1E/S0A … T20/S04
+
+-> fichier test2.dsk modifi‚ et sauv‚

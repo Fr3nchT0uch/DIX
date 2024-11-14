@@ -1,0 +1,199 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; display Ansi (simulé) DLORES + mixe avec page text + scroll text D->G
+; version 0.3
+
+!convtab "a2txt.bin" 	; conversion vers Apple Text (bit 7 high)
+!sl "tdolabel.a"		; sauvegarde des labels
+
+		*= $C00+1920 ; 
+
+; variables Page zéro
+	
+	bMachine 	= $00B	; byte MACHINE (contiendra $00 si AIIe sinon $80 si GS)
+
+	SText		= $4D ; +$4E
+	
+; CONSTANTES SYSTEM ============	
+	VERTBLANK	 = $C019
+	
+	WTAUX 		= $C055 ; switch mémoire aux
+	WTPRINC 	= $C054 ; switch mémoire princ
+; ===
+		
+STARTTDO
+!zone
+		
+		; initialisation scrolling text
+		LDA #<TEXTSCROLL
+		STA SText
+		LDA #>TEXTSCROLL
+		STA SText+1 ;
+		
+		STA $C001   ; PAGE2 comm aux/princ
+
+		LDA	 bMachine 	;
+.lp1	CMP VERTBLANK 
+		Bmi   .lp1		; boucle tant que A >=$80 (display) => attend le début du prochain VBL
+
+; *** début prise en compte des cycles
+.BP		; boucle principale
+
+		LDA  bMachine	; 3
+.lp2	CMP VERTBLANK	; 4
+		Bpl   .lp2	 	; 2 - boucle tant que A < $80 (vbl) => on attend la fin du VBL courant/début du display
+						; début du display on a déjà utilisé 3+4+2 = 9 cycles à ce moment là
+		
+		LDA $C050		; 4		; mode GFX
+		NOP				; 2
+		NOP				; 2
+		NOP				; 2
+						; = 10
+		
+		LDX #$09		; 2							
+.WL1 	DEX				; 2					
+		BNE .WL1 		; 3/2					
+						; = 2 + (2+3)*8 + (2+2)*1 = 46
+
+						; = 9 + 10 + 46 = 65 => 1 ligne
+
+		; 21 lignes de GFX (texte sur la 22ème) soit (21x8) = 168 lignes * 65 cycles à attendre
+						
+
+		LDA bMachine	; 11 cycles d'appel
+		LDY #167		; 
+		JSR WAITROUTINE	; 167 lignes * 65 cycles
+
+		NOP 			; + 2 cycles ?!!! - sinon ça ne marche pas correctement = BUG ?
+						; VBL déjà commencé depuis quelques cycles quand on sort de .lp2 ?
+						; 5 cycles max ?!
+
+		; 8 lignes de TXT 
+		LDA $C051		; 4		; mode TXT
+		
+		LDX #$0C
+.WL2	DEX
+		BNE .WL2 		; 2 + (2+3)*11 + (2+2)*1 = 61
+						; 4 + 61 = 65 (1 ligne)
+
+		LDA bMachine
+		LDY #7			; +7 lignes
+		JSR WAITROUTINE	; 
+		; ***
+
+		LDA $C050		; mode GFX ;
+
+
+		; mode GFX jusqu'à la fin du display
+
+		LDA	 bMachine 	;
+.lp3	CMP VERTBLANK 
+		Bmi   .lp3		; boucle tant que A >=$80 (display) => attend la fin du display
+
+; VBL
+; scrolling - Adresse Base $6D0 (avant-avant dernière ligne de texte)	
+		
+		rol $c061		; 6 	check bouton 1
+		bcs .FIN		; 2 	si non actionné boucle display
+		rol $c062
+		bcs .FIN
+						
+; part I : scroll droite vers gauche
+		LDX #00			; 2
+		STA WTPRINC		; 4 	mémoire principale
+
+.bs1	LDA $6D0,X		; 5		x (main)	(octet)
+		STA WTAUX		; 4
+		STA $6D0,X		; 5		vers x (aux) (octet -1)
+		INX				; 2
+		LDA $6D0,X		; 5		x+1 (aux) (octet+1)
+		STA WTPRINC		; 4
+		DEX				; 2	
+		STA $6D0,X		; 5		vers x (main) (octet)
+		INX				; 2
+		CPX #39			; 2		octets traités : 0 à 38 (aux/main)
+		BNE .bs1		; 3/2
+						; = (5+4+5+2+5+4+2+5+2*2+3)*38 + (5+4+5+2+5+4+2+5+2*2+2) = 1482 + 38 = 1520
+		LDA $6D0+39		; 4		octet 79 (main)
+		STA WTAUX		; 4
+		STA $6D0+39		; 4		vers octet 78 (aux)
+		
+		STA WTPRINC		; 4
+						; = 16
+; part II : entrée d'un nouveau caractère issu de la chaine à afficher
+		LDY #00
+		LDA (SText),Y	; 
+		BEQ .ss1		; 
+		STA $6D0+39		; 		WTPRINC (octet position 79)
+		INC SText
+		BNE .BP
+		INC SText+1
+		JMP .BP			; 
+		
+.ss1	; remise à zero de l'indexText si on est arrivé au bout
+		LDA #<TEXTSCROLL
+		STA SText
+		LDA #>TEXTSCROLL
+		STA SText+1 	;
+		JMP .BP			; 
+		
+.FIN	
+
+; effacement ligne (remplissage par des 0 pour vide noir LORES)
+		
+		LDA #00
+		LDX #39
+		
+.bf1	STA WTAUX
+		STA $6D0,X
+		STA WTPRINC
+		STA $6D0,X
+		DEX
+		BPL .bf1
+		
+		sta $C000
+		rts
+
+; =============================================================================
+WAITROUTINE		; time = Y * 65 cycles (y compris  appel/retour)
+				; appel de la routine en 11 cycles obligatoire : NOP/LDY ZP (5cycles) ou LDA zp/LDY# + JSR = 11 cycles !
+!zone
+		DEY				; 2					
+		BEQ .S1			; 3/2
+						; = 4 (si BEQ non pris) ou = 5 (si BEQ pris)
+.WL1 	LDX #$0B							
+.WL2 	DEX									
+		BNE .WL2		; WL6 = 56							
+
+		NOP				; 2					
+		NOP				; 2				
+		DEY				; 2					
+		BNE .WL1		; (56+6+3)*(Y-2) + (56+6+2) = 65 *(Y-2) + 64				
+						; 65Y - 66					
+		LDX #$08							
+.WL3 	DEX									
+		BNE .WL3		; WL3 = 41						
+ 
+		NOP				; 2						
+		NOP				; 2											
+		RTS				; 6
+						; = 51 + (11) = 62
+						
+						; = 4 + 65 Y - 66 + 62 
+  						; = 65 Y !
+; ***
+.S1	 	LDX #08			; 					
+
+.WL4 	DEX				; 				
+		BNE .WL4		; 
+						; = WL4 = 41					
+											
+		NOP				; 2								
+		RTS				; 6
+						; = 5 + 41 + 2 + 6 + (11) = 65 !
+; =============================================================================
+TEXTSCROLL
+	!text "ANSI STORY by FRENCH TOUCH. WHO NEED COLORS? AFTER BLOCK ASCII ANTHOLOGY, HERE IS THE NEW PRODUCTION OF FRENCH GUYS. INCLUDING SMOOTH TEXT SCROLL IN DLORES MODE, MIXED MODE ON THE SAME SCREEN AND, AS USUAL, SMOOTH VERTICAL SCROLLS IN FULL SCREEN... HEY KIDS, DON'T TRY THIS AT HOME! BIG KISSES TO BRUTAL DELUXE AND THANKS TO THE UNDERGROUND SCENE OF 30 YEARS AGO. HEY, WE KNOW YOU ARE ALL OLD NOW BUT IF YOUR APPLE II START AGAIN, WHY NOT YOU ?!"
+	!fill 80,$A0
+	!byte 0 
+	

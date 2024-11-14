@@ -1,0 +1,5 @@
+*=$4000
+
+	!binary "HIRES.bin"
+*=$6000
+	!binary "MUSIC.bin"

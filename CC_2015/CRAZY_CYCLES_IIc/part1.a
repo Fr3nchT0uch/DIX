@@ -1,0 +1,1021 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; CRAZY CYCLES
+; PART I - Split HGR Page1/Page2 - Moving Square
+; version 0.01
+
+!sl "part1label.a"		; sauvegarde labels (debug)
+
+		*= $6000 		; ORG = $6000
+
+; CONSTANTES PROGRAMME =================
+HEIGHTBOX 		= 105
+MAX 			= 21
+MIX				= 00
+MAY				= 41
+MIY				= 00
+
+MAXHI			= 07		; compteur durée max (#$700)
+
+; CONSTANTES SYSTEME ===================
+VERTBLANK	 	= $C019	; 
+; Page ZERO ============================
+
+bMachine 		= $0A	; byte MACHINE ($7F/IIE | $FF/GS)
+bRefresh		= $0B	; refresh rate : type NTSC/60Hz - PAL/50Hz (00 = 50HZ | 01 = 60 HZ)
+
+; --------------------------------------
+
+CompHi			= $F9		; compteur de temps (durée anim)
+CompLo			= $FA
+
+Current			= $FB		; current
+ValY			= $FC		; Y	 box
+ValX			= $FD		; X  box
+COUNT			= $FE		; compteur lignes box (hauteur) 
+Temp 			= $FF		; valeur tempo pour cycles
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+PARTI
+!zone		
+; quand on arrive ici depuis MAIN, on est au début de la première ligne de VBL !
+
+; initialisation
+		
+		; JSR depuis Main 		; 6
+		LDA #00					; 2
+		STA Current				; 3		on commence déplacement vers la gauche
+		STA CompLo				; 3
+		STA CompHi				; 3 	mise à zero du compteur
+		
+		LDA #(HEIGHTBOX-1)		; 2
+		STA COUNT				; 3
+
+		LDA #10					; 2
+		STA ValX				; 3
+		LDY #05					; 2
+		STY ValY				; 3
+		LDA TableWAIT1,Y		; 4
+		STA WAIT1+1				; 4
+		LDA TableWAIT2,Y		; 4
+		STA WAIT2+1				; 4
+								; = 48
+
+		INC Temp
+		INC Temp
+		INC Temp				; 3*5
+		NOP						; 2
+								; = 48 + 17 = 65 = 1 ligne VBL
+
+; on arrive début seconde ligne de VBL
+; --------------------------------------------
+; suivant PAL OU NTSC
+; 1 ligne VBL (NTSC) ou 1 + 50 ligne VBL (PAL)
+		LDA bRefresh	; 3
+		BNE .NTSC		; 3 / (2)
+		
+		NOP
+		NOP			; 3 (appel routine WAIT) + 1 (compensé BNE non pris)
+		LDY #50
+		JSR WAIT 	; 50 * 65 (PAL)
+
+.NTSC	; 65 - 6 cycles = 59
+		LDX #11
+.BW0	DEX
+		BNE .BW0 ; 56
+		LDA Temp ; 3 
+; --------------------------------------------
+; début 3ème ligne de VBL
+		LDA Temp
+		LDY #68 		; 70 - 2 ; [ 2 lignes de VBL déjà effectuées]
+		JSR WAIT
+; =======================================================
+BP
+!zone
+; --------------------------------------
+; [DISPLAY] * Y (WAIT1) lignes
+		LDA Temp
+WAIT1	LDY #00					
+		JSR WAIT					; 65*Y
+; --------------------------------------
+; [DISPLAY] * 1 ligne 
+		LDY ValX					; 3
+		LDA SPLIT3LO,Y				; 4
+		STA Off+1					; 4
+		LDA SPLIT3HI,Y				; 4
+		STA Off+2					; 4
+		NOP							; 2
+		NOP							; 2 
+									; = 23
+
+		LDX #6						; + remise à zero du X importante pour les tempo !
+.BW1	DEX
+		BNE .BW1					; = 31
+
+
+		INC Temp					; 5
+		LDA Temp					; 3
+
+Off		JMP $0000					; 3 	
+									; 23 + 31 + 8 + 3 = 65
+
+									; => 65 
+; ------------------------------------
+; [DISPLAY] * HEIGHTBOX-1 lignes
+; ------------------------------------
+BACK
+!zone
+; -------------------------------------
+; [DISPLAY] * Y (WAIT2) lignes
+; -------------------------------------
+		LDA Temp
+WAIT2	LDY #00					
+		JSR WAIT					; 65*Y
+; -------------------------------------
+; [VBL] * première ligne VBL		
+; -------------------------------------
+; [VBL] * 2 lignes (1)
+		LDA Current		; 3	
+		CMP #00			; 2
+		BEQ .K0 		; 2 / (3) = 8
+		CMP #01			; 2
+		BEQ .K1			; 2 / (3) = 12
+		CMP #02			; 2
+		BEQ .K2			; 2 / (3) = 16 
+		JMP .K3			; 3 = 18
+
+.K0		; 0 : x = x + 1	| y = y + 1 \	
+		LDX ValX		; 3
+		LDY ValY		; 3
+		INX				; 2
+		INY				; 2
+		CPX #MAX+1		; 2
+		BEQ .s1			; 2 / (3) = 15			
+		CPY #MAY+1		; 2
+		BEQ .s2			; 2 / (3) = 19
+						; = 18
+		NOP
+		NOP
+		NOP
+		NOP				; 8
+		
+.s3		STA Current		; 3
+		STY ValY		; 3
+		STX ValX		; 3
+		INC Temp		; 5
+		INC Temp		; 5
+		JMP	.SUITE		; 3 
+						; = 12 
+						; = ** 38 ** + 10
+.s1		NOP
+		NOP				; 4
+		LDX #MAX		; 2
+		LDA #02			; 2 ; x-1, y+1
+		JMP .s3			; 3
+						; = 11
+						
+.s2		LDY #MAY		; 2
+		LDA #03			; 2 ; x+1, y-1
+		JMP .s3			; 3
+						; = 7
+		; ---------------------------
+		
+.K1		; 1 : x = x - 1	| y = y - 1 \	
+		LDX ValX		; 3
+		LDY ValY		; 3
+		DEX				; 2
+		DEY				; 2
+		CPX #MIX-1		; 2
+		BEQ .s4			; 2 / (3) = 15			
+		CPY #MIY-1		; 2
+		BEQ .s5			; 2 / (3) = 19
+						; = 18
+		NOP
+		NOP
+		NOP
+		NOP				; 8
+		
+.s6		STA Current		; 3
+		STY ValY		; 3
+		STX ValX		; 3
+		LDA Temp		; 3
+		LDA Temp		; 3
+		JMP	.SUITE		; 3 
+						; = 12 
+						; = ** 38 ** + 6
+.s4		NOP
+		NOP				; 4
+		LDX #MIX		; 2
+		LDA #03			; 2  ; x+1, y-1
+		JMP .s6			; 3
+						; = 11
+						
+.s5		LDY #MIY		; 2
+		LDA #02			; 2  ; x-1, y+1
+		JMP .s6			; 3
+						; = 7
+		; ---------------------------		
+
+		
+.K2		; 2 : y = y + 1	| x = x - 1 /	
+		LDX ValX		; 3
+		LDY ValY		; 3
+		DEX				; 2
+		INY				; 2
+		CPX #MIX-1		; 2
+		BEQ .s7			; 2 / (3) = 15			
+		CPY #MAY+1		; 2
+		BEQ .s8			; 2 / (3) = 19
+						; = 18
+		NOP
+		NOP
+		NOP
+		NOP				; 8
+		
+.s9		STA Current		; 3
+		STY ValY		; 3
+		STX ValX		; 3
+		NOP				; 2
+		JMP	.SUITE		; 3 
+						; = 12 
+						; = ** 38 ** + 2
+.s7		NOP
+		NOP				; 4
+		LDX #MIX		; 2
+		LDA #00			; 2		; x+1 , y + 1
+		JMP .s9			; 3
+						; = 11
+						
+.s8		LDY #MAY		; 2
+		LDA #01			; 2		; x - 1 , y - 1
+		JMP .s9			; 3
+						; = 7
+		; ---------------------------
+		
+.K3		; 3 : y = y - 1	| x = x + 1 /	
+		LDX ValX		; 3
+		LDY ValY		; 3
+		INX				; 2
+		DEY				; 2
+		CPX #MAX+1		; 2
+		BEQ .s10		; 2 / (3) = 15			
+		CPY #MIY-1		; 2
+		BEQ .s11		; 2 / (3) = 19
+						; = 18
+		NOP
+		NOP
+		NOP
+		NOP				; 8
+		
+.s12	STA Current		; 3
+		STY ValY		; 3
+		STX ValX		; 3
+		JMP	.SUITE		; 3 
+						; = 12 
+						; = ** 38 **
+.s10	NOP
+		NOP				; 4
+		LDX #MAX		; 2
+		LDA #01			; 2		; x - 1 , y - 1
+		JMP .s12		; 3
+						; = 11
+						
+.s11	LDY #MIY		; 2
+		LDA #00			; 2		; x + 1 , y + 1
+		JMP .s12		; 3
+						; = 7
+		; ---------------------------
+
+.SUITE  LDY ValY			; 3
+		LDA TableWAIT1,Y	; 4
+		STA WAIT1+1			; 4
+		LDA TableWAIT2,Y	; 4
+		STA WAIT2+1			; 4
+							; = 19
+							
+							; + 18
+							; + 38
+							; = 75
+		; ---------------------------
+		; COMPTEUR et détection bouton 1 joy pour stopper PART I
+		LDA $C000		; 4		clavier
+		EOR $C061		; 4		bouton 1
+		BMI	.out		; 2/3		
+
+		; <== 20 cycles
+		INC CompLo			; 5
+		BNE .cp1			; 3/2
+		INC CompHi			; 5
+		LDA CompHi			; 3
+		CMP #MAXHI			; 2
+		BNE	.cp2			; 3
+		; ---
+.out	LDA $C054			; mode GFX/PAGE 1
+		RTS					; on sort de PART I
+		; ---
+.cp1	INC Temp
+		INC Temp
+		NOP					; = 12 cycles (+5+3 = 20)
+		; ==> 20 cycles
+.cp2	; = + 10 = 30 cycles 
+		; ---------------------------
+		; 55 cycles (130-75) - 30 = 25				
+		LDX #4
+.BW0	DEX
+		BNE .BW0			; 21
+		NOP
+		NOP					; 4
+
+							; = 75 + 30 + 25 = 130 = 2*65 = 2 lignes VBL
+; -------------------------------------------
+; [VBL] * 70-2(1)-2(2) = 66 lignes VBL 
+		LDA Temp		;
+		LDY #66			;
+		JSR WAIT		; = 65 * 66
+
+; --------------------------------------------
+; suivant PAL OU NTSC => 65*1 ou 65*50 + 65*1
+; [VBL] * 1 ligne VBL (NTSC) ou 1 + 50 ligne VBL (PAL) (2)
+		LDA bRefresh	; 3
+		BNE .NTSC		; 3 / (2)
+		
+		NOP
+		NOP			; 3 (appel routine WAIT) + 1 (compensé BNE non pris)
+		LDY #50
+		JSR WAIT 	; 50 * 65 (PAL)
+
+.NTSC	; 65 - 6 cycles = 59
+		LDX #11
+.BW2	DEX
+		BNE .BW2 ; 56
+		LDA Temp ; 3 
+; --------------------------------------------
+; [VBL] * 1 ligne VBL (2)
+		LDX #10
+.BW3	DEX
+		BNE .BW3		; 51
+		
+		SBC (Temp,X)	; 6
+
+		LDA #(HEIGHTBOX-1)	; 2		; réinitialisation compteur lignes DISPLAY box
+		STA COUNT			; 3
+		JMP BP				; 3 
+							; = 65 cycles
+; =============================================================================
+; =============================================================================
+!align 255,0
+; split "case" de 15(x7) pixels de long
+SPLIT3X05
+!zone	
+.debut
+		LDA $C054		; 4
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		LDX #$05				            
+.BW 	DEX							
+		BNE .BW			; 26
+		LDA Temp		; 3
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X06
+!zone	
+.debut
+		STA $C054,X		; 5
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		LDX #$05				            
+.BW 	DEX							
+		BNE .BW			; 26
+		NOP				; 2
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X07
+!zone	
+.debut
+		LDA $C054		; 4
+		NOP				; 2
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		LDX #$04				            
+.BW 	DEX							
+		BNE .BW			; 21
+		SBC (Temp,X)	; 6
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X08
+!zone	
+.debut
+		LDA $C054		; 4
+		LDA Temp		; 3
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		LDX #$05				            
+.BW 	DEX							
+		BNE .BW			; 26
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X09
+!zone	
+.debut
+		LDA $C054		; 4
+		NOP
+		NOP				; 4
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		LDX #$04				            
+.BW 	DEX							
+		BNE .BW			; 21
+		NOP
+		NOP				; 4
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X10
+!zone	
+.debut
+		LDA $C054		; 4
+		INC Temp		; 5
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		LDX #$04				            
+.BW 	DEX							
+		BNE .BW			; 21
+		LDA Temp		; 3
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X11
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		LDX #$04				            
+.BW 	DEX							
+		BNE .BW			; 21
+		NOP				; 2
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+!align 255,0
+SPLIT3X12
+!zone
+.debut
+		LDA $C054		; 4
+		INC Temp		; 5
+		NOP				; 2
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		LDX #$03				            
+.BW 	DEX							
+		BNE .BW			; 16
+		SBC (Temp,X)	; 6
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X13
+!zone	
+.debut
+		LDA $C054		; 4
+		INC Temp		; 5
+		LDA Temp		; 3
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		LDX #$04				            
+.BW 	DEX							
+		BNE .BW			; 21
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X14
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		LDX #$03				            
+.BW 	DEX							
+		BNE .BW			; 16
+		NOP
+		NOP				; 4
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X15
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		NOP
+		NOP				; 4
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		LDX #$03				            
+.BW 	DEX							
+		BNE .BW			; 16
+		LDA Temp		; 3
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X16
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		LDX #$03				            
+.BW 	DEX							
+		BNE .BW			; 16
+		NOP				; 2
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X17
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X18
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		NOP				; 2
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		NOP
+		NOP				; 4
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X19
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		NOP				; 2
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X20
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		NOP				; 2
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X21
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		NOP
+		NOP				; 4
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		NOP				; 2
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X22
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X23
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X24
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		NOP				; 2
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		SBC (Temp,X)	; 6
+		NOP
+		NOP				; 4
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X25
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		NOP				; 2
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -------------------------------------
+SPLIT3X26
+!zone	
+.debut
+		LDA $C054		; 4
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+
+ 						; ->
+		LDA $C055		; 4
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		LDA $C054		; 4  
+						; <- = 19
+
+		SBC (Temp,X)	; 6
+		NOP				; 2
+		
+						; ->
+		DEC COUNT		; 5
+		BEQ	.s1			; 3/2
+		BNE .s2			; 3/2
+.s2		JMP .debut		; 3
+.s1		NOP				; 2
+		JMP BACK		; 3
+						; <- = 13
+; -----------------------------------------------------------------------------
+; = Routine WAIT ======================
+; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 11 cycles obligatoire)
+!align 255,0
+WAIT
+!zone           
+		DEY								
+		BEQ .S1						
+                  
+.WL1 	LDX #$0B				            
+.WL2 	DEX							
+		BNE .WL2																
+                      
+		NOP								
+		NOP								
+		DEY								
+		BNE .WL1						
+																                      
+		LDX #$08					                   
+.WL3 	DEX							
+		BNE .WL3						
+                							
+		NOP								
+		NOP								
+		RTS								
+											         
+.S1	 	LDX #08					                    
+.WL4 	DEX							
+		BNE .WL4						
+																	
+		NOP								
+		RTS
+; =============================================================================
+!align 255,0
+SPLIT3HI !byte >SPLIT3X05, >SPLIT3X06, >SPLIT3X07, >SPLIT3X08, >SPLIT3X09, >SPLIT3X10, >SPLIT3X11, >SPLIT3X12, >SPLIT3X13, >SPLIT3X14 
+		 !byte >SPLIT3X15, >SPLIT3X16, >SPLIT3X17, >SPLIT3X18, >SPLIT3X19, >SPLIT3X20, >SPLIT3X21, >SPLIT3X22, >SPLIT3X23, >SPLIT3X24
+		 !byte >SPLIT3X25, >SPLIT3X26
+		 
+SPLIT3LO !byte <SPLIT3X05, <SPLIT3X06, <SPLIT3X07, <SPLIT3X08, <SPLIT3X09, <SPLIT3X10, <SPLIT3X11, <SPLIT3X12, <SPLIT3X13, <SPLIT3X14
+		 !byte <SPLIT3X15, <SPLIT3X16, <SPLIT3X17, <SPLIT3X18, <SPLIT3X19, <SPLIT3X20, <SPLIT3X21, <SPLIT3X22, <SPLIT3X23, <SPLIT3X24
+		 !byte <SPLIT3X25, <SPLIT3X26
+		 
+TableWAIT1	!byte 3 , 5 , 7 , 9 , 11 , 13 , 15 , 17 , 19 , 21 , 23 , 25 , 27 , 29 , 31 , 33 , 35 , 37 , 39 , 41 , 43 , 45 , 47 , 49 , 51 , 53 , 55 , 57 , 59 , 61 , 63 , 65 , 67 , 69 , 71 , 73 , 75 , 77 , 79 , 81 , 83 , 85
+TableWAIT2	!byte 84 , 82 , 80 , 78 , 76 , 74 , 72 , 70 , 68 , 66 , 64 , 62 , 60 , 58 , 56 , 54 , 52 , 50 , 48 , 46 , 44 , 42 , 40 , 38 , 36 , 34 , 32 , 30 , 28 , 26 , 24 , 22 , 20 , 18 , 16 , 14 , 12 , 10 , 8 , 6 , 4 , 2 

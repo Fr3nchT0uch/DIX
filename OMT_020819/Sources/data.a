@@ -1,0 +1,51 @@
+; ACME 0.96.1
+; 
+; 
+!sl "lbl_data.txt"
+
+; ORG
+   *= $C00
+
+TITLE_AUX   !binary "DATA\titleAux.lz4"
+TITLE_MAIN  !binary "DATA\titleMain.lz4"
+
+AUX_01      !binary "DATA\turtleAux.lz4"
+MAIN_01     !binary "DATA\turtleMain.lz4"
+AUX_02      !binary "DATA\daredevilAux.lz4"
+MAIN_02     !binary "DATA\daredevilMain.lz4"
+AUX_03      !binary "DATA\moonAux.lz4"
+MAIN_03     !binary "DATA\moonMain.lz4"
+AUX_04      !binary "DATA\marioAux.lz4"
+MAIN_04     !binary "DATA\marioMain.lz4"
+AUX_05      !binary "DATA\spiderAux.lz4"
+MAIN_05     !binary "DATA\spiderMain.lz4"
+AUX_06      !binary "DATA\moonlitAux.lz4"
+MAIN_06     !binary "DATA\moonlitMain.lz4"
+AUX_07      !binary "DATA\gotAux.lz4"
+MAIN_07     !binary "DATA\gotMain.lz4"
+AUX_08      !binary "DATA\kombatAux.lz4"
+MAIN_08     !binary "DATA\kombatMain.lz4"
+AUX_09      !binary "DATA\snakeAux.lz4"
+MAIN_09     !binary "DATA\snakeMain.lz4"
+AUX_10      !binary "DATA\catAux.lz4"
+MAIN_10     !binary "DATA\catMain.lz4"
+AUX_11      !binary "DATA\midasAux.lz4"
+MAIN_11     !binary "DATA\midasMain.lz4"
+AUX_12      !binary "DATA\yoshiAux.lz4"
+MAIN_12     !binary "DATA\yoshiMain.lz4"
+AUX_13      !binary "DATA\skullAux.lz4"
+MAIN_13     !binary "DATA\skullMain.lz4"
+AUX_14      !binary "DATA\blenderAux.lz4"
+MAIN_14     !binary "DATA\blenderMain.lz4"
+AUX_15      !binary "DATA\deathAux.lz4"
+MAIN_15     !binary "DATA\deathMain.lz4"
+AUX_16      !binary "DATA\eyeAux.lz4"
+MAIN_16     !binary "DATA\eyeMain.lz4"
+AUX_17      !binary "DATA\vegetaAux.lz4"
+MAIN_17     !binary "DATA\vegetaMain.lz4"
+AUX_18      !binary "DATA\hellboyAux.lz4"
+MAIN_18     !binary "DATA\hellboyMain.lz4"
+
+
+
+EOFile

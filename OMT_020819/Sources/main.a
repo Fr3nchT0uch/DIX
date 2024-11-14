@@ -1,0 +1,1041 @@
+; ACME 0.96.1
+; 
+; 0.06 - Fixed INT Delay
+; 0.05 - replace WAIT routine by another Tick (frame) count for HGR display
+; 0.04 - Test "FADE OUT" de fin
+; 0.03 - change WAIT routine to refresh rate dependant!
+; 0.02 - main loop added
+; 0.01 - first test
+;
+;
+!cpu 6502
+!convtab "a2txt.bin" ; 
+!sl "lbl_main.txt"
+
+; INCLUDE
+!src "lbl_data.txt"     ; pour récupérer les adresses des GFX en RAM
+!src "../../sysconst.a"
+
+    *= $E000 ; ORG = $D000 (RAM Langage Card)
+
+
+; CONSTANTES SYSTEL
+; VERTBLANK    = $C019
+
+; CONSTANTES PROGRAMME
+;FLOAD        = $FB00     ; routine Fast Load XTREME - MAIN
+; =============================================================================
+; PAGE ZERO
+; -------------------------------------
+; USED IN ALL PARTS
+bRefresh    = $01   ; byte REFRESH RATE ($00/50Hz | $01/60Hz)
+bSLOT       = $02   ; numero SLOT * 0x10
+;bInt        = $06   ; interruption en cour
+; sWrite >= $80 : write Aux Memory
+; sWrite < $80  : write Main Memory
+sWrite      = $04   ; 
+; sRead >= $80  : read Aux Memory
+; sRead < $80   : read Main Memory
+sRead       = $05   ; 
+IIc_DETECT = $03
+
+Index       = $E5
+; FAST LOAD
+ IndexMax    = $07   ; used by anim
+ IndexAnim   = $08   ; ""
+ bAnim       = $09   ; bool anim on/off
+; PISDEP   	= $0A   ; PISTE DE DEPART
+; SECDEP   	= $0B   ; SECTEUR DE DEPART
+; BUFFER   	= $0C 	; Buffer LOW+HIGH ; + $0D
+; TOTSEC   	= $0E	; TOTAL DES SECTEURS A CHARGER
+; CURTRK1  	= $0F	; piste de départ DRIVE 1 - A INITIALISER A ZERO pour le premier appel !
+Temp    = $DD
+; MB
+OUT1        = $20   ; +$11
+OUT2        = $22   ; +$13
+OUT3        = $24   ; +$15
+OUT4        = $26   ; +$17
+saveREG13   = $28
+
+; decompLZ4
+bWMem       = $E6   ; 00: write MAIN / 01: write AUX
+; src1        = $1A   ; +$1B
+; src2        = $1C   ; +$1D
+; dest        = $1E   ; +$1F
+; lenL        = $10
+; lenH        = $11
+; token       = $12
+token		= $E7 
+dest		= $E8	; + $F9
+src1		= $EA	; + $FB
+src2 		= $EC  	; + $FD
+lenL		= $EE 
+lenH		= $EF
+
+; PLAYER PT3
+SETUP       = $30   ; set bit0 to 1, if you want to play without looping
+	                ; bit7 is set each time, when loop point is passed
+; INT
+; save_A      = $31
+; save_X      = $32
+; save_Y      = $33
+; -------------------------------------
+; PART SPECIFIC
+;
+;Dest        = $3B   ; +$3C
+Tock        = $3B   ; 16b
+Tick        = $3D   ; +$3E
+TempS       = $3F
+
+FSrc        = $70   ; +$41
+bPage       = $72
+
+; F4~FE MUTUAL INTs
+DISPLAYSYNC	= $F4
+VSYNC		= $F5
+T2Timing		= $F6
+WaitSyncPTR	= $F8
+WaitDisplayPTR	= $FA
+T1RoutPTR		= $FC  ;16b
+T2SyncCodePTR 	= $FE   ;16b
+
+
+; =============================================================================
+; routines
+START = $6000
+INIT  = START+00
+PLAY  = START+10
+MUTE  = START+13
+; =============================================================================
+MAIN
+!zone
+    SEI
+    LDA WaitDisplayPTR
+    STA WAITDISPLAY+1
+    LDA WaitDisplayPTR+1
+    STA WAITDISPLAY+2
+    LDA WaitSyncPTR
+    STA WAITVBLANK+1
+    LDA WaitSyncPTR+1
+    STA WAITVBLANK+2  
+    CLI
+            STA $C000           ; 80STOREOFF
+            STA $C008           ; zero Page = Main (+ $FXXX MAIN)
+            LDX #00
+            STX Index
+            INX                 ; x = 1 => Page2 Hires next display
+            STX bPage
+
+; Chargement DATA (-> $C00 AUX)
+            ; STA $C005           ; RAMWRTON: write aux memory from $200-$BFFF
+            ; STA $C008           ; zero Page = Main (+ $FXXX MAIN)
+
+            LDA #21
+            STA IndexAnim
+            STA IndexMax
+        
+            ;LDA #01
+            ;STA bAnim           ; anim on!
+
+ANIMEPIS    LDA #5
+            BEQ .contanim
+            LDY IndexMax
+            BMI ++
+            LDY IndexAnim
+            LDX TableY,Y
+            INC $5A8+9,X    ; on part de $A0 (suite routine HOME)
+            DEY
+            BPL +
+            LDY IndexMax
++           STY IndexAnim
+     LDX #1
+    JSR WAITREFRESH
+    DEC ANIMEPIS+1
+    JMP ANIMEPIS
+
+.contanim
+    LDA #5
+    STA ANIMEPIS+1
+            LDY IndexMax
+            LDX TableY,Y
+            LDA TableText,X
+            STA $5A8+9,X
+            DEY
+            LDX TableY,Y
+            LDA TableText,X
+            STA $5A8+9,X
+            DEY
+            BPL +
+            LDY #$FF
++           STY IndexMax    ; indexmax-2 au final
+            STY IndexAnim
+    JMP ANIMEPIS 
+TableY      !byte 18, 10, 16, 6, 3, 4, 8, 19, 13, 17, 2, 12, 7, 1, 20, 14, 9, 5, 11, 21, 15, 0
+TableText   !text "FRENCH TOUCH  PRESENTS"
+
+
+++
+; petite attente sup
+            LDX #40
+            JSR WAITREFRESH      
+; -----------------------------------------------------------------------------
+            STA $C004           ; Write MAIN Memory
+            JSR CLEARHIRES
+            JSR WAITVBL
+            BIT $C050           ; gfx
+            BIT $C057           ; hires (vide)
+            LDA $C052           ; full screen
+            LDY Index
+            LDX TableTextHi,Y
+            LDA TableTextLo,Y
+            JSR SetMsgHGR       ; préparation next Msg
+; -----------------------------------------------------------------------------
+; décompression
+
+            ; write to AUX
+            STA $C005
+
+            LDX Index
+            LDA TableGFXAuxlo, X
+			STA src2
+			LDA TableGFXAuxHi, X
+			STA src2+1
+            LDA #01             ; write Aux
+            JSR DECOMPLZ4
+
+            ; write to Main
+            STA $C004           
+
+            LDX Index
+            LDA TableGFXMainlo, X
+			STA src2
+			LDA TableGFXMainHi, X
+			STA src2+1
+            LDA #00             ; write Main
+            JSR DECOMPLZ4
+
+            STA $C002           ; read to Main
+
+            JSR WAITVBL
+            LDA $C056           ; lores
+            STA $C00D		    ; 80 colonnes
+		    STA $C05E		    ; SETAN3 / DHGR
+        SEI
+; =============================================================================
+Init_MB     ; init Mockingboard             
+!zone
+            LDA     OUT2+1
+            STA     OUT1+1
+            STA     OUT3+1
+            STA     OUT4+1
+            STA     STOPINT+2   ; fixe SLOT for end int
+             
+            LDA     #$01
+            STA     OUT1
+            LDA     #$81
+            STA     OUT3
+            ; OUT 2 = $00
+            LDA     #$80
+            STA     OUT4    
+
+            ; PREMIER init MB (6522/AY1) / (6522/AY2)
+            LDA     #$FF
+            LDY     #$03
+            STA     (OUT2),Y    ; STA  $C403       ; DDRA1
+            STA     (OUT4),Y    ; STA  $C483
+            LDA     #$07
+            DEY                 ; y = 2
+            STA     (OUT2),Y    ; STA $C402       ; DDRB1
+            STA     (OUT4),y    ; STA $C482
+
+            ; clean REGISTER AY1 / AY2
+            LDY     #$00
+            LDA     #$00
+            STA     (OUT2),Y
+            STA     (OUT4),Y
+            STA     saveREG13   ; init REG13
+            LDA     #$04
+            STA     (OUT2),Y
+            STA     (OUT4),Y
+; -------------------------------------
+; init Player PT3    
+            LDA #%00000001      ; no loop
+            STA SETUP
+            JSR INIT            ; init Player PT3
+            LDX Index
+            LDA TableTickLo,X
+            STA modTickLo+1
+            LDA TableTickHi,X
+            STA modTickHi+1
+            LDA TableTickPLo,X
+            STA mod2TickLo+1
+            LDA TableTickPHi,X
+            STA mod2TickHi+1
+; -------------------------------------
+Init_INT    ; init interrupt
+!zone       
+    LDA #<INT_ROUT
+    STA T1RoutPTR
+    LDA #>INT_ROUT
+    STA T1RoutPTR+1
+   
+    LDA #0
+    STA Tick
+    STA Tick+1
+
++           CLI                 ; INT on... (music!)
+; -----------------------------------------------------------------------------------
+; A PARTIR DE CE POINT, TOUS LES CHANGEMENTS DE MODE MEMOIRE DOIVENT ETRE MARQUES !!!
+; -----------------------------------------------------------------------------------
+JMP MAIN_LOOP
+
+Full_End2
+    JMP Full_End
+
+MAIN_LOOP
+!zone
+
+    JSR WAITVBLANK
+
+            ; maintien affichage DGRi
+SYNCHROLOOP        
+            LDY #(192/2)        ; on traite deux lignes à la fois dans la partie synchro
+    JSR WAITDISPLAY
+    LDA $C000
+    CMP #27+$80
+    BEQ Full_End2
+    INC Temp
+    INC Temp
+    INC Temp
+    INC Temp
+    INC Temp
+    INC Temp
+    INC Temp
+    INC Temp
+    INC Temp
+
+            ; DISPLAY	; 192 lignes
+
+            ; 65 cycles par ligne
+			INC TempS       ; 5
+			
+.LOOP192	LDA $C054		; 4
+			JSR WAIT53		; 53
+			LDA TempS		; 3   = 60 + 5
+
+            ; 65 cycles par ligne
+			LDA $C055       ; 4
+			JSR WAIT58      ; 58
+			LDA TempS       ; 3   = 65
+			
+            DEY             ; 2
+            BNE .LOOP192    ; 3   = 5
+
+; début VBL ici   
+
+
+            LDA Tick+1
+modTickHi   CMP #$FF
+            BNE +
+            LDA Tick
+modTickLo   CMP #$FF
+            BEQ ++        
++
+            JMP SYNCHROLOOP
+
+; on passe en HIRES pendant la décompression DGRi
+++          BIT $C057           ; hires
+            STA $C00C           ; 80 col OFF
+
+
+            LDA bPage
+            BNE +
+            BIT $C054           ; page1
+            INC bPage           ; next will be page2
+            JMP ++
++           BIT $C055           ; page2
+            DEC bPage           ; next will be page1            
+++
+
+            ; Next Index pour préparation image suivante et test si on est au bout
+            LDX Index
+            INX
+            CPX #(NUMBER_GFX+1)
+            BNE +
+            JMP END
++            STX Index
+
+; décompression DGRi next GFX
+            ; write to AUX
+            STA _RAMWRTaux
+
+            LDX Index
+            LDA TableGFXAuxlo, X
+			STA src2
+			LDA TableGFXAuxHi, X
+			STA src2+1
+            LDA #01             ; write Aux
+            JSR DECOMPLZ4
+            STA _RAMWRTmain  
+
+            LDX Index
+            LDA TableGFXMainlo, X
+			STA src2
+			LDA TableGFXMainHi, X
+			STA src2+1
+            LDA #00             ; write Main
+            JSR DECOMPLZ4
+
+            STA $C002           ; read to Main
+
+; préparation next TICK detector
+            LDY Index
+            LDA TableTickLo,Y
+            STA modTickLo+1
+            LDA TableTickHi,Y
+            STA modTickHi+1
+
+; préparation next HIRES page
+            LDX TableTextHi,Y
+            LDA TableTextLo,Y
+            JSR SetMsgHGR       ; préparation next Msg
+
+; attente du prochain TICK (pendant display txt hires)
+            
+            LDA mod2TickHi+1
+            CMP #$FF
+            BEQ +               ; on shunte l'attente si TICKhi = $FF
+
+-
+            LDA $C000
+            CMP #27+$80
+            BNE +
+            JMP Full_End
++ 
+           LDA Tick+1
+mod2TickHi  CMP #$FF            ; on boucle en attendant le bon timing
+            BNE -
+            LDA Tick
+mod2TickLo  CMP #$FF
+            BNE -        
+
++
+; préparation next TICK detector (pour txt Hires)
+            LDY Index
+            LDA TableTickPLo,Y
+            STA mod2TickLo+1
+            LDA TableTickPHi,Y
+            STA mod2TickHi+1
+
+;             LDA #00
+;             STA bInt            ; remise à zero du compteur INT
+
+; ; boucle d'attente fin INT (bInt mis à 1)
+; -           LDA bInt
+;             BEQ -
+    JSR WAITVBLANK
+
+; on repasse en mode DGR
+            BIT $C056           ; lores
+            BIT $C054           ; page1
+            STA $C00D		    ; 80 colonnes
+		    STA $C05E		    ; SETAN3 / DHGR
+
+; ICI on est de nouveau dans le VBL (fin INT)
+            JMP SYNCHROLOOP    ; back to synchro!
+; =============================================================================
+END         ; DERNIERE PARTIE
+!zone
+            ; ici on est en mode HIRES...
+
+; attente
+-           LDA Tick+1
+            CMP #>TICK19P            ; on boucle en attendant le bon timing
+            BNE -
+            LDA Tick
+            CMP #<TICK19P
+            BNE -   
+
+; display TEXT de FIN
+            LDX #39
+.loop
+            LDA ENDTEXTL00,X
+            STA $400,X
+            LDA ENDTEXTL01,X
+            STA $480,X
+            LDA ENDTEXTL02,X
+            STA $500,X
+            LDA ENDTEXTL03,X
+            STA $580,X
+            LDA ENDTEXTL04,X
+            STA $600,X
+            LDA ENDTEXTL05,X
+            STA $680,X
+            LDA ENDTEXTL06,X
+            STA $700,X
+            LDA ENDTEXTL07,X
+            STA $780,X
+            LDA ENDTEXTL08,X
+            STA $428,X
+            LDA ENDTEXTL09,X
+            STA $4A8,X
+            LDA ENDTEXTL10,X
+            STA $528,X
+            LDA ENDTEXTL11,X
+            STA $5A8,X
+            LDA ENDTEXTL12,X
+            STA $628,X
+            LDA ENDTEXTL13,X
+            STA $6A8,X
+            LDA ENDTEXTL14,X
+            STA $728,X
+            LDA ENDTEXTL15,X
+            STA $7A8,X
+            LDA ENDTEXTL16,X
+            STA $450,X
+            LDA ENDTEXTL17,X
+            STA $4D0,X
+            LDA ENDTEXTL18,X
+            STA $550,X
+            LDA ENDTEXTL19,X
+            STA $5D0,X
+            LDA ENDTEXTL20,X
+            STA $650,X
+            LDA ENDTEXTL21,X
+            STA $6D0,X
+            LDA ENDTEXTL22,X
+            STA $750,X
+            LDA ENDTEXTL23,X
+            STA $7D0,X
+            DEX
+            BMI +
+            JMP .loop
++
+            JSR WAITVBL
+            BIT $C051               ; mode TEXT
+            BIT $C054               ; PAGE1
+
+            LDX #>TEXT19
+            LDA #<TEXT19
+            JSR SetMsgHGR           ; "effacement" dernier message
+
+; on attend la fin de la musique...
+-
+            LDA $C000
+            CMP #27+$80
+            BEQ STOPINT
+
+           LDA Tick+1
+            CMP #>ENDFRAME
+            BNE -
+            LDA Tick
+            CMP #<ENDFRAME
+            BNE -     
+            JSR MUTE
+            ;LDA #%01000000
+STOPINT     ;STA $C40E           ; $CX0E => VIA_IER
+            LDA #0
+            STA T2SyncCodePTR+1
+            STA T1RoutPTR+1
+
+; "anim" de fin
+            LDA #5
+            STA Tock            ; on réutilise la variable
+            LDA #07
+            STA Tock+1
+
+!align 255,0,$EA                 ; on aligne sur la next page avec des NOP pour éviter les BNE 4 cycles!
+
+    JSR WAITVBLANK
+
+
+            ; maintien SYNCHRO
+.SYNCHROL      
+			LDY #24
+    JSR WAITDISPLAY
+    JSR WAIT53
+            ; DISPLAY	; 192 lignes
+
+            ; display 8 lignes (height 1 char TEXT)
+            ; 1 ligne = 65 cycles par ligne
+            INC TempS       ; 5 (compense le DEY/BNE)
+.LOOP192
+modL1       BIT $C051       ; 4
+            JSR WAIT53      ; 53
+			LDA TempS       ; (5) + 4 + 53 + 3 = 65
+modL2       BIT $C051       ; 4
+            JSR WAIT58      ; 58
+			LDA TempS       ; 3    = 65
+modL3       BIT $C051       ; 4
+            JSR WAIT58      ; 58
+			LDA TempS       ; 3    = 65
+modL4       BIT $C051       ; 4
+            JSR WAIT58      ; 58
+			LDA TempS       ; 3    = 65
+modL5       BIT $C051       ; 4
+            JSR WAIT58      ; 58
+			LDA TempS       ; 3    = 65
+modL6       BIT $C051       ; 4
+            JSR WAIT58      ; 58
+			LDA TempS       ; 3    = 65
+modL7       BIT $C051       ; 4
+            JSR WAIT58      ; 58
+			LDA TempS       ; 3    = 65
+modL8       BIT $C051       ; 4
+            JSR WAIT58      ; 58
+			LDA TempS       ; 3    = 65
+						
+            DEY             ; 2
+            BNE .LOOP192    ; 3   = 5
+
+            JSR PLAY
+
+            ; début VBL ici
+            DEC Tock
+            BEQ +
+            JMP .SYNCHROL
+
++           LDX Tock+1
+            LDA TableLinesLo,X
+            STA .modAdd+1
+            LDA TableLinesHi,X
+            STA .modAdd+2
+            LDA #$50
+.modAdd     STA $0000
+
+            LDA #5
+            STA Tock
+            DEC Tock+1
+            BMI Full_End
+            JMP .SYNCHROL
+
+Full_End    BIT $C050               ; on repasse en mode HIRES pour la fin.
+            STA $C010               ; reset keyboard
+; -           LDA $C000
+;             BPL -
+            LDX #05
+-           LDA TableCodeEnd,X
+            STA $300,X
+            DEX
+            BPL - 
+            RTS
+; =============================================================================
+TableCodeEnd !byte $AD,$8A,$C0,$4C,$59,$FF
+;TableLinesLo !byte <modL1+1,<modL2+1,<modL3+1,<modL4+1,<modL5+1,<modL6+1,<modL7+1,<modL8+1
+;TableLinesHi !byte >modL1+1,>modL2+1,>modL3+1,>modL4+1,>modL5+1,>modL6+1,>modL7+1,>modL8+1
+TableLinesLo !byte <modL1+1,<modL6+1,<modL4+1,<modL2+1,<modL7+1,<modL3+1,<modL5+1,<modL8+1
+TableLinesHi !byte >modL1+1,>modL6+1,>modL4+1,>modL2+1,>modL7+1,>modL3+1,>modL5+1,>modL8+1
+; =============================================================================
+INT_ROUT
+!zone
+
+
+            INC Tick
+            BNE +
+            INC Tick+1
++   
+            LDA $C013           ; on récupère le statut lecture AUX/MAIN
+            STA sRead
+            LDA $C014           ; on récupère le statut écriture AUX/MAIN
+            STA sWrite
+
+            STA $C002           ; read Main Memory
+            STA $C004           ; write Main Memory
+
+            JSR PLAY            ; music! (one tick)
+            
+            ; -------------------------
+
+
+;             ; restauration mémoire AUX/MAIN WRITE/READ d'avant l'INT
+;             ; sRead >= $80  : read Aux Memory
+;             ; sRead < $80   : read Main Memory
+;             ; sWrite >= $80 : write Aux Memory
+;             ; sWrite < $80  : write Main Memory
+
+            LDA sRead
+            BMI +
+            STA $C002           ; read Main Memory
+            JMP ++
++           STA $C003           ; read Aux Memory               
+++          LDA sWrite          
+            BMI +++
+            STA $C004           ; Write Main Memory
+            JMP ++++
++++         STA $C005           ; Write Aux Memory
+++++
+
+            ; LDA #$01            ; sortie d'int
+            ; STA bInt
+
+        RTS
+
+; =============================================================================
+DECOMPLZ4
+!zone
+; routine de décompression LZ4
+; code: XXL and FOX (from Atari Scene)
+; small modification: FT
+
+; init routine
+                    STA bWMem    ; 00 si Write MAIN / 01 si Write AUX
+                                 ; comme il y a relecture des data décompressées (principe LZ4) récurrentes,
+                                 ; si write MAIN, il faut switcher avant le LDA (src1),Y en READ MAIN 
+                                 ; et reswitcher juste après en READ AUX (default)
+
+                    STA $C003    ; READ AUX ($200-$BFFF) par default - ALWAYS
+                    LDA #$80
+                    STA sRead    ; on fixe le marqueur
+
+					LDA #<$400   ; always PAGE1 (page1/2 décompressées en même temps)
+					STA dest
+					LDA #>$400
+					STA dest+1
+
+					LDY #0
+					STY lenH
+					STY lenL	
+; -------------------------------------
+; décomp LZ4 routine
+; -------------------------------------
+.BP
+             		jsr   	.GET_BYTE                  
+                  	sta    	token
+               		lsr
+               		lsr
+               		lsr
+               		lsr
+                  	beq    	.read_offset                     ; there is no literal
+                  	cmp    	#$0f
+                  	jsr    	.getLength
+                  	
+.b_literals         jsr    	.GET_BYTE
+                  	jsr    	.store
+                  	bne    	.b_literals
+                  	
+.read_offset       	jsr    	.GET_BYTE
+                  	tax
+                  	sec
+                  	eor    	#$ff
+                  	adc    	dest
+                  	sta    	src1
+                  	txa
+                  	php							
+                  	jsr    	.GET_BYTE
+                  	plp
+                  	bne    	.not_done
+                  	tax
+                  	beq    	.unlz4_done
+.not_done          	eor    	#$ff
+                  	adc    	dest+1
+                  	sta    	src1+1
+                  	; c=1
+		            lda    	token
+                  	and    	#$0f
+                  	adc    	#$03                            ; 3+1=4
+                  	cmp    	#$13
+                  	jsr    	.getLength
+
+; modification: switch avant et après le LDA 
+.b1                 LDA bWMem
+                    BNE +
+                    STA $C002           ; read MAIN (pour la relecture des data déjà décompressées)
+                    LDA #00
+                    STA sRead           ; on fixe le marqueur
+
++                   lda     (src1),Y
+                    STA $C003           ; on repasse en mode par default (READ AUX)
+                    LDX #$80
+                    STX sRead           ; on refixe le marqueur
+                    
+                  	INC 	src1
+                  	BNE 	.s1
+                  	INC 	src1+1
+.s1                 jsr    	.store
+                  	bne    	.b1
+                  	jmp		.BP                  
+
+.store             	sta    	(dest),Y
+                  	INC		dest
+                  	BNE 	.s2
+ 					INC 	dest+1                 	
+.s2                 dec    	lenL
+                  	bne    	.unlz4_done
+                  	dec    	lenH
+.unlz4_done        	rts
+
+.getLength_next    	jsr    	.GET_BYTE
+                  	tax
+                  	clc
+	                adc    	lenL
+                  	bcc    	.s3
+                  	inc    	lenH
+.s3   	            inx
+
+.getLength         	sta    	lenL
+                  	beq    	.getLength_next
+                  	tax
+                  	beq    	.s4
+                  	inc    	lenH
+.s4 	            rts
+
+		
+.GET_BYTE			LDA		(src2),Y
+					INC 	src2		
+					BEQ 	.s5
+					RTS					
+.s5					INC 	src2+1			
+					RTS
+; =============================================================================
+WAIT58	    ; 58 cycles (JSR inclus)
+		    INC TempS   ; 5
+WAIT53      ; 53 cycles (JSR inclus)
+            LDX #8
+-		    DEX
+		    BNE -	    ; 2 + (2+3)*7 + (2+2) = 41
+         
+		    RTS		    ; + 6
+				        ; total = (6) + 5 + 41 + 6 = 58
+; =============================================================================
+CLEARHIRES
+!zone
+            LDA #00
+            TAY
+            LDX #32
+-
+.mod1       STA $2000,Y
+.mod2       STA $4000,Y
+            INY
+            BNE -
+            INC .mod1+2
+            INC .mod2+2
+            DEX
+            BNE -
+            RTS
+; =============================================================================
+WAITVBL
+!zone
+
+    JMP WAITVBLANK
+; =============================================================================
+SetMsgHGR  ; IN: A/X (lo/hi) Text address to display
+!zone
+            STA .mod1+1
+            STX .mod1+2
+
+            STA $C004           ; Write MAIN Memory ALWAYS
+            LDA #00
+            STA sWrite
+
+            LDX #39             ; boucle 40 lettres du message
+.BP            
+.mod1       LDY TEXT1,X         ; retrieve directly letter number (becoze use of custom.bin)
+
+            LDA FTableLo, Y     ; source for data in font.bin for current letter
+            STA FSrc
+            LDA FTableHi, Y
+            STA FSrc+1
+
+            LDY #00
+            LDA bPage
+            BNE .Page2
+
+.Page1
+            LDA (FSrc),Y
+            STA $21A8+$00,X
+            INY
+            LDA (FSrc),Y
+            STA $21A8+$400,X
+            INY
+            LDA (FSrc),Y
+            STA $21A8+$800,X
+            INY
+            LDA (FSrc),Y
+            STA $21A8+$C00,X
+            INY
+            LDA (FSrc),Y
+            STA $21A8+$1000,X
+            INY
+            LDA (FSrc),Y
+            STA $21A8+$1400,X
+            INY
+            LDA (FSrc),Y
+            STA $21A8+$1800,X
+
+            DEX
+            BPL .BP
+            RTS
+
+.Page2      LDA (FSrc),Y
+            STA $41A8+$00,X
+            INY
+            LDA (FSrc),Y
+            STA $41A8+$400,X
+            INY
+            LDA (FSrc),Y
+            STA $41A8+$800,X
+            INY
+            LDA (FSrc),Y
+            STA $41A8+$C00,X
+            INY
+            LDA (FSrc),Y
+            STA $41A8+$1000,X
+            INY
+            LDA (FSrc),Y
+            STA $41A8+$1400,X
+            INY
+            LDA (FSrc),Y
+            STA $41A8+$1800,X
+
+            DEX
+            BPL .BP
+            RTS
+; =============================================================================
+WAITREFRESH    ; input X: => attente:  x*cycles complet (VBL+DISPLAY) environ
+!zone
+
+.loop            
+    JSR WAITDISPLAY
+
+            DEX
+            BNE .loop
+
+            RTS
+
+WAITVBLANK
+    JMP *
+WAITDISPLAY
+    JMP *
+; =============================================================================
+NUMBER_GFX  = 18          ; TITLE included
+TableGFXAuxlo   !byte <(TITLE_AUX+16),<(AUX_01+16),<(AUX_02+16),<(AUX_03+16),<(AUX_04+16),<(AUX_05+16),<(AUX_06+16),<(AUX_07+16),<(AUX_08+16),<(AUX_09+16),<(AUX_10+16),<(AUX_11+16),<(AUX_12+16),<(AUX_13+16),<(AUX_14+16),<(AUX_15+16),<(AUX_16+16),<(AUX_17+16),<(AUX_18+16)
+TableGFXAuxHi   !byte >(TITLE_AUX+16),>(AUX_01+16),>(AUX_02+16),>(AUX_03+16),>(AUX_04+16),>(AUX_05+16),>(AUX_06+16),>(AUX_07+16),>(AUX_08+16),>(AUX_09+16),>(AUX_10+16),>(AUX_11+16),>(AUX_12+16),>(AUX_13+16),>(AUX_14+16),>(AUX_15+16),>(AUX_16+16),>(AUX_17+16),>(AUX_18+16)
+TableGFXMainlo  !byte <(TITLE_MAIN+16),<(MAIN_01+16),<(MAIN_02+16),<(MAIN_03+16),<(MAIN_04+16),<(MAIN_05+16),<(MAIN_06+16),<(MAIN_07+16),<(MAIN_08+16),<(MAIN_09+16),<(MAIN_10+16),<(MAIN_11+16),<(MAIN_12+16),<(MAIN_13+16),<(MAIN_14+16),<(MAIN_15+16),<(MAIN_16+16),<(MAIN_17+16),<(MAIN_18+16)
+TableGFXMainHi  !byte >(TITLE_MAIN+16),>(MAIN_01+16),>(MAIN_02+16),>(MAIN_03+16),>(MAIN_04+16),>(MAIN_05+16),>(MAIN_06+16),>(MAIN_07+16),>(MAIN_08+16),>(MAIN_09+16),>(MAIN_10+16),>(MAIN_11+16),>(MAIN_12+16),>(MAIN_13+16),>(MAIN_14+16),>(MAIN_15+16),>(MAIN_16+16),>(MAIN_17+16),>(MAIN_18+16)
+TableTextLo     !byte <TEXT1,<TEXT2,<TEXT3,<TEXT4,<TEXT5,<TEXT6,<TEXT7,<TEXT8,<TEXT9,<TEXT10,<TEXT11,<TEXT12,<TEXT13,<TEXT14,<TEXT15,<TEXT16,<TEXT17,<TEXT18,<TEXT19
+TableTextHi     !byte >TEXT1,>TEXT2,>TEXT3,>TEXT4,>TEXT5,>TEXT6,>TEXT7,>TEXT8,>TEXT9,>TEXT10,>TEXT11,>TEXT12,>TEXT13,>TEXT14,>TEXT15,>TEXT16,>TEXT17,>TEXT18,>TEXT19
+TableTickLo     !byte <TICK1,<TICK2,<TICK3,<TICK4,<TICK5,<TICK6,<TICK7,<TICK8,<TICK9,<TICK10,<TICK11,<TICK12,<TICK13,<TICK14,<TICK15,<TICK16,<TICK17,<TICK18,<TICK19
+TableTickHi     !byte >TICK1,>TICK2,>TICK3,>TICK4,>TICK5,>TICK6,>TICK7,>TICK8,>TICK9,>TICK10,>TICK11,>TICK12,>TICK13,>TICK14,>TICK15,>TICK16,>TICK17,>TICK18,>TICK19
+
+TableTickPLo    !byte <TICK1P,<TICK2P,<TICK3P,<TICK4P,<TICK5P,<TICK6P,<TICK7P,<TICK8P,<TICK9P,<TICK10P,<TICK11P,<TICK12P,<TICK13P,<TICK14P,<TICK15P,<TICK16P,<TICK17P,<TICK18P,<TICK19P
+TableTickPHi    !byte >TICK1P,>TICK2P,>TICK3P,>TICK4P,>TICK5P,>TICK6P,>TICK7P,>TICK8P,>TICK9P,>TICK10P,>TICK11P,>TICK12P,>TICK13P,>TICK14P,>TICK15P,>TICK16P,>TICK17P,>TICK18P,>TICK19P
+; =============================================================================
+; Tick Values (for GFX AND TXT Hires) permettant une synchro fine pour tous les affichages
+; Pattern: 192 ticks / affichage TEXT : 72 ticks / affichage EMPTY : 36 ticks mini (?)
+TICK1       = 0312          ; Display Title until this frame
+TICK1P      = 0384        ; ** Display TEXT1 (HGR) until this frame => début GFX01
+TICK2       = 0504          ; Display GFX01 until this frame
+TICK2P      = 0576        ; ** Display TEXT2 (HGR) until this frame => début GFX02
+TICK3       = 0696          ; Display GFX02 until this frame 
+TICK3P      = 0768        ; ** Display TEXT3 (HGR) until this frame => début GFX03
+TICK4       = 0888          ; Display GFX03 until this frame 
+TICK4P      = 0960        ; ** Display TEXT4 (HGR) until this frame => début GFX04
+TICK5       = 1116          ; Display GFX04 until this frame 
+TICK5P      = 1152        ; ** Display TEXT5 (HGR) until this frame => début GFX05 -- VIDE --
+TICK6       = 1212          ; Display GFX05 until this frame 
+TICK6P      = 1248        ; ** Display TEXT6 (HGR) until this frame => début GFX06 -- VIDE
+TICK7       = 1308          ; Display GFX06 until this frame 
+TICK7P      = 1344        ; ** Display TEXT7 (HGR) until this frame => début GFX07 -- VIDE
+TICK8       = 1464          ; Display GFX07 until this frame 
+TICK8P      = 1536        ; ** Display TEXT8 (HGR) until this frame => début GFX08
+TICK9       = 1656          ; Display GFX08 until this frame 
+TICK9P      = 1728        ; ** Display TEXT9 (HGR) until this frame => début GFX09
+TICK10      = 1848          ; Display GFX09 until this frame 
+TICK10P     = 1920        ; ** Display TEXT10(HGR) until this frame => début GFX10
+TICK11      = 2040          ; Display GFX10 until this frame 
+TICK11P     = 2112        ; ** Display TEXT11(HGR) until this frame => début GFX11
+TICK12      = 2232          ; Display GFX11 until this frame 
+TICK12P     = 2304        ; ** Display TEXT12(HGR) until this frame => début GFX12
+TICK13      = 2424          ; Display GFX12 until this frame 
+TICK13P     = 2496        ; ** Display TEXT13(HGR) until this frame => début GFX13
+TICK14      = 2616          ; Display GFX13 until this frame 
+TICK14P     = 2688        ; ** Display TEXT14(HGR) until this frame => début GFX14
+TICK15      = 2808          ; Display GFX14 until this frame 
+TICK15P     = 2880        ; ** Display TEXT15(HGR) until this frame => début GFX15
+TICK16      = 3000          ; Display GFX15 until this frame 
+TICK16P     = 3072        ; ** Display TEXT16(HGR) until this frame => début GFX16
+TICK17      = 3228          ; Display GFX16 until this frame 
+TICK17P     = 3264        ; ** Display TEXT17(HGR) until this frame => début GFX17    -- VIDE 
+TICK18      = 3384          ; Display GFX17 until this frame 
+TICK18P     = 3456        ; ** Display TEXT18(HGR) until this frame => début GFX18    
+TICK19      = 3804          ; Display GFX18 until this frame 
+TICK19P     = 3840        ; ** Display TEXT19(HGR) until this frame => début END TEXT -- VIDE
+ENDFRAME    = 4662          ; Display END TEXT until this frame / END OF MUSIC
+; =============================================================================
+FONT        !binary "font.bin"
+FTableLo    !byte <(FONT+00*7),<(FONT+01*7),<(FONT+02*7),<(FONT+03*7),<(FONT+04*7),<(FONT+05*7),<(FONT+06*7),<(FONT+07*7)
+            !byte <(FONT+08*7),<(FONT+09*7),<(FONT+10*7),<(FONT+11*7),<(FONT+12*7),<(FONT+13*7),<(FONT+14*7),<(FONT+15*7)
+            !byte <(FONT+16*7),<(FONT+17*7),<(FONT+18*7),<(FONT+19*7),<(FONT+20*7),<(FONT+21*7),<(FONT+22*7),<(FONT+23*7)
+            !byte <(FONT+24*7),<(FONT+25*7),<(FONT+26*7),<(FONT+27*7),<(FONT+28*7),<(FONT+29*7),<(FONT+30*7),<(FONT+31*7)
+            !byte <(FONT+32*7),<(FONT+33*7),<(FONT+34*7),<(FONT+35*7),<(FONT+36*7),<(FONT+37*7),<(FONT+38*7),<(FONT+39*7)
+            !byte <(FONT+40*7),<(FONT+41*7),<(FONT+42*7),<(FONT+43*7)
+FTableHi    !byte >(FONT+00*7),>(FONT+01*7),>(FONT+02*7),>(FONT+03*7),>(FONT+04*7),>(FONT+05*7),>(FONT+06*7),>(FONT+07*7)
+            !byte >(FONT+08*7),>(FONT+09*7),>(FONT+10*7),>(FONT+11*7),>(FONT+12*7),>(FONT+13*7),>(FONT+14*7),>(FONT+15*7)
+            !byte >(FONT+16*7),>(FONT+17*7),>(FONT+18*7),>(FONT+19*7),>(FONT+20*7),>(FONT+21*7),>(FONT+22*7),>(FONT+23*7)
+            !byte >(FONT+24*7),>(FONT+25*7),>(FONT+26*7),>(FONT+27*7),>(FONT+28*7),>(FONT+29*7),>(FONT+30*7),>(FONT+31*7)
+            !byte >(FONT+32*7),>(FONT+33*7),>(FONT+34*7),>(FONT+35*7),>(FONT+36*7),>(FONT+37*7),>(FONT+38*7),>(FONT+39*7)
+            !byte >(FONT+40*7),>(FONT+41*7),>(FONT+42*7),>(FONT+43*7)
+
+; ----------------------------------
+; Custom.bin correspondance -> ASCII/number
+;                                             4 
+;                                             3
+;  0000000000000000111111111111111122222222222222223333333333
+;  0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789 
+;   ABCDEFGHIJKLMNOPQRSTUVWXYZi!:.-0123456789()
+!ct "custom.bin" {
+;                 0000000000111111111122222222223333333333
+;                 0123456789012345678901234567890123456789 
+TEXT1      !text "              INTRODUCING               "
+TEXT2      !text "          DGR INTERLACED MODE           "
+TEXT3      !text "     NEW COLORS AND SHADES OF GRAY!     "
+TEXT4      !text "     MORE THAN 16 COLORS DISPLAYED      "
+TEXT5      !text "                                        "
+TEXT6      !text "                                        "
+TEXT7      !text "                                        "
+TEXT8      !text "   GRAPHICS ARE JUST LITTLE PARTS OF    "
+TEXT9      !text "       VERY GREAT ANSI ARTS FROM        "
+TEXT10     !text "    ANGEL OF HELL - AESTHETIC - AVG     "
+TEXT11     !text "       B7 - CARNIFEX - CRO - DMAN       " 
+TEXT12     !text "       HORSENBURGER - KING MIDAS        "
+TEXT13     !text " KNOCKTURNAL - M0 - NAIL - NECROFILIAC  "
+TEXT14     !text "          THE KNIGHT - US - Z0          "
+TEXT15     !text "        UGLY TITLE SCREEN: GROUIK       "
+TEXT16     !text " MUSIC: RT-FRAG.PT3 FROM ILYA ABROSIMOV "
+TEXT17     !text "                                        "
+TEXT18     !text "              CODE: GROUIK              "
+TEXT19     !text "                                        "
+}
+;                 0000000000111111111122222222223333333333
+;                 0123456789012345678901234567890123456789 
+ENDTEXTL00 !byte $3A
+           !fill 38,$20
+           !byte $3A
+ENDTEXTL01 !text $20,"            ONE MORE THING            ",$20
+ENDTEXTL02 !text $20,"                                      ",$20
+ENDTEXTL03 !text $20,"  It's not a Demo, just a SlideShow   ",$20
+ENDTEXTL04 !text $20," It's not a Comeback, just a lil Hack ",$20
+ENDTEXTL05 !text $20,"                                      ",$20
+ENDTEXTL06 !text $20,"                                      ",$20
+ENDTEXTL07 !text $20,"    NOTE ABOUT THE PT3 PLAYER USED    ",$20
+ENDTEXTL08 !text $20," It's my own implementation of a 6502 ",$20
+ENDTEXTL09 !text $20," PT3  Player. Code was written months ",$20
+ENDTEXTL10 !text $20," ago  for  ORIC 1 and never released. ",$20
+ENDTEXTL11 !text $20," Moreover  my  approach is completely ",$20
+ENDTEXTL12 !text $20," different from VMW Productions.      ",$20
+ENDTEXTL13 !text $20,"                                      ",$20
+                    ;"  But hey:  "Not Public, Not Legit!"  "
+ENDTEXTL14 !text $20,"  But hey:  ",$A2,"Not Public, Not Legit!",$A2,"  ",$20
+ENDTEXTL15 !text $20,"  So Congrats to Deater.  Well Done!  ",$20
+ENDTEXTL16 !text $20,"                                      ",$20
+ENDTEXTL17 !text $20,"                                      ",$20
+ENDTEXTL18 !text $20,"              GREETZ  TO              ",$20
+ENDTEXTL19 !text $20,"   8-bit-Shack, Cosine, fenarinarsa   ",$20
+ENDTEXTL20 !text $20,"     Ninjaforce, VMW Productions      ",$20
+ENDTEXTL21 !text $20," and of course Fuel and Blocktronics! ",$20
+ENDTEXTL22 !text $20,"                                      ",$20
+ENDTEXTL23 !byte $3A
+           !fill 38,$20
+           !byte $3A
+
+EOF

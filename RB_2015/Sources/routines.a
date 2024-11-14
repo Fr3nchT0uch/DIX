@@ -1,0 +1,5445 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; RASTER BARS
+; version 0.24
+
+; espace dispo = $8000->$BFFF soit 16*4*256 = 16384 octets
+
+
+; 0.01 = test
+; 0.02 = premi�re version (test)
+; 0.03 + 3�me barre (same sinus x3)
+; 0.04 + 4�me barre
+; 0.05 + ajout �cran virtuel 40x(24+6)
+; 0.06 + optimisations diverses
+; 0.07 + regroupement fonctions AFFICHE_X
+; 0.08 + r�organisation disquettes/m�moire
+; 0.09 + ajout STEP 2 & 3
+; 0.10 + optimisation AFFICHE
+; 0.11 + ajout code HIRES (pr�mices)
+; 0.13 + ajout partie Cr�dits
+; 0.14 + modification routine effacement PART I (utilisation tables comme CREDITS PART) + modification de la partie CREDS
+; 0.15 + ajouts partie II LORES
+; 0.16 + finalisation partie HIRES (1)
+; 0.17 + finalisation partie HIRES (2)
+; 0.18 + ajout scroll GR partie LORES
+; 0.19 + optimisation diverses (l�g�res)
+; 0.20 + d�but finalisation (organisation PARTIES ordre final)
+; 0.21 + am�lioration repassage en LORES
+; 0.22 + ralentissement cr�dits finaux + divers
+; 0.23 + am�lioration scroll text (couleur)
+; 0.24 + r�organisation data
+
+
+; A FAIRE AVANT RELEASE !!!
+
+; finaliser nb SECTEURS pour le chargement de ROUTINES (si<>64)
+
+!sl "routineslabel.a"
+!source "tableslabel.a"
+
+!source "../../sysconst.a"
+
+
+	*= $8000 ; ORG
+
+; -----------------------------------------------------------------------------
+INTPLAYERYM		= $F2FC
+VBLANK			= $F103
+; -----------------------------------------------------------------------------
+; Page Z�ro
+bMocking		= $08	; Mockingboard (00 - NOP / 01 - OK)
+bRefresh		= $0B	; byte type NTSC/60Hz - PAL/50Hz (00 = 50HZ | 01 = 60 HZ)
+vblflag		= $0D
+OUT1			= $20 ; +$21
+OUT2			= $22 ; +$23
+
+Mark			= $25
+
+; compteur si pas MOCKING
+COMPT1			= $40
+COMPT2			= $41
+
+;
+IndexBar1		= $60
+IndexBar2		= $61
+IndexBar3		= $62
+IndexBar4		= $63
+IndexBar5		= $64
+IndexBar6		= $65
+
+
+ADRHIR			= $70	; +$71
+ADRHIR2			= $72	; +$73
+ADRHIR3			= $74	; +$75
+
+bPage			= $80
+bSens			= $81
+Temp1			= $82
+Temp2			= $83
+
+Ord20			= $90
+Ord10			= $91
+Ord21			= $92
+Ord11			= $93
+Ord22			= $94
+Ord12			= $95
+Ord23			= $96
+Ord13			= $97
+Ord24			= $98
+Ord14			= $99
+Ord25			= $9A
+Ord15			= $9B
+
+Index0			= $9C
+Index1			= $9D
+Index2			= $9E
+Index3			= $9F
+Index4			= $A0
+Index5			= $A1
+
+S0				= $A2
+S1				= $A3
+S2				= $A4
+S3				= $A5
+S4				= $A6
+S5				= $A7
+
+Mask			= $A8
+IndexMask		= $A9
+Temp			= $AA
+IndexText		= $AB
+BufferGR		= $AC ; + $AD + $AE + $AF + $B0
+ADR				= $B1 ; + $B2
+Color			= $B3
+
+
+; =============================================================================
+RoutINTGS
+!zone
+		
+		LDA $C083
+		LDA $C083
+		JMP INTPLAYERYM
+; =============================================================================
+; ROUTINE MAIN
+; =============================================================================
+BARS_DEBUT
+!zone
+
+     			BIT $C056		; LORES
+			BIT $C052		; full
+			
+			; --------------------------------------------------------
+; � d�placer �ventuellement dans MAIN...			
+			LDA #00
+			STA Ord10
+			STA Ord20
+			STA Ord11
+			STA Ord21
+			STA Ord12
+			STA Ord22
+			STA Ord13
+			STA Ord23
+			STA Ord14
+			STA Ord24
+			STA Ord15
+			STA Ord25
+			STA bPage
+			STA bSens
+			LDA #$F5
+			STA Index0
+			LDA #$F8
+			STA Index1
+			LDA #$FA
+			STA Index2
+			LDA #$FC
+			STA Index3
+			LDA #$FE
+			STA Index4
+			LDA #$F0
+			STA Index5	
+					
+; ----------------------------------------
+; PART I - LORES - 1 barre puis 4 barres : d�placement haut-bas
+; ----------------------------------------
+STEP00 ; 1 barre 
+!zone
+; init
+     JSR CHECK_KEYBOARD
+			LDA #00
+			STA Mark
+			STA IndexBar1
+			LDA #32
+			STA IndexBar2
+			LDA #64
+			STA IndexBar3
+			LDA #32
+			STA IndexBar4
+			CLI					; interrupt ON ! (d�but music)
+			
+; boucle
+.BP0
+     JSR CHECK_KEYBOARD
+			JSR EFFACE_BARS
+		
+			LDA #00
+			TAY
+			JSR AFFICHE_1
+			LDA #00
+			TAY
+			JSR AFFICHE_2
+			LDA #00
+			TAY
+			JSR AFFICHE_3
+
+			LDX IndexBar4
+			LDA TSIN1,X
+			LDY TERASESIN1,X
+			JSR AFFICHE_4
+
+			JSR VBLANK
+			BIT $C050		; gfx
+			JSR DUMP
+			
+			INC IndexBar4
+			LDA Mark
+			BEQ .BP0				
+; -------------------------------------
+STEP01 ; 4 barres 						; Mark 5300
+!zone
+; init
+			LDA #00
+			STA Mark
+
+.BP1
+     JSR CHECK_KEYBOARD
+			JSR EFFACE_BARS
+			
+			LDX IndexBar1
+			LDA TSIN1,X
+			LDY TERASESIN1,X
+			JSR AFFICHE_1
+			LDX IndexBar2
+			LDA TSIN1,X
+			LDY TERASESIN1,X
+			JSR AFFICHE_2
+			LDX IndexBar3
+			LDA TSIN1,X
+			LDY TERASESIN1,X
+			JSR AFFICHE_3
+
+			LDX IndexBar4
+			LDY TERASESIN1,X
+			LDA TSIN1,X
+			JSR AFFICHE_4
+
+			JSR VBLANK
+			JSR DUMP
+			
+			INC IndexBar1
+			INC IndexBar2
+			INC IndexBar3
+			INC IndexBar4
+			LDA Mark
+			BEQ .BP1
+
+; -------------------------------------
+STEP02 ; 4 barres qui disparaissent les unes apr�s les autres 		; Mark 23000
+!zone
+; init
+			LDA #00
+			STA Mark
+.BP2
+     JSR CHECK_KEYBOARD
+			JSR EFFACE_BARS
+			
+			LDX IndexBar1
+			LDY TERASESIN1,X
+			LDA TSIN1,X
+			BNE .s1
+			LDX #$24
+			STX .OFF1
+.s1			JSR AFFICHE_1
+			LDX IndexBar2
+			LDY TERASESIN1,X
+			LDA TSIN1,X
+			BNE .s2
+			LDX #$24
+			STX .OFF2
+.s2			JSR AFFICHE_2
+			LDX IndexBar3
+			LDY TERASESIN1,X
+			LDA TSIN1,X
+			BNE .s3
+			LDX #$24
+			STX .OFF3
+.s3			JSR AFFICHE_3
+
+			LDX IndexBar4
+			LDY TERASESIN1,X
+			LDA TSIN1,X
+			BNE .s4
+			LDX #$24
+			STX .OFF4
+.s4			JSR AFFICHE_4
+
+			JSR VBLANK
+			JSR DUMP
+			
+.OFF1		INC IndexBar1
+.OFF2		INC IndexBar2
+.OFF3		INC IndexBar3
+.OFF4		INC IndexBar4
+			LDA Mark
+			BEQ .BP2
+
+; ----------------------------------------
+; PART II - LORES - 6 barres - d�placement "rotatif"
+; ----------------------------------------
+STEP10 ; apparition des 6 barres				; Mark 25730
+!zone
+			
+			LDA #00
+			STA IndexBar1
+			LDA #04
+			STA IndexBar2
+			LDA #08
+			STA IndexBar3
+			LDA #12
+			STA IndexBar4
+			LDA #16
+			STA IndexBar5
+			LDA #20
+			STA IndexBar6
+			
+.BP10
+     JSR CHECK_KEYBOARD
+			JSR EFFACE2_BARS
+			
+			LDX IndexBar1
+			LDY TERASESIN4,X
+			LDA TSIN4,X
+			JSR AFFICHE2_1
+			LDX IndexBar2
+			LDY TERASESIN4,X
+			LDA TSIN4,X
+			JSR AFFICHE2_2
+			LDX IndexBar3
+			LDY TERASESIN4,X
+			LDA TSIN4,X
+			JSR AFFICHE2_3
+			LDX IndexBar4
+			LDY TERASESIN4,X
+			LDA TSIN4,X
+			JSR AFFICHE2_4
+			LDX IndexBar5
+			LDY TERASESIN4,X
+			LDA TSIN4,X
+			JSR AFFICHE2_5
+			LDX IndexBar6
+			LDY TERASESIN4,X
+			LDA TSIN4,X
+			JSR AFFICHE2_6
+			
+			JSR VBLANK
+			JSR DUMP
+			
+			INC IndexBar1
+			INC IndexBar2
+			INC IndexBar3
+			INC IndexBar4
+			INC IndexBar5
+			INC IndexBar6
+			LDA IndexBar6
+			CMP #48
+			BNE .BP10
+; -------------------------------------
+STEP11 ; rotation des six barres
+!zone
+			LDA #00
+			STA Mark
+			LDA #16
+			STA IndexBar1
+			LDA #20
+			STA IndexBar2
+			LDA #24
+			STA IndexBar3
+			LDA #28
+			STA IndexBar4
+			LDA #32
+			STA IndexBar5
+			LDA #36
+			STA IndexBar6
+.BP11
+     JSR CHECK_KEYBOARD
+			JSR EFFACE2_BARS
+			
+			LDX IndexBar1
+			LDA TERASESIN3,X
+			BPL .desc
+			; monte
+			LDX IndexBar1
+			LDY TERASESIN3,X
+			LDA TSIN3,X
+			JSR AFFICHE2_1
+			LDX IndexBar2
+			LDY TERASESIN3,X
+			LDA TSIN3,X
+			JSR AFFICHE2_2
+			LDX IndexBar3
+			LDY TERASESIN3,X
+			LDA TSIN3,X
+			JSR AFFICHE2_3
+			LDX IndexBar4
+			LDY TERASESIN3,X
+			LDA TSIN3,X
+			JSR AFFICHE2_4
+			LDX IndexBar5
+			LDY TERASESIN3,X
+			LDA TSIN3,X
+			JSR AFFICHE2_5
+			LDX IndexBar6
+			LDY TERASESIN3,X
+			LDA TSIN3,X
+			JSR AFFICHE2_6
+			JMP .aff
+
+.desc		; monte (affichage ordre inverse)
+			LDX IndexBar6
+			LDY TERASESIN3,X
+			LDA TSIN3,X
+			JSR AFFICHE2_6
+			LDX IndexBar5
+			LDY TERASESIN3,X
+			LDA TSIN3,X
+			JSR AFFICHE2_5
+			LDX IndexBar4
+			LDY TERASESIN3,X
+			LDA TSIN3,X
+			JSR AFFICHE2_4
+			LDX IndexBar3
+			LDY TERASESIN3,X
+			LDA TSIN3,X
+			JSR AFFICHE2_3
+			LDX IndexBar2
+			LDY TERASESIN3,X
+			LDA TSIN3,X
+			JSR AFFICHE2_2
+			LDX IndexBar1
+			LDY TERASESIN3,X
+			LDA TSIN3,X
+			JSR AFFICHE2_1
+			
+			
+.aff		JSR VBLANK
+			JSR DUMP
+			
+			INC IndexBar1
+			INC IndexBar2
+			INC IndexBar3
+			INC IndexBar4
+			INC IndexBar5
+			INC IndexBar6
+			
+			LDA Mark
+			BNE .suite
+			JMP .BP11	
+			
+.suite		LDA IndexBar1
+			CMP #18
+			BEQ STEP12
+			JMP .BP11	
+; -------------------------------------
+STEP12 ; disparition des 6 barres			; Mark 39700 ++
+!zone
+			LDA #00
+			STA Mark
+			STA IndexBar1
+			LDA #04
+			STA IndexBar2
+			LDA #08
+			STA IndexBar3
+			LDA #12
+			STA IndexBar4
+			LDA #16
+			STA IndexBar5
+			LDA #20
+			STA IndexBar6
+			
+.BP12
+     JSR CHECK_KEYBOARD
+			JSR EFFACE2_BARS
+			
+			LDX IndexBar1
+			LDY TERASESIN5,X
+			LDA TSIN5,X
+			JSR AFFICHE2_1
+			LDX IndexBar2
+			LDY TERASESIN5,X
+			LDA TSIN5,X
+			JSR AFFICHE2_2
+			LDX IndexBar3
+			LDY TERASESIN5,X
+			LDA TSIN5,X
+			JSR AFFICHE2_3
+			LDX IndexBar4
+			LDY TERASESIN5,X
+			LDA TSIN5,X
+			JSR AFFICHE2_4
+			LDX IndexBar5
+			LDY TERASESIN5,X
+			LDA TSIN5,X
+			JSR AFFICHE2_5
+			LDX IndexBar6
+			LDY TERASESIN5,X
+			LDA TSIN5,X
+			JSR AFFICHE2_6
+			
+			JSR VBLANK
+			JSR DUMP
+			
+			INC IndexBar1
+			INC IndexBar2
+			INC IndexBar3
+			INC IndexBar4
+			INC IndexBar5
+			INC IndexBar6
+			LDA IndexBar6
+			CMP #65
+			BNE .BP12
+			
+.bw			LDA Mark
+			BEQ .bw
+; -------------------------------------
+; PART III - LORES : 3 barres + scrolling TEXT
+; -------------------------------------
+STEP20											; Mark 46500
+!zone
+			; init
+			; modification routine affichage pour utiliser routine effacement 2 (3 barres only)
+			LDA #<EFFOFF1b+1
+			STA MOD1AFF1+1
+			LDA #>EFFOFF1b+1
+			STA MOD1AFF1+2
+			LDA #<EFFOFF1b+2
+			STA MOD2AFF1+1
+			LDA #>EFFOFF1b+2
+			STA MOD2AFF1+2
+			
+			LDA #<EFFOFF3b+1
+			STA MOD1AFF3+1
+			LDA #>EFFOFF3b+1
+			STA MOD1AFF3+2
+			LDA #<EFFOFF3b+2
+			STA MOD2AFF3+1
+			LDA #>EFFOFF3b+2
+			STA MOD2AFF3+2
+			
+			LDA #00
+			STA Mark
+			STA Mask				; mask � 0 pour forcer la lecture d'un new CAR
+			LDA #32
+			STA IndexBar1
+			LDA #37
+			STA IndexBar2
+			LDA #42
+			STA IndexBar3
+			LDA #$60				;RTS
+			STA MOD_DUMP 			; modification code DUMP (pour shunter le dump des 3 derni�res lignes)
+			LDA #$FF
+			STA IndexText
+
+
+.BP20
+     JSR CHECK_KEYBOARD
+			JSR EFFACE_BARS2
+			
+			LDX IndexBar1
+			LDY TERASESIN2,X
+			LDA TSIN2,X
+			JSR AFFICHE_1
+			LDX IndexBar2
+			LDY TERASESIN2,X
+			LDA TSIN2,X
+			JSR AFFICHE_2
+			LDX IndexBar3
+			LDY TERASESIN2,X
+			LDA TSIN2,X
+			JSR AFFICHE_3
+
+; pr�paration SCROLL -> nouvelle entr�e colonne $27 * 4
+			; ==>
+			LDA Mask			; mask � zero ? new char � load !
+			BNE .suite			; 
+
+.newL	; NewLetter			
+							; --->
+ 			INC IndexText			
+			LDX IndexText 	
+			LDY StringGR,X		; lecture caract�re suivant
+			LDA TLetterB,Y		; correspondance adresse
+			STA ADR				; data lettre
+			LDA TLetterH,Y		; 
+			STA ADR+1			; 
+		
+			LDA #$01			; remise au d�but du mask (bit 0 � 1)
+			STA Mask			; 
+			
+.suite
+			LDY #03				; boucle Y effectu�e 4 fois
+.BY		
+			LDA (ADR),Y			; lecture data screen pour la lettre
+			AND Mask			; on ne garde que le bit en cours
+			BEQ .sb2			; s'il reste 0, il n'y a rien � afficher (LDA = #00)
+
+			LDA TColor,Y		; couleur (suivant ligne)	
+
+.sb2		STA BufferGR,Y
+		
+			DEY					; 2
+			BPL .BY				; boucle Y de 0 � 3 (hauteur des caract�res = 4)
+							
+			; on pr�pare �tape suivante (bit suivant)
+			ASL Mask			; on d�calle le mask d'un cran � gauche !
+								; si mask = 0 cela forcera la lecture d'un new char
+
+; -----------------------------------------------------------------------------------
+			JSR VBLANK
+			JSR DUMP
+			JSR SCROLLGR
+			LDA BufferGR
+			STA $0677
+			LDA BufferGR+1
+			STA $06F7
+			LDA BufferGR+2
+			STA $0777
+			LDA BufferGR+3
+			STA $07F7
+			
+			INC IndexBar1
+			INC IndexBar2
+			INC IndexBar3
+			LDA Mark
+			BNE STEP21
+			JMP .BP20
+; -------------------------------------
+STEP21		; transition HIRES
+			BIT $C057
+			
+; -------------------------------------
+; PART IV - HIRES - 6 barres
+; -------------------------------------
+; notes HIRES :
+; bPage = 0 : affichage Page1 �tait en cours, on modifie donc la page 2
+; bPage = 1 : affichage Page2 �tait en cours, on modifie donc la page 1			
+
+STEP30 ; 6 barres - scroll 1
+!zone
+			LDA #$00
+			STA Mark
+			
+.BP30		
+     JSR CHECK_KEYBOARD
+			JSR Action1
+			INC Index0
+			INC Index0
+			INC Index1
+			INC Index1
+			INC Index2
+			INC Index2
+			INC Index3
+			INC Index3
+			INC Index4
+			INC Index4
+			INC Index5
+			INC Index5
+
+			JSR VBLANK
+			LDA bPage		
+			BNE .s1
+			STA $C055
+			INC bPage 
+			LDA Mark
+			BEQ .BP30
+			JMP STEP31
+			
+.s1			STA $C054
+			DEC bPage
+			LDA Mark
+			BEQ .BP30
+; -------------------------------------
+STEP31 ; 6 barres - scroll 2 (rotation)
+!zone
+			LDA #$00
+			STA Mark
+			LDA #24
+			STA Index0
+			LDA #32
+			STA Index1
+			LDA #40
+			STA Index2
+			LDA #48
+			STA Index3
+			LDA #56
+			STA Index4
+			LDA #64
+			STA Index5
+			
+.BP31		
+     JSR CHECK_KEYBOARD
+			JSR Action2
+			INC Index0
+			INC Index0
+			INC Index0
+			INC Index0
+			INC Index1
+			INC Index1
+			INC Index1
+			INC Index1
+			INC Index2
+			INC Index2
+			INC Index2
+			INC Index2
+			INC Index3
+			INC Index3
+			INC Index3
+			INC Index3
+			INC Index4
+			INC Index4
+			INC Index4
+			INC Index4
+			INC Index5
+			INC Index5
+			INC Index5
+			INC Index5
+			
+			JSR VBLANK
+			LDA bPage		
+			BNE .s1
+			STA $C055
+			INC bPage 
+			LDA Mark
+			BEQ .BP31
+			JMP STEP50
+			
+.s1			STA $C054
+			DEC bPage
+			LDA Mark
+			BEQ .BP31
+; -------------------------------------
+; PART V - LORES - CREDITS
+; -------------------------------------
+STEP50		; fin de scroll LORES pr�c�dent
+!zone
+			LDA #00
+			STA Mark
+.BP50
+     JSR CHECK_KEYBOARD
+			JSR EFFACE_BARS2
+			
+			LDX IndexBar1
+			LDY TERASESIN2,X
+			LDA TSIN2,X
+			JSR AFFICHE_1
+			LDX IndexBar2
+			LDY TERASESIN2,X
+			LDA TSIN2,X
+			JSR AFFICHE_2
+			LDX IndexBar3
+			LDY TERASESIN2,X
+			LDA TSIN2,X
+			JSR AFFICHE_3
+
+			JSR VBLANK
+			BIT $C056				; LORES
+			BIT $C054				; PAGE1
+			JSR DUMP
+			
+			INC IndexBar1
+			INC IndexBar2
+			INC IndexBar3
+			LDA Mark
+			BNE STEP50b
+			JMP .BP50
+; -------------------------------------
+STEP50b		; cr�dits d�but
+!zone
+			LDA #$AD				; LDA $xxxx
+			STA MOD_DUMP 			; RESTAURATION code DUMP 
+			LDA #$00
+			STA IndexBar1
+			LDA #$DD
+			STA Color
+
+.BP50b		
+			LDX IndexBar1
+			LDA TERASECRED,X	
+			JSR EFFACE_CRED
+			LDX IndexBar1
+			LDA TSINUSCRED,X
+			JSR AFFICHE_CRED
+			JSR VBLANK
+			JSR DUMP
+			INC IndexBar1
+			LDA IndexBar1
+			CMP #NBVALUE
+			BNE .BP50b
+; -------------------------------------
+STEP51		; cr�dits d�but
+!zone
+			LDA #$00
+			STA IndexBar1
+			LDA #<CREDIT_CODE		
+			STA OFFCRED1+1
+			LDA #>CREDIT_CODE
+			STA OFFCRED2+1
+			LDA #$FF
+			STA Color
+
+.BP51		
+     JSR CHECK_KEYBOARD
+			LDX IndexBar1
+			LDA TERASECRED,X	
+			JSR EFFACE_CRED
+			LDX IndexBar1
+			LDA TSINUSCRED,X
+			JSR AFFICHE_CRED
+			JSR VBLANK
+			JSR DUMP
+			INC IndexBar1
+			LDA IndexBar1
+			CMP #NBVALUE
+			BNE .BP51
+; -------------------------------------
+STEP52		
+!zone
+			LDA #$00
+			STA IndexBar1
+			LDA #<CREDIT_GRK
+			STA OFFCRED1+1
+			LDA #>CREDIT_GRK
+			STA OFFCRED2+1
+			LDA #$22
+			STA Color
+
+.BP52		
+			LDX IndexBar1
+			LDA TERASECRED,X	
+			JSR EFFACE_CRED
+			LDX IndexBar1
+			LDA TSINUSCRED,X
+			JSR AFFICHE_CRED
+			JSR VBLANK
+			JSR DUMP
+			INC IndexBar1
+			LDA IndexBar1
+			CMP #NBVALUE
+			BNE .BP52
+;
+; -------------------------------------
+STEP53		
+!zone
+			LDA #$00
+			STA IndexBar1
+			LDA #<CREDIT_MUS
+			STA OFFCRED1+1
+			LDA #>CREDIT_MUS
+			STA OFFCRED2+1
+			LDA #$FF
+			STA Color
+
+.BP53		
+     JSR CHECK_KEYBOARD
+			LDX IndexBar1
+			LDA TERASECRED,X	
+			JSR EFFACE_CRED
+			LDX IndexBar1
+			LDA TSINUSCRED,X
+			JSR AFFICHE_CRED
+			JSR VBLANK
+			JSR DUMP
+			INC IndexBar1
+			LDA IndexBar1
+			CMP #NBVALUE
+			BNE .BP53
+;
+; -------------------------------------
+STEP54		
+!zone
+			LDA #$00
+			STA IndexBar1
+			LDA #<CREDIT_JAR
+			STA OFFCRED1+1
+			LDA #>CREDIT_JAR
+			STA OFFCRED2+1
+			LDA #$99
+			STA Color
+
+.BP54		
+     JSR CHECK_KEYBOARD
+			LDX IndexBar1
+			LDA TERASECRED,X	
+			JSR EFFACE_CRED
+			LDX IndexBar1
+			LDA TSINUSCRED,X
+			JSR AFFICHE_CRED
+			JSR VBLANK
+			JSR DUMP
+			INC IndexBar1
+			LDA IndexBar1
+			CMP #NBVALUE
+			BNE .BP54
+;
+; -------------------------------------
+STEP55		
+!zone
+			LDA #$00
+			STA IndexBar1
+			LDA #<CREDIT_REM
+			STA OFFCRED1+1
+			LDA #>CREDIT_REM
+			STA OFFCRED2+1
+			LDA #$FF
+			STA Color
+
+.BP55		
+     JSR CHECK_KEYBOARD
+			LDX IndexBar1
+			LDA TERASECRED,X	
+			JSR EFFACE_CRED
+			LDX IndexBar1
+			LDA TSINUSCRED,X
+			JSR AFFICHE_CRED
+			JSR VBLANK
+			JSR DUMP
+			INC IndexBar1
+			LDA IndexBar1
+			CMP #NBVALUE
+			BNE .BP55
+;
+; -------------------------------------
+STEP56		
+!zone
+			LDA #$00
+			STA IndexBar1
+			LDA #<CREDIT_FUK
+			STA OFFCRED1+1
+			LDA #>CREDIT_FUK
+			STA OFFCRED2+1
+			LDA #$33
+			STA Color
+
+.BP56		
+     JSR CHECK_KEYBOARD
+			LDX IndexBar1
+			LDA TERASECRED,X	
+			JSR EFFACE_CRED
+			LDX IndexBar1
+			LDA TSINUSCRED,X
+			JSR AFFICHE_CRED
+			JSR VBLANK
+			JSR DUMP
+			INC IndexBar1
+			LDA IndexBar1
+			CMP #NBVALUE
+			BNE .BP56
+;
+; -------------------------------------
+STEP57		
+!zone
+			LDA #$00
+			STA IndexBar1
+			LDA #<CREDIT_GFX
+			STA OFFCRED1+1
+			LDA #>CREDIT_GFX
+			STA OFFCRED2+1
+			LDA #$FF
+			STA Color
+
+.BP57		
+     JSR CHECK_KEYBOARD
+			LDX IndexBar1
+			LDA TERASECRED,X	
+			JSR EFFACE_CRED
+			LDX IndexBar1
+			LDA TSINUSCRED,X
+			JSR AFFICHE_CRED
+			JSR VBLANK
+			JSR DUMP
+			INC IndexBar1
+			LDA IndexBar1
+			CMP #NBVALUE
+			BNE .BP57
+;
+; -------------------------------------
+STEP58		
+!zone
+			LDA #$00
+			STA IndexBar1
+			LDA #<CREDIT_GRK
+			STA OFFCRED1+1
+			LDA #>CREDIT_GRK
+			STA OFFCRED2+1
+			LDA #$22
+			STA Color
+
+.BP58		
+     JSR CHECK_KEYBOARD
+			LDX IndexBar1
+			LDA TERASECRED,X	
+			JSR EFFACE_CRED
+			LDX IndexBar1
+			LDA TSINUSCRED,X
+			JSR AFFICHE_CRED
+			JSR VBLANK
+			JSR DUMP
+			INC IndexBar1
+			LDA IndexBar1
+			CMP #NBVALUE
+			BNE .BP58
+;
+; -------------------------------------
+STEP59		
+!zone
+			LDA #$00
+			STA IndexBar1
+
+.BP59		
+     JSR CHECK_KEYBOARD
+			LDX IndexBar1
+			LDA TERASECRED,X	
+			JSR EFFACE_CRED3
+			LDX IndexBar1
+			LDA TSINUSCRED,X
+			JSR AFFICHE_CRED
+			JSR VBLANK
+			JSR DUMP
+			INC IndexBar1
+			LDA IndexBar1
+			CMP #NBVALUE
+			BNE .BP59
+; -------------------------------------
+STEP60	
+!zone
+			LDA #00
+			STA Mark
+			STA IndexBar1
+			
+.BP60b		
+			LDA #<CREDIT_FT
+			STA OFFCRED31+1
+			LDA #>CREDIT_FT
+			STA OFFCRED32+1
+			
+.BP60				
+     JSR CHECK_KEYBOARD
+			LDX IndexBar1
+			LDA TERASECRED,X	
+			JSR EFFACE_CRED3
+			LDX IndexBar1
+			LDA TSINUSCRED,X
+			JSR AFFICHE_CRED
+			JSR VBLANK
+			JSR DUMP
+			INC IndexBar1
+			LDA IndexBar1
+			CMP #NBVALUE
+			BNE .BP60
+			LDA #00
+			STA IndexBar1
+			LDA Mark
+			BEQ .BP60b
+; -------------------------------------
+STEP61
+!zone
+.BP61
+     JSR CHECK_KEYBOARD
+			LDA Mark
+			BEQ .BP61
+; -------------------------------------
+			; fin - nettoyage
+			SEI						; stop interrupt !
+			LDA		#00
+			STA 	OUT2			; pour qu'on soit s�r que OUT2 = 0
+
+			; TIMER/INT off
+			LDA 	#%00000000		;
+			LDY 	#$0D
+			STA 	(OUT2),Y 		; STA $C40D			; interrupt flag register	(Clear ALL Interrupt)
+			INY
+			STA 	(OUT2),Y		; STA $C40E			; interrupt Enable register (Disable Timer)
+
+			; reset MB
+			LDA 	#$00		; Set fct "Reset"
+			LDY 	#$00
+			STA 	(OUT2),Y	; STA $C400
+			LDY 	#$80		
+			STA		(OUT2),Y	; STA $C480	
+			LDA 	#$04		; Set fct "Inactive"
+			LDY 	#$00
+			STA 	(OUT2),Y	; STA $C400
+			LDY 	#$80
+			STA		(OUT2),Y	; STA $C480
+END
+     LDA _LCBANK2rw      ;remap loader in RAM
+     LDA _LCBANK2rw
+     RTS   ; END DEMO
+;			LDA $C082			; ROM utilisable entre $D000/$FFFF
+;			JMP $FA62
+
+CHECK_KEYBOARD
+     LDA $C000
+     STA $C010
+     CMP #27+$80 ;ESC
+     BEQ +
+     RTS
++    PLA
+     PLA
+     JMP END
+
+; ============================================================================
+; ROUTINES AFFICHAGES LORES PART I
+; ============================================================================
+; ROUTINES EFFACEMENT ANCIENNE POSITION
+; 
+EFFACE_BARS		; efface 4 barres
+!zone
+			
+			LDA #00				; efface
+			LDY #79
+.BX1		
+EFFOFF1		STA $800,Y
+EFFOFF2		STA $800,Y
+EFFOFF3		STA $800,Y
+EFFOFF4		STA $800,Y
+  			DEY
+  			BPL	.BX1
+			RTS
+; ============================================================================
+; ROUTINES EFFACEMENT ANCIENNE POSITION
+; 
+EFFACE_BARS2	; efface 3 barres
+!zone
+			
+			LDA #00				; efface
+			LDY #79
+.BX1		
+EFFOFF1b	STA $800,Y
+EFFOFF3b	STA $800,Y
+  			DEY
+  			BPL	.BX1
+			RTS
+; ============================================================================
+AFFICHE_1
+!zone
+			; entr�e dans A et Y
+			CLC
+			LSR				; /2 + r�cup bit0 -> BCC/BCS
+			TAX
+			LDA TTB,Y
+MOD1AFF1	STA EFFOFF1+1
+			LDA TTH,Y
+MOD2AFF1	STA EFFOFF1+2
+			BCC	.AFFICH_P
+			; si paire
+			JMP .AFFICH_I
+
+.AFFICH_P					
+			LDA TTB,X
+			STA .BX1+1
+			LDA TTH,X
+			STA .BX1+2
+			
+			LDA #$C4
+			
+			LDY #39
+.BX1		STA $0800,Y
+  			DEY 
+  			BPL	.BX1
+  			
+  			INX
+  			LDA TTB,X
+			STA .BX2+1
+			LDA TTH,X
+			STA .BX2+2
+			
+			LDA #$EF
+			
+			LDY #39
+.BX2		STA $0800,Y
+  			DEY 
+  			BPL	.BX2
+  			
+  			INX
+  			LDA TTB,X
+			STA .BX3+1
+			LDA TTH,X
+			STA .BX3+2
+
+			
+			LDA #$4C
+			
+			LDY #39
+.BX3		STA $0800,Y
+  			DEY 
+  			BPL	.BX3
+  			
+  			RTS
+
+.AFFICH_I
+			LDA TTB,X
+			STA .BX1b+1
+			STA .OFF1b+1
+			LDA TTH,X
+			STA .BX1b+2
+			STA .OFF1b+2
+			LDY #39	
+.OFF1b		LDA $0800,Y
+			;      B   A
+			AND #%00001111		; lignes "AB" => byte  $BA
+			ORA #$40			; dark green/
+			
+.BX1b		STA $0800,Y
+  			DEY 
+  			BPL	.BX1b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2b+1
+			LDA TTH,X
+			STA .BX2b+2
+			
+			LDA #$FC		; Light Green/White
+			
+			LDY #39
+.BX2b		STA $0800,Y
+  			DEY 
+  			BPL	.BX2b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX3b+1
+			LDA TTH,X
+			STA .BX3b+2
+
+			LDA #$CE		; Aqua/light green
+			
+			LDY #39
+.BX3b		STA $0800,Y
+  			DEY 
+  			BPL	.BX3b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX4b+1
+			STA .OFF4b+1
+			LDA TTH,X
+			STA .BX4b+2
+			STA .OFF4b+2
+  			
+  			LDY #39
+.OFF4b		LDA $0800,Y
+			AND #%11110000
+			ORA #$04		; dark green/
+			
+.BX4b		STA $0800,Y
+  			DEY 
+  			BPL	.BX4b
+  			
+			RTS
+; ============================================================================
+AFFICHE_2
+!zone
+			; entr�e dans A et Y
+			CLC
+			LSR				; /2 + r�cup bit0 -> BCC/BCS
+			TAX
+			LDA TTB,Y
+MOD1AFF2	STA EFFOFF2+1
+			LDA TTH,Y
+MOD2AFF2	STA EFFOFF2+2
+			BCC	.AFFICH_P
+			; si paire
+			JMP .AFFICH_I
+
+.AFFICH_P					
+			LDA TTB,X
+			STA .BX1+1
+			LDA TTH,X
+			STA .BX1+2
+			LDA #$31
+			
+			LDY #39
+.BX1		STA $0800,Y
+  			DEY 
+  			BPL	.BX1
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2+1
+			LDA TTH,X
+			STA .BX2+2
+			
+			
+			LDA #$BF
+			
+			LDY #39
+.BX2		STA $0800,Y
+  			DEY 
+  			BPL	.BX2
+  			
+  			INX
+  			LDA TTB,X
+			STA .BX3+1
+			LDA TTH,X
+			STA .BX3+2
+
+			
+			LDA #$13
+			
+			LDY #39
+.BX3		STA $0800,Y
+  			DEY 
+  			BPL	.BX3
+  			
+  			RTS
+
+.AFFICH_I
+			LDA TTB,X
+			STA .BX1b+1
+			STA .OFF1b+1
+			LDA TTH,X
+			STA .OFF1b+2
+			STA .BX1b+2
+			LDY #39	
+.OFF1b		LDA $0800,Y
+			AND #%00001111
+			ORA #$10			
+			
+.BX1b		STA $0800,Y
+  			DEY 
+  			BPL	.BX1b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2b+1
+			LDA TTH,X
+			STA .BX2b+2
+			
+			LDA #$F3		
+			
+			LDY #39
+.BX2b		STA $0800,Y
+  			DEY 
+  			BPL	.BX2b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX3b+1
+			LDA TTH,X
+			STA .BX3b+2
+
+			
+			LDA #$3B
+			
+			LDY #39
+.BX3b		STA $0800,Y
+  			DEY 
+  			BPL	.BX3b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .OFF4b+1
+			STA .BX4b+1
+			LDA TTH,X
+			STA .OFF4b+2
+			STA .BX4b+2
+  			
+  			LDY #39
+.OFF4b		LDA $0800,Y
+			AND #%11110000
+			ORA #$01		
+			
+.BX4b		STA $0800,Y
+  			DEY 
+  			BPL	.BX4b
+  			
+			RTS
+; ============================================================================
+AFFICHE_3
+!zone
+			; entr�e dans A et Y
+			CLC
+			LSR				; /2 + r�cup bit0 -> BCC/BCS
+			TAX
+			LDA TTB,Y
+MOD1AFF3	STA EFFOFF3+1
+			LDA TTH,Y
+MOD2AFF3	STA EFFOFF3+2
+			BCC	.AFFICH_P
+			; si paire
+			JMP .AFFICH_I
+
+.AFFICH_P					
+			LDA TTB,X
+			STA .BX1+1
+			LDA TTH,X
+			STA .BX1+2
+			LDA #$62
+			
+			LDY #39
+.BX1		STA $0800,Y
+  			DEY 
+  			BPL	.BX1
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2+1
+			LDA TTH,X
+			STA .BX2+2
+			
+			
+			LDA #$7F
+			
+			LDY #39
+.BX2		STA $0800,Y
+  			DEY 
+  			BPL	.BX2
+  			
+  			INX
+  			LDA TTB,X
+			STA .BX3+1
+			LDA TTH,X
+			STA .BX3+2
+
+			
+			LDA #$26
+			
+			LDY #39
+.BX3		STA $0800,Y
+  			DEY 
+  			BPL	.BX3
+  			
+  			RTS
+
+.AFFICH_I
+			LDA TTB,X
+			STA .BX1b+1
+			STA .OFF1b+1
+			LDA TTH,X
+			STA .BX1b+2
+			STA .OFF1b+2
+			LDY #39	
+.OFF1b		LDA $0800,Y
+			AND #%00001111
+			ORA #$20			
+			
+.BX1b		STA $0800,Y
+  			DEY 
+  			BPL	.BX1b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2b+1
+			LDA TTH,X
+			STA .BX2b+2
+			
+			LDA #$F6		
+			
+			LDY #39
+.BX2b		STA $0800,Y
+  			DEY 
+  			BPL	.BX2b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX3b+1
+			LDA TTH,X
+			STA .BX3b+2
+
+			
+			LDA #$67
+			
+			LDY #39
+.BX3b		STA $0800,Y
+  			DEY 
+  			BPL	.BX3b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .OFF4b+1
+			STA .BX4b+1
+			LDA TTH,X
+			STA .OFF4b+2
+			STA .BX4b+2
+  			
+  			LDY #39
+.OFF4b		LDA $0800,Y
+			AND #%11110000
+			ORA #$02		
+			
+.BX4b		STA $0800,Y
+  			DEY 
+  			BPL	.BX4b
+  			
+			RTS
+; ============================================================================
+AFFICHE_4
+!zone
+			; entr�e dans A (ordonn�e absolue) et X (indexbar)
+			CLC
+			LSR				; /2 + r�cup bit0 -> BCC/BCS
+			TAX
+			LDA TTB,Y
+			STA EFFOFF4+1
+			LDA TTH,Y
+			STA EFFOFF4+2
+			BCC	.AFFICH_P
+			; si paire
+			JMP .AFFICH_I
+
+.AFFICH_P					
+			LDA TTB,X
+			STA .BX1+1
+			LDA TTH,X
+			STA .BX1+2
+			LDA #$D9
+			
+			LDY #39
+.BX1		STA $0800,Y
+  			DEY 
+  			BPL	.BX1
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2+1
+			LDA TTH,X
+			STA .BX2+2
+			
+			
+			LDA #$AF
+			
+			LDY #39
+.BX2		STA $0800,Y
+  			DEY 
+  			BPL	.BX2
+  			
+  			INX
+  			LDA TTB,X
+			STA .BX3+1
+			LDA TTH,X
+			STA .BX3+2
+	
+			
+			LDA #$9D
+			
+			LDY #39
+.BX3		STA $0800,Y
+  			DEY 
+  			BPL	.BX3
+  			
+  			RTS
+
+.AFFICH_I
+			LDA TTB,X
+			STA .BX1b+1
+			STA .OFF1b+1
+			LDA TTH,X
+			STA .BX1b+2
+			STA .OFF1b+2
+			
+			LDY #39	
+.OFF1b		LDA $0800,Y
+			AND #%00001111
+			ORA #$90			
+			
+.BX1b		STA $0800,Y
+  			DEY 
+  			BPL	.BX1b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2b+1
+			LDA TTH,X
+			STA .BX2b+2
+			
+			LDA #$FD		
+			
+			LDY #39
+.BX2b		STA $0800,Y
+  			DEY 
+  			BPL	.BX2b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX3b+1
+			LDA TTH,X
+			STA .BX3b+2
+
+			
+			LDA #$DA
+			
+			LDY #39
+.BX3b		STA $0800,Y
+  			DEY 
+  			BPL	.BX3b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX4b+1
+			STA .OFF4b+1
+			LDA TTH,X
+			STA .BX4b+2
+			STA .OFF4b+2
+  			
+  			LDY #39
+.OFF4b		LDA $0800,Y
+			AND #%11110000
+			ORA #$09		
+			
+.BX4b		STA $0800,Y
+  			DEY 
+  			BPL	.BX4b
+  			
+			RTS
+; ============================================================================
+; ROUTINES AFFICHAGES LORES PART II
+; ============================================================================
+; routine effacement ancienne position
+
+EFFACE2_BARS		; efface 
+!zone
+			
+			LDA #00				; efface
+			LDY #79
+.BX1		
+EFF2OFF1	STA $800,Y
+EFF2OFF2	STA $800,Y
+EFF2OFF3	STA $800,Y
+EFF2OFF4	STA $800,Y
+EFF2OFF5	STA $800,Y
+EFF2OFF6	STA $800,Y
+
+  			DEY
+  			BPL	.BX1
+			RTS
+; ============================================================================
+AFFICHE2_1
+!zone
+			; entr�e dans A et Y
+			STA Temp
+			TYA
+			AND #%01111111
+			TAY
+			LDA Temp
+			
+			CLC
+			LSR				; /2 + r�cup bit0 -> BCC/BCS
+			TAX
+			LDA TTB,Y
+			STA EFF2OFF1+1
+			LDA TTH,Y
+			STA EFF2OFF1+2
+			BCC	.AFFICH_P
+			; si paire
+			JMP .AFFICH_I
+
+.AFFICH_P					
+			LDA TTB,X
+			STA .BX1+1
+			LDA TTH,X
+			STA .BX1+2
+			
+			LDA #$e6
+			
+			LDY #39
+.BX1		STA $0800,Y
+  			DEY 
+  			BPL	.BX1
+  			
+  			INX
+  			LDA TTB,X
+			STA .BX2+1
+			LDA TTH,X
+			STA .BX2+2
+			
+			LDA #$6e
+			
+			LDY #39
+.BX2		STA $0800,Y
+  			DEY 
+  			BPL	.BX2
+  			
+  			
+  			RTS
+
+.AFFICH_I
+			LDA TTB,X
+			STA .BX1b+1
+			STA .OFF1b+1
+			LDA TTH,X
+			STA .BX1b+2
+			STA .OFF1b+2
+			LDY #39	
+.OFF1b		LDA $0800,Y
+			;      B   A
+			AND #%00001111		; lignes "AB" => byte  $BA
+			ORA #$60			;
+			
+.BX1b		STA $0800,Y
+  			DEY 
+  			BPL	.BX1b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2b+1
+			LDA TTH,X
+			STA .BX2b+2
+			
+			LDA #$ee			
+			
+			LDY #39
+.BX2b		STA $0800,Y
+  			DEY 
+  			BPL	.BX2b
+  			
+  			INX
+ 
+   			LDA TTB,X
+			STA .BX3b+1
+			STA .OFF3b+1
+			LDA TTH,X
+			STA .BX3b+2
+			STA .OFF3b+2
+  			
+  			LDY #39
+.OFF3b		LDA $0800,Y
+			AND #%11110000
+			ORA #$06			; dark blue
+			
+.BX3b		STA $0800,Y
+  			DEY 
+  			BPL	.BX3b
+  			
+			RTS
+; ============================================================================
+AFFICHE2_2
+!zone
+			; entr�e dans A et Y
+			STA Temp
+			TYA
+			AND #%01111111
+			TAY
+			LDA Temp
+			
+			CLC
+			LSR				; /2 + r�cup bit0 -> BCC/BCS
+			TAX
+			LDA TTB,Y
+			STA EFF2OFF2+1
+			LDA TTH,Y
+			STA EFF2OFF2+2
+			BCC	.AFFICH_P
+			; si paire
+			JMP .AFFICH_I
+
+.AFFICH_P					
+			LDA TTB,X
+			STA .BX1+1
+			LDA TTH,X
+			STA .BX1+2
+			
+			LDA #$b3
+			
+			LDY #39
+.BX1		STA $0800,Y
+  			DEY 
+  			BPL	.BX1
+  			
+  			INX
+  			LDA TTB,X
+			STA .BX2+1
+			LDA TTH,X
+			STA .BX2+2
+			
+			LDA #$3b
+			
+			LDY #39
+.BX2		STA $0800,Y
+  			DEY 
+  			BPL	.BX2
+  			
+  			
+  			RTS
+
+.AFFICH_I
+			LDA TTB,X
+			STA .BX1b+1
+			STA .OFF1b+1
+			LDA TTH,X
+			STA .BX1b+2
+			STA .OFF1b+2
+			LDY #39	
+.OFF1b		LDA $0800,Y
+			;      B   A
+			AND #%00001111		; lignes "AB" => byte  $BA
+			ORA #$30			; blue green/
+			
+.BX1b		STA $0800,Y
+  			DEY 
+  			BPL	.BX1b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2b+1
+			LDA TTH,X
+			STA .BX2b+2
+			
+			LDA #$bb			; m blue x2
+			
+			LDY #39
+.BX2b		STA $0800,Y
+  			DEY 
+  			BPL	.BX2b
+  			
+  			INX
+ 
+   			LDA TTB,X
+			STA .BX3b+1
+			STA .OFF3b+1
+			LDA TTH,X
+			STA .BX3b+2
+			STA .OFF3b+2
+  			
+  			LDY #39
+.OFF3b		LDA $0800,Y
+			AND #%11110000
+			ORA #$03			; dark blue
+			
+.BX3b		STA $0800,Y
+  			DEY 
+  			BPL	.BX3b
+  			
+			RTS
+; ============================================================================
+AFFICHE2_3
+!zone
+			; entr�e dans A et Y
+			STA Temp
+			TYA
+			AND #%01111111
+			TAY
+			LDA Temp
+			
+			CLC
+			LSR				; /2 + r�cup bit0 -> BCC/BCS
+			TAX
+			LDA TTB,Y
+			STA EFF2OFF3+1
+			LDA TTH,Y
+			STA EFF2OFF3+2
+			BCC	.AFFICH_P
+			; si paire
+			JMP .AFFICH_I
+
+.AFFICH_P					
+			LDA TTB,X
+			STA .BX1+1
+			LDA TTH,X
+			STA .BX1+2
+			
+			LDA #$e6
+			
+			LDY #39
+.BX1		STA $0800,Y
+  			DEY 
+  			BPL	.BX1
+  			
+  			INX
+  			LDA TTB,X
+			STA .BX2+1
+			LDA TTH,X
+			STA .BX2+2
+			
+			LDA #$6e
+			
+			LDY #39
+.BX2		STA $0800,Y
+  			DEY 
+  			BPL	.BX2
+  			
+  			
+  			RTS
+
+.AFFICH_I
+			LDA TTB,X
+			STA .BX1b+1
+			STA .OFF1b+1
+			LDA TTH,X
+			STA .BX1b+2
+			STA .OFF1b+2
+			LDY #39	
+.OFF1b		LDA $0800,Y
+			;      B   A
+			AND #%00001111		; lignes "AB" => byte  $BA
+			ORA #$60			
+			
+.BX1b		STA $0800,Y
+  			DEY 
+  			BPL	.BX1b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2b+1
+			LDA TTH,X
+			STA .BX2b+2
+			
+			LDA #$ee			
+			
+			LDY #39
+.BX2b		STA $0800,Y
+  			DEY 
+  			BPL	.BX2b
+  			
+  			INX
+ 
+   			LDA TTB,X
+			STA .BX3b+1
+			STA .OFF3b+1
+			LDA TTH,X
+			STA .BX3b+2
+			STA .OFF3b+2
+  			
+  			LDY #39
+.OFF3b		LDA $0800,Y
+			AND #%11110000
+			ORA #$06			; dark blue
+			
+.BX3b		STA $0800,Y
+  			DEY 
+  			BPL	.BX3b
+  			
+			RTS
+; ============================================================================
+AFFICHE2_4
+!zone
+			; entr�e dans A et Y
+			STA Temp
+			TYA
+			AND #%01111111
+			TAY
+			LDA Temp
+			
+			CLC
+			LSR				; /2 + r�cup bit0 -> BCC/BCS
+			TAX
+			LDA TTB,Y
+			STA EFF2OFF4+1
+			LDA TTH,Y
+			STA EFF2OFF4+2
+			BCC	.AFFICH_P
+			; si paire
+			JMP .AFFICH_I
+
+.AFFICH_P					
+			LDA TTB,X
+			STA .BX1+1
+			LDA TTH,X
+			STA .BX1+2
+			
+			LDA #$b3
+			
+			LDY #39
+.BX1		STA $0800,Y
+  			DEY 
+  			BPL	.BX1
+  			
+  			INX
+  			LDA TTB,X
+			STA .BX2+1
+			LDA TTH,X
+			STA .BX2+2
+			
+			LDA #$3b
+			
+			LDY #39
+.BX2		STA $0800,Y
+  			DEY 
+  			BPL	.BX2
+  			
+  			
+  			RTS
+
+.AFFICH_I
+			LDA TTB,X
+			STA .BX1b+1
+			STA .OFF1b+1
+			LDA TTH,X
+			STA .BX1b+2
+			STA .OFF1b+2
+			LDY #39	
+.OFF1b		LDA $0800,Y
+			;      B   A
+			AND #%00001111		; lignes "AB" => byte  $BA
+			ORA #$30			; blue green/
+			
+.BX1b		STA $0800,Y
+  			DEY 
+  			BPL	.BX1b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2b+1
+			LDA TTH,X
+			STA .BX2b+2
+			
+			LDA #$bb			; m blue x2
+			
+			LDY #39
+.BX2b		STA $0800,Y
+  			DEY 
+  			BPL	.BX2b
+  			
+  			INX
+ 
+   			LDA TTB,X
+			STA .BX3b+1
+			STA .OFF3b+1
+			LDA TTH,X
+			STA .BX3b+2
+			STA .OFF3b+2
+  			
+  			LDY #39
+.OFF3b		LDA $0800,Y
+			AND #%11110000
+			ORA #$03			; dark blue
+			
+.BX3b		STA $0800,Y
+  			DEY 
+  			BPL	.BX3b
+  			
+			RTS
+; ============================================================================
+AFFICHE2_5
+!zone
+			; entr�e dans A et Y
+			STA Temp
+			TYA
+			AND #%01111111
+			TAY
+			LDA Temp
+			
+			CLC
+			LSR				; /2 + r�cup bit0 -> BCC/BCS
+			TAX
+			LDA TTB,Y
+			STA EFF2OFF5+1
+			LDA TTH,Y
+			STA EFF2OFF5+2
+			BCC	.AFFICH_P
+			; si paire
+			JMP .AFFICH_I
+
+.AFFICH_P					
+			LDA TTB,X
+			STA .BX1+1
+			LDA TTH,X
+			STA .BX1+2
+			
+			LDA #$e6
+			
+			LDY #39
+.BX1		STA $0800,Y
+  			DEY 
+  			BPL	.BX1
+  			
+  			INX
+  			LDA TTB,X
+			STA .BX2+1
+			LDA TTH,X
+			STA .BX2+2
+			
+			LDA #$6e
+			
+			LDY #39
+.BX2		STA $0800,Y
+  			DEY 
+  			BPL	.BX2
+  			
+  			
+  			RTS
+
+.AFFICH_I
+			LDA TTB,X
+			STA .BX1b+1
+			STA .OFF1b+1
+			LDA TTH,X
+			STA .BX1b+2
+			STA .OFF1b+2
+			LDY #39	
+.OFF1b		LDA $0800,Y
+			;      B   A
+			AND #%00001111		; lignes "AB" => byte  $BA
+			ORA #$60			
+			
+.BX1b		STA $0800,Y
+  			DEY 
+  			BPL	.BX1b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2b+1
+			LDA TTH,X
+			STA .BX2b+2
+			
+			LDA #$ee			
+			
+			LDY #39
+.BX2b		STA $0800,Y
+  			DEY 
+  			BPL	.BX2b
+  			
+  			INX
+ 
+   			LDA TTB,X
+			STA .BX3b+1
+			STA .OFF3b+1
+			LDA TTH,X
+			STA .BX3b+2
+			STA .OFF3b+2
+  			
+  			LDY #39
+.OFF3b		LDA $0800,Y
+			AND #%11110000
+			ORA #$06			
+			
+.BX3b		STA $0800,Y
+  			DEY 
+  			BPL	.BX3b
+  			
+			RTS
+; ============================================================================
+AFFICHE2_6
+!zone
+			; entr�e dans A et Y
+			STA Temp
+			TYA
+			AND #%01111111
+			TAY
+			LDA Temp
+			
+			CLC
+			LSR				; /2 + r�cup bit0 -> BCC/BCS
+			TAX
+			LDA TTB,Y
+			STA EFF2OFF6+1
+			LDA TTH,Y
+			STA EFF2OFF6+2
+			BCC	.AFFICH_P
+			; si paire
+			JMP .AFFICH_I
+
+.AFFICH_P					
+			LDA TTB,X
+			STA .BX1+1
+			LDA TTH,X
+			STA .BX1+2
+			
+			LDA #$31
+			
+			LDY #39
+.BX1		STA $0800,Y
+  			DEY 
+  			BPL	.BX1
+  			
+  			INX
+  			LDA TTB,X
+			STA .BX2+1
+			LDA TTH,X
+			STA .BX2+2
+			
+			LDA #$13
+			
+			LDY #39
+.BX2		STA $0800,Y
+  			DEY 
+  			BPL	.BX2
+  			
+  			
+  			RTS
+
+.AFFICH_I
+			LDA TTB,X
+			STA .BX1b+1
+			STA .OFF1b+1
+			LDA TTH,X
+			STA .BX1b+2
+			STA .OFF1b+2
+			LDY #39	
+.OFF1b		LDA $0800,Y
+			;      B   A
+			AND #%00001111		; lignes "AB" => byte  $BA
+			ORA #$10			
+			
+.BX1b		STA $0800,Y
+  			DEY 
+  			BPL	.BX1b
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2b+1
+			LDA TTH,X
+			STA .BX2b+2
+			
+			LDA #$33			
+			
+			LDY #39
+.BX2b		STA $0800,Y
+  			DEY 
+  			BPL	.BX2b
+  			
+  			INX
+ 
+   			LDA TTB,X
+			STA .BX3b+1
+			STA .OFF3b+1
+			LDA TTH,X
+			STA .BX3b+2
+			STA .OFF3b+2
+  			
+  			LDY #39
+.OFF3b		LDA $0800,Y
+			AND #%11110000
+			ORA #$01			;
+			
+.BX3b		STA $0800,Y
+  			DEY 
+  			BPL	.BX3b
+  			
+			RTS
+; ============================================================================
+; =============================================================================
+; ROUTINES HIRES
+; =============================================================================
+; ------------------------------------------------------------------------------
+Action1
+!zone
+		
+		; EFFACEMENT BARS =============
+		LDX bPage				; 0/1
+
+		LDY Ord25,x				; Ord2b/Ord1b suivant x
+		JSR EffaceBar
+		LDY Ord24,x				; Ord2b/Ord1b suivant x
+		JSR EffaceBar
+		LDY Ord23,x				; Ord2b/Ord1b suivant x
+		JSR EffaceBar
+		LDY Ord22,x
+		JSR EffaceBar
+		LDY Ord21,x
+		JSR EffaceBar
+		LDY Ord20,x				; Ord2v/Ord1v suivant x
+		JSR EffaceBar
+		; =============================
+
+		LDX bPage
+		LDY Index0
+		LDA TableSinus1,Y		; on r�cup�re l'ordonn�e dans la table sinus
+		STA Ord20,x
+		JSR AfficheBarV
+		LDX bPage
+		LDY Index1
+		LDA TableSinus1,Y		; on r�cup�re l'ordonn�e dans la table sinus
+		STA Ord21,x
+		JSR AfficheBarC
+		LDX bPage
+		LDY Index2
+		LDA TableSinus1,Y		; on r�cup�re l'ordonn�e dans la table sinus
+		STA Ord22,x
+		JSR AfficheBarV
+		LDX bPage
+		LDY Index3
+		LDA TableSinus1,Y		; on r�cup�re l'ordonn�e dans la table sinus
+		STA Ord23,x
+		JSR AfficheBarC
+		LDX bPage
+		LDY Index4
+		LDA TableSinus1,Y		; on r�cup�re l'ordonn�e dans la table sinus
+		STA Ord24,x
+		JSR AfficheBarV
+		LDX bPage
+		LDY Index5
+		LDA TableSinus1,Y		; on r�cup�re l'ordonn�e dans la table sinus
+		STA Ord25,x
+		JSR AfficheBarC
+		rts	
+; ------------------------------------------------------------------------------
+Action2
+!zone
+		
+		; EFFACEMENT BARS =============
+		LDX bPage				; 0/1
+
+		LDY Ord25,x				; Ord2b/Ord1b suivant x
+		JSR EffaceBar
+		LDY Ord24,x				; Ord2b/Ord1b suivant x
+		JSR EffaceBar
+		LDY Ord23,x				; Ord2b/Ord1b suivant x
+		JSR EffaceBar
+		LDY Ord22,x
+		JSR EffaceBar
+		LDY Ord21,x
+		JSR EffaceBar
+		LDY Ord20,x				; Ord2v/Ord1v suivant x
+		JSR EffaceBar
+		; =============================
+
+		; AFFICHAGE BARS ==============
+
+		; r�cup�ration nouvelle ordonn�e suivant index + sauvegarde
+		LDX bPage
+		LDY Index0
+		LDA TableSinus2,Y		; on r�cup�re l'ordonn�e dans la table sinus
+		STA Ord20,x
+		STA S0
+		LDY Index1
+		LDA TableSinus2,Y		; on r�cup�re l'ordonn�e dans la table sinus
+		STA Ord21,x
+		STA S1
+		LDY Index2
+		LDA TableSinus2,Y		; on r�cup�re l'ordonn�e dans la table sinus
+		STA Ord22,x
+		STA S2
+		LDY Index3
+		LDA TableSinus2,Y		; on r�cup�re l'ordonn�e dans la table sinus
+		STA Ord23,x
+		STA S3
+		LDY Index4
+		LDA TableSinus2,Y		; on r�cup�re l'ordonn�e dans la table sinus
+		STA Ord24,x
+		STA S4
+		LDY Index5
+		LDA TableSinus2,Y		; on r�cup�re l'ordonn�e dans la table sinus
+		STA Ord25,x
+		STA S5	
+		
+		
+		LDY Index5
+		LDA TableSinus2,Y	     ; ordonn�e
+		CMP #96
+		BCS	.aff2				; partie haute
+
+		; partie basse
+.aff1
+		LDY Index0
+		LDA TableSin2Sens,Y
+		STA bSens
+		LDA S0		
+		JSR AfficheBarB
+		
+		LDY Index1
+		LDA TableSin2Sens,Y
+		STA bSens
+		LDA S1		
+		JSR AfficheBarR
+		
+		LDY Index2
+		LDA TableSin2Sens,Y
+		STA bSens
+		LDA S2	
+		JSR AfficheBarB
+		
+		LDY Index3
+		LDA TableSin2Sens,Y
+		STA bSens
+		LDA S3		
+		JSR AfficheBarR
+		
+		LDY Index4
+		LDA TableSin2Sens,Y
+		STA bSens
+		LDA S4		
+		JSR AfficheBarB
+		
+		LDY Index5
+		LDA TableSin2Sens,Y
+		STA bSens
+		LDA S5	
+		JSR AfficheBarR
+		RTS
+		
+.aff2
+		LDY Index5
+		LDA TableSin2Sens,Y
+		STA bSens
+		LDA S5		
+		JSR AfficheBarR
+		
+		
+		LDY Index4
+		LDA TableSin2Sens,Y
+		STA bSens
+		LDA S4		
+		JSR AfficheBarB
+		
+		LDY Index3
+		LDA TableSin2Sens,Y
+		STA bSens
+		LDA S3	
+		JSR AfficheBarR
+		
+
+		LDY Index2
+		LDA TableSin2Sens,Y
+		STA bSens
+		LDA S2		
+		JSR AfficheBarB
+	
+		LDY Index1
+		LDA TableSin2Sens,Y
+		STA bSens
+		LDA S1		
+		JSR AfficheBarR
+		
+		LDY Index0
+		LDA TableSin2Sens,Y
+		STA bSens
+		LDA S0	
+		JSR AfficheBarB
+
+		RTS
+
+; =============================================================================
+
+AfficheBarV		 	; in : A = ordonn�e 
+!zone					
+		
+		STA Temp1
+		LDA bPage
+		BNE .z1
+		LDX #<THH2
+		LDY #>THH2
+		JMP .s2
+
+.z1		LDX #<THH1
+		LDY #>THH1
+
+.s2		STX .Mod1v+1
+		STX .Mod2v+1		
+		STY .Mod1v+2
+		STY .Mod2v+2			
+
+		LDA bSens
+		BNE .s1
+		; on passe devant, on peut shunter AND/ORA/MASK � l'aide des tables $FF et $00 (no effect)
+		LDA #<BufAnd
+		STA ADRHIR3
+		LDA #>BufAnd
+		STA ADRHIR3+1
+		LDA #<BufOra
+		STA ADRHIR2
+		LDA #>BufOra
+		STA ADRHIR2+1
+
+.s1		LDX #00					; mise � zero (8 passages)
+		
+.loopY
+		LDA bSens
+		BNE .m2					
+		; on passe devant
+		LDY Temp1				; on r�cup�re l'ordonn�e
+		LDA THB,Y
+		STA ADRHIR
+.Mod1v	LDA THH2,Y
+		STA ADRHIR+1
+		JMP .go
+		
+		; on passe derri�re
+.m2		LDY Temp1					; on r�cup�re l'ordonn�e
+		LDA THB,Y
+		STA ADRHIR
+		STA ADRHIR2
+		STA ADRHIR3
+.Mod2v	LDA THH2,Y
+		STA ADRHIR+1
+		LDA THH3,Y
+		STA ADRHIR2+1
+		LDA THH4,Y
+		STA ADRHIR3+1	
+		
+.go		LDY #10
+		LDA GVert1,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		AND #$7F
+		STA (ADRHIR),Y
+		INY
+		LDA GVert2,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		AND #$7F
+		STA (ADRHIR),Y
+		
+		INY
+
+.loopX	LDA BVert2,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		AND #$7F
+		STA (ADRHIR),Y		; on affiche - sprite 1
+		INY
+		LDA BVert1,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		AND #$7F
+		STA (ADRHIR),Y		; on affiche - sprite 2
+		INY
+		CPY #28
+		BNE .loopX
+		
+		LDA DVert1,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		AND #$7F
+		STA (ADRHIR),Y
+		INY
+		LDA DVert2,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		AND #$7F
+		STA (ADRHIR),Y
+		
+		INC Temp1			; on incr�mente l'ordonn�e
+		INX
+		CPX #8
+		BEQ .fin
+		JMP .loopY
+		
+.fin	RTS
+; -------------------------------------
+AfficheBarC	
+!zone				
+		STA Temp1	
+		LDA bPage
+		BNE .z1
+		LDX #<THH2
+		LDY #>THH2
+		JMP .s2
+
+.z1		LDX #<THH1
+		LDY #>THH1
+
+.s2		STX .Mod1c+1
+		STX .Mod2c+1		
+		STY .Mod1c+2
+		STY .Mod2c+2		
+		
+		LDA bSens
+		BNE .s1
+		; on passe devant, on peut shunter AND/ORA/MASK � l'aide des tables $FF et $00 (no effect)
+		LDA #<BufAnd
+		STA ADRHIR3
+		LDA #>BufAnd
+		STA ADRHIR3+1
+		LDA #<BufOra
+		STA ADRHIR2
+		LDA #>BufOra
+		STA ADRHIR2+1
+
+.s1		LDX #00					; mise � zero (8 passages)
+		
+.loopY
+		LDA bSens
+		BNE .m2					
+		; on passe devant
+		LDY Temp1				; on r�cup�re l'ordonn�e
+		LDA THB,Y
+		STA ADRHIR
+.Mod1c	LDA THH2,Y
+		STA ADRHIR+1
+		JMP .go
+		
+		; on passe derri�re
+.m2		LDY Temp1					; on r�cup�re l'ordonn�e
+		LDA THB,Y
+		STA ADRHIR
+		STA ADRHIR2
+		STA ADRHIR3
+.Mod2c	LDA THH2,Y
+		STA ADRHIR+1
+		LDA THH3,Y
+		STA ADRHIR2+1
+		LDA THH4,Y
+		STA ADRHIR3+1	
+		
+.go		LDY #10
+		LDA GCyan1,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		AND #$7F
+		STA (ADRHIR),Y
+		INY
+		LDA GCyan2,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		AND #$7F
+		STA (ADRHIR),Y
+		
+		INY
+
+.loopX	LDA BVert1,X	
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		AND #$7F
+		STA (ADRHIR),Y		; on affiche - sprite 1
+		INY
+		LDA BVert2,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		AND #$7F
+		STA (ADRHIR),Y		; on affiche - sprite 2
+		INY
+		CPY #28
+		BNE .loopX
+		
+		LDA DCyan1,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		AND #$7F
+		STA (ADRHIR),Y
+		INY
+		LDA DCyan2,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		AND #$7F
+		STA (ADRHIR),Y
+		
+		INC Temp1			; on incr�mente l'ordonn�e
+		INX
+		CPX #8
+		BEQ .fin
+		JMP .loopY
+		
+.fin	RTS
+; -------------------------------------
+AfficheBarR
+!zone			
+		STA Temp1
+		LDA bPage
+		BNE .z1
+		LDX #<THH2
+		LDY #>THH2
+		JMP .s2
+
+.z1		LDX #<THH1
+		LDY #>THH1
+
+.s2		STX .Mod1r+1
+		STX .Mod2r+1		
+		STY .Mod1r+2
+		STY .Mod2r+2		
+		
+		LDA bSens
+		BNE .s1
+		; on passe devant, on peut shunter AND/ORA/MASK � l'aide des tables $FF et $00 (no effect)
+		LDA #<BufAnd
+		STA ADRHIR3
+		LDA #>BufAnd
+		STA ADRHIR3+1
+		LDA #<BufOra
+		STA ADRHIR2
+		LDA #>BufOra
+		STA ADRHIR2+1
+		
+.s1		LDX #00					; mise � zero (8 passages)
+		
+.loopY
+		LDA bSens
+		BNE .m2					
+		; on passe devant
+		LDY Temp1				; on r�cup�re l'ordonn�e
+		LDA THB,Y
+		STA ADRHIR
+.Mod1r	LDA THH2,Y
+		STA ADRHIR+1
+		JMP .go
+		
+		; on passe derri�re
+.m2		LDY Temp1					; on r�cup�re l'ordonn�e
+		LDA THB,Y
+		STA ADRHIR
+		STA ADRHIR2
+		STA ADRHIR3
+.Mod2r	LDA THH2,Y
+		STA ADRHIR+1
+		LDA THH3,Y
+		STA ADRHIR2+1
+		LDA THH4,Y
+		STA ADRHIR3+1	
+
+.go		
+		LDY #10
+		LDA GRed1,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		STA (ADRHIR),Y
+		INY
+		LDA GRed2,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		STA (ADRHIR),Y
+		
+		INY
+
+.loopX	LDA BBleu1,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		STA (ADRHIR),Y		; on affiche - sprite 1
+		INY
+		LDA BBleu2,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		STA (ADRHIR),Y		; on affiche - sprite 2
+		INY
+		CPY #28
+		BNE .loopX
+		
+		LDA DRed1,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		STA (ADRHIR),Y
+		INY
+		LDA DRed2,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		STA (ADRHIR),Y
+		
+		INC Temp1			; on incr�mente l'ordonn�e
+		INX
+		CPX #8
+		BEQ .fin
+		JMP .loopY
+		
+.fin	RTS
+; -------------------------------------
+AfficheBarB
+!zone	
+		STA Temp1
+		LDA bPage
+		BNE .z1
+		LDX #<THH2
+		LDY #>THH2
+		JMP .s2
+
+.z1		LDX #<THH1
+		LDY #>THH1
+
+.s2		STX .Mod1b+1
+		STX .Mod2b+1		
+		STY .Mod1b+2
+		STY .Mod2b+2		
+				
+		LDA bSens
+		BNE .s1
+		; on passe devant, on peut shunter AND/ORA/MASK � l'aide des tables $FF et $00 (no effect)
+		LDA #<BufAnd
+		STA ADRHIR3
+		LDA #>BufAnd
+		STA ADRHIR3+1
+		LDA #<BufOra
+		STA ADRHIR2
+		LDA #>BufOra
+		STA ADRHIR2+1
+		
+.s1		LDX #00					; mise � zero (8 passages)
+		
+.loopY
+		LDA bSens
+		BNE .m2					; on monte
+		; on passe devant
+		LDY Temp1				; on r�cup�re l'ordonn�e
+		LDA THB,Y
+		STA ADRHIR
+.Mod1b	LDA THH2,Y
+		STA ADRHIR+1
+		JMP .go
+		
+		; on passe derri�re
+.m2		CLC
+		LDY Temp1					; on r�cup�re l'ordonn�e
+		LDA THB,Y
+		STA ADRHIR
+		STA ADRHIR2
+		STA ADRHIR3
+.Mod2b	LDA THH2,Y
+		STA ADRHIR+1
+		LDA THH3,Y
+		STA ADRHIR2+1
+		LDA THH4,Y
+		STA ADRHIR3+1	
+.go		
+		LDY #10
+		LDA GBleu1,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		STA (ADRHIR),Y
+		INY
+		LDA GBleu2,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		STA (ADRHIR),Y
+		
+		INY
+
+.loopX	LDA BBleu2,X		;
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		STA (ADRHIR),Y		; on affiche - sprite 1
+		INY
+		LDA BBleu1,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		STA (ADRHIR),Y		; on affiche - sprite 2
+		INY
+		CPY #28
+		BNE .loopX
+		
+		LDA DBleu1,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		STA (ADRHIR),Y
+		INY
+		LDA DBleu2,X
+		AND (ADRHIR3),Y
+		ORA (ADRHIR2),Y
+		STA (ADRHIR),Y
+		
+		INC Temp1			; on incr�mente l'ordonn�e
+		INX
+		CPX #8
+		BEQ .fin
+		JMP .loopY
+		
+.fin	RTS
+; -------------------------------------
+; Effacement Bar suivant ordonn�e
+
+EffaceBar			; IN :
+					; Y = ordonn�e
+					; X = page 0/1 
+
+					; OUT :
+					; X = page 
+!zone
+
+; effacement ancienne position - 2 positions en arriere puisqu'on alterne une page sur 2
+		STY Temp1
+		STX Temp2
+		
+		CPX #00
+		BNE .z1
+		; page 0 affich�, on modifie donc la 1
+		LDA #<THH2
+		STA .Mod+1
+		LDA #>THH2
+		STA .Mod+2
+		JMP .go
+	
+.z1		LDA #<THH1
+		STA .Mod+1
+		LDA #>THH1
+		STA .Mod+2
+		
+.go		LDX #7
+
+.loopeffy
+		LDY Temp1
+		LDA THB,Y
+		STA ADRHIR
+		STA ADRHIR2
+.Mod	LDA THH2,Y
+		STA ADRHIR+1
+		LDA THH3,Y
+		STA ADRHIR2+1
+
+		LDY #29
+.loopeffx
+		LDA (ADRHIR2),Y
+		STA (ADRHIR),Y
+		DEY
+		CPY #09
+		BNE .loopeffx
+		INC Temp1
+		DEX
+		BPL .loopeffy
+
+		LDX Temp2   ; on r�cup�re X
+		RTS
+; -------------------------------------
+; =============================================================================
+; routines PARTIE "CREDITS"
+EFFACE_CRED3
+!zone
+		; entr�e dans A, l'ordonn�e de la barre
+		BMI	.MONT		; > $80, on monte (on efface)
+
+.DESC	; on affiche une ligne du MASK
+		TAX
+		LDA TTB,X
+		STA .OFF1+1
+		LDA TTH,X
+		STA .OFF1+2
+
+		; pr�paration "ligne" de MASK
+		CLC
+		LDA #<CREDIT_FT
+		ADC Table5,X
+		STA .OFFCRED1+1
+		LDA #>CREDIT_FT
+		ADC #00
+		STA .OFFCRED1+2	
+
+		LDX #00
+		LDY #00
+		
+.B1		
+		LDA #08
+		STA IndexMask
+
+
+.OFFCRED1	LDA CREDIT_FT,X
+			STA Mask	
+.B2
+		ASL Mask
+		BCC .s2
+		LDA #$FF
+		JMP .OFF1
+.s2		LDA #$00
+.OFF1	STA $0800,Y
+		INY
+		DEC IndexMask		
+		BNE .B2
+		INX
+		CPX #5
+		BNE .B1
+		
+		RTS
+		
+		
+.MONT	
+		AND #%01111111
+		TAX
+		LDA TTB,X
+		STA .OFF2+1
+		LDA TTH,X
+		STA .OFF2+2
+		
+		; pr�paration "ligne" de MASK
+		
+			CLC
+OFFCRED31	LDA #<CREDIT_FTI
+			ADC Table5,X
+			STA .OFFCRED2+1
+OFFCRED32	LDA #>CREDIT_FTI
+			ADC #00
+			STA .OFFCRED2+2			
+
+.suiteb	LDX #00
+		LDY #00
+		
+.B1b		
+		LDA #08
+		STA IndexMask
+
+.OFFCRED2	LDA CREDIT_FTI,X
+			STA Mask	
+.B2b
+		ASL Mask
+		BCC .s2b
+		LDA #$FF
+		JMP .OFF2
+.s2b	LDA #$00
+.OFF2	STA $0800,Y
+		INY
+		DEC IndexMask		
+		BNE .B2b
+		INX
+		CPX #5
+		BNE .B1b
+		
+		RTS
+; ; =============================================================================
+; routines PARTIE "CREDITS"
+EFFACE_CRED
+!zone
+		; entr�e dans A, l'ordonn�e de la barre
+		BMI	.MONT		; > $80, on monte (on efface)
+
+.DESC	; on affiche une ligne du MASK
+		TAX
+		LDA TTB,X
+		STA .OFF1+1
+		LDA TTH,X
+		STA .OFF1+2
+		
+		; pr�paration "ligne" de MASK
+			CLC
+OFFCRED1	LDA #<CREDIT_CRED
+			ADC Table5,X
+			STA .OFFCRED+1
+OFFCRED2	LDA #>CREDIT_CRED
+			ADC #00
+			STA .OFFCRED+2		
+
+		LDX #00
+		LDY #00
+		
+.B1		
+		LDA #08
+		STA IndexMask
+
+.OFFCRED	LDA CREDIT_CRED,X
+			STA Mask	
+.B2
+		ASL Mask
+		BCC .s2
+		LDA Color
+		JMP .OFF1
+.s2		LDA #$00
+.OFF1	STA $0800,Y
+		INY
+		DEC IndexMask		
+		BNE .B2
+		INX
+		CPX #5
+		BNE .B1
+		
+		RTS
+		
+		
+.MONT	; on efface simplement
+		AND #%01111111
+		TAX
+		LDA TTB,X
+		STA .BX2+1
+		LDA TTH,X
+		STA .BX2+2
+		
+		LDA #00 ; efface
+		LDY #39 ; ligne enti�re
+.BX2	STA $0800,Y
+  		DEY 
+  		BPL	.BX2	
+		RTS
+;
+; ============================================================================
+AFFICHE_CRED
+!zone
+			TAX
+					
+			LDA TTB,X
+			STA .BX1+1
+			LDA TTH,X
+			STA .BX1+2
+			LDA #$D9
+			
+			LDY #39
+.BX1		STA $0800,Y
+  			DEY 
+  			BPL	.BX1
+  			
+  			INX
+  			
+  			LDA TTB,X
+			STA .BX2+1
+			LDA TTH,X
+			STA .BX2+2
+			
+			
+			LDA #$AF
+			
+			LDY #39
+.BX2		STA $0800,Y
+  			DEY 
+  			BPL	.BX2
+  			
+  			INX
+  			LDA TTB,X
+			STA .BX3+1
+			LDA TTH,X
+			STA .BX3+2
+	
+			
+			LDA #$9D
+			
+			LDY #39
+.BX3		STA $0800,Y
+  			DEY 
+  			BPL	.BX3
+  			
+  			RTS
+; =============================================================================
+DUMP    ; $800->$400
+!zone
+	 lda $878
+     sta $400
+     lda $879
+     sta $401
+     lda $87a
+     sta $402
+     lda $87b
+     sta $403
+     lda $87c
+     sta $404
+     lda $87d
+     sta $405
+     lda $87e
+     sta $406
+     lda $87f
+     sta $407
+     lda $880
+     sta $408
+     lda $881
+     sta $409
+     lda $882
+     sta $40a
+     lda $883
+     sta $40b
+     lda $884
+     sta $40c
+     lda $885
+     sta $40d
+     lda $886
+     sta $40e
+     lda $887
+     sta $40f
+     lda $888
+     sta $410
+     lda $889
+     sta $411
+     lda $88a
+     sta $412
+     lda $88b
+     sta $413
+     lda $88c
+     sta $414
+     lda $88d
+     sta $415
+     lda $88e
+     sta $416
+     lda $88f
+     sta $417
+     lda $890
+     sta $418
+     lda $891
+     sta $419
+     lda $892
+     sta $41a
+     lda $893
+     sta $41b
+     lda $894
+     sta $41c
+     lda $895
+     sta $41d
+     lda $896
+     sta $41e
+     lda $897
+     sta $41f
+     lda $898
+     sta $420
+     lda $899
+     sta $421
+     lda $89a
+     sta $422
+     lda $89b
+     sta $423
+     lda $89c
+     sta $424
+     lda $89d
+     sta $425
+     lda $89e
+     sta $426
+     lda $89f
+     sta $427
+     lda $8a0
+     sta $480
+     lda $8a1
+     sta $481
+     lda $8a2
+     sta $482
+     lda $8a3
+     sta $483
+     lda $8a4
+     sta $484
+     lda $8a5
+     sta $485
+     lda $8a6
+     sta $486
+     lda $8a7
+     sta $487
+     lda $8a8
+     sta $488
+     lda $8a9
+     sta $489
+     lda $8aa
+     sta $48a
+     lda $8ab
+     sta $48b
+     lda $8ac
+     sta $48c
+     lda $8ad
+     sta $48d
+     lda $8ae
+     sta $48e
+     lda $8af
+     sta $48f
+     lda $8b0
+     sta $490
+     lda $8b1
+     sta $491
+     lda $8b2
+     sta $492
+     lda $8b3
+     sta $493
+     lda $8b4
+     sta $494
+     lda $8b5
+     sta $495
+     lda $8b6
+     sta $496
+     lda $8b7
+     sta $497
+     lda $8b8
+     sta $498
+     lda $8b9
+     sta $499
+     lda $8ba
+     sta $49a
+     lda $8bb
+     sta $49b
+     lda $8bc
+     sta $49c
+     lda $8bd
+     sta $49d
+     lda $8be
+     sta $49e
+     lda $8bf
+     sta $49f
+     lda $8c0
+     sta $4a0
+     lda $8c1
+     sta $4a1
+     lda $8c2
+     sta $4a2
+     lda $8c3
+     sta $4a3
+     lda $8c4
+     sta $4a4
+     lda $8c5
+     sta $4a5
+     lda $8c6
+     sta $4a6
+     lda $8c7
+     sta $4a7
+     lda $8c8
+     sta $500
+     lda $8c9
+     sta $501
+     lda $8ca
+     sta $502
+     lda $8cb
+     sta $503
+     lda $8cc
+     sta $504
+     lda $8cd
+     sta $505
+     lda $8ce
+     sta $506
+     lda $8cf
+     sta $507
+     lda $8d0
+     sta $508
+     lda $8d1
+     sta $509
+     lda $8d2
+     sta $50a
+     lda $8d3
+     sta $50b
+     lda $8d4
+     sta $50c
+     lda $8d5
+     sta $50d
+     lda $8d6
+     sta $50e
+     lda $8d7
+     sta $50f
+     lda $8d8
+     sta $510
+     lda $8d9
+     sta $511
+     lda $8da
+     sta $512
+     lda $8db
+     sta $513
+     lda $8dc
+     sta $514
+     lda $8dd
+     sta $515
+     lda $8de
+     sta $516
+     lda $8df
+     sta $517
+     lda $8e0
+     sta $518
+     lda $8e1
+     sta $519
+     lda $8e2
+     sta $51a
+     lda $8e3
+     sta $51b
+     lda $8e4
+     sta $51c
+     lda $8e5
+     sta $51d
+     lda $8e6
+     sta $51e
+     lda $8e7
+     sta $51f
+     lda $8e8
+     sta $520
+     lda $8e9
+     sta $521
+     lda $8ea
+     sta $522
+     lda $8eb
+     sta $523
+     lda $8ec
+     sta $524
+     lda $8ed
+     sta $525
+     lda $8ee
+     sta $526
+     lda $8ef
+     sta $527
+     lda $8f0
+     sta $580
+     lda $8f1
+     sta $581
+     lda $8f2
+     sta $582
+     lda $8f3
+     sta $583
+     lda $8f4
+     sta $584
+     lda $8f5
+     sta $585
+     lda $8f6
+     sta $586
+     lda $8f7
+     sta $587
+     lda $8f8
+     sta $588
+     lda $8f9
+     sta $589
+     lda $8fa
+     sta $58a
+     lda $8fb
+     sta $58b
+     lda $8fc
+     sta $58c
+     lda $8fd
+     sta $58d
+     lda $8fe
+     sta $58e
+     lda $8ff
+     sta $58f
+     lda $900
+     sta $590
+     lda $901
+     sta $591
+     lda $902
+     sta $592
+     lda $903
+     sta $593
+     lda $904
+     sta $594
+     lda $905
+     sta $595
+     lda $906
+     sta $596
+     lda $907
+     sta $597
+     lda $908
+     sta $598
+     lda $909
+     sta $599
+     lda $90a
+     sta $59a
+     lda $90b
+     sta $59b
+     lda $90c
+     sta $59c
+     lda $90d
+     sta $59d
+     lda $90e
+     sta $59e
+     lda $90f
+     sta $59f
+     lda $910
+     sta $5a0
+     lda $911
+     sta $5a1
+     lda $912
+     sta $5a2
+     lda $913
+     sta $5a3
+     lda $914
+     sta $5a4
+     lda $915
+     sta $5a5
+     lda $916
+     sta $5a6
+     lda $917
+     sta $5a7
+     lda $918
+     sta $600
+     lda $919
+     sta $601
+     lda $91a
+     sta $602
+     lda $91b
+     sta $603
+     lda $91c
+     sta $604
+     lda $91d
+     sta $605
+     lda $91e
+     sta $606
+     lda $91f
+     sta $607
+     lda $920
+     sta $608
+     lda $921
+     sta $609
+     lda $922
+     sta $60a
+     lda $923
+     sta $60b
+     lda $924
+     sta $60c
+     lda $925
+     sta $60d
+     lda $926
+     sta $60e
+     lda $927
+     sta $60f
+     lda $928
+     sta $610
+     lda $929
+     sta $611
+     lda $92a
+     sta $612
+     lda $92b
+     sta $613
+     lda $92c
+     sta $614
+     lda $92d
+     sta $615
+     lda $92e
+     sta $616
+     lda $92f
+     sta $617
+     lda $930
+     sta $618
+     lda $931
+     sta $619
+     lda $932
+     sta $61a
+     lda $933
+     sta $61b
+     lda $934
+     sta $61c
+     lda $935
+     sta $61d
+     lda $936
+     sta $61e
+     lda $937
+     sta $61f
+     lda $938
+     sta $620
+     lda $939
+     sta $621
+     lda $93a
+     sta $622
+     lda $93b
+     sta $623
+     lda $93c
+     sta $624
+     lda $93d
+     sta $625
+     lda $93e
+     sta $626
+     lda $93f
+     sta $627
+     lda $940
+     sta $680
+     lda $941
+     sta $681
+     lda $942
+     sta $682
+     lda $943
+     sta $683
+     lda $944
+     sta $684
+     lda $945
+     sta $685
+     lda $946
+     sta $686
+     lda $947
+     sta $687
+     lda $948
+     sta $688
+     lda $949
+     sta $689
+     lda $94a
+     sta $68a
+     lda $94b
+     sta $68b
+     lda $94c
+     sta $68c
+     lda $94d
+     sta $68d
+     lda $94e
+     sta $68e
+     lda $94f
+     sta $68f
+     lda $950
+     sta $690
+     lda $951
+     sta $691
+     lda $952
+     sta $692
+     lda $953
+     sta $693
+     lda $954
+     sta $694
+     lda $955
+     sta $695
+     lda $956
+     sta $696
+     lda $957
+     sta $697
+     lda $958
+     sta $698
+     lda $959
+     sta $699
+     lda $95a
+     sta $69a
+     lda $95b
+     sta $69b
+     lda $95c
+     sta $69c
+     lda $95d
+     sta $69d
+     lda $95e
+     sta $69e
+     lda $95f
+     sta $69f
+     lda $960
+     sta $6a0
+     lda $961
+     sta $6a1
+     lda $962
+     sta $6a2
+     lda $963
+     sta $6a3
+     lda $964
+     sta $6a4
+     lda $965
+     sta $6a5
+     lda $966
+     sta $6a6
+     lda $967
+     sta $6a7
+     lda $968
+     sta $700
+     lda $969
+     sta $701
+     lda $96a
+     sta $702
+     lda $96b
+     sta $703
+     lda $96c
+     sta $704
+     lda $96d
+     sta $705
+     lda $96e
+     sta $706
+     lda $96f
+     sta $707
+     lda $970
+     sta $708
+     lda $971
+     sta $709
+     lda $972
+     sta $70a
+     lda $973
+     sta $70b
+     lda $974
+     sta $70c
+     lda $975
+     sta $70d
+     lda $976
+     sta $70e
+     lda $977
+     sta $70f
+     lda $978
+     sta $710
+     lda $979
+     sta $711
+     lda $97a
+     sta $712
+     lda $97b
+     sta $713
+     lda $97c
+     sta $714
+     lda $97d
+     sta $715
+     lda $97e
+     sta $716
+     lda $97f
+     sta $717
+     lda $980
+     sta $718
+     lda $981
+     sta $719
+     lda $982
+     sta $71a
+     lda $983
+     sta $71b
+     lda $984
+     sta $71c
+     lda $985
+     sta $71d
+     lda $986
+     sta $71e
+     lda $987
+     sta $71f
+     lda $988
+     sta $720
+     lda $989
+     sta $721
+     lda $98a
+     sta $722
+     lda $98b
+     sta $723
+     lda $98c
+     sta $724
+     lda $98d
+     sta $725
+     lda $98e
+     sta $726
+     lda $98f
+     sta $727
+     lda $990
+     sta $780
+     lda $991
+     sta $781
+     lda $992
+     sta $782
+     lda $993
+     sta $783
+     lda $994
+     sta $784
+     lda $995
+     sta $785
+     lda $996
+     sta $786
+     lda $997
+     sta $787
+     lda $998
+     sta $788
+     lda $999
+     sta $789
+     lda $99a
+     sta $78a
+     lda $99b
+     sta $78b
+     lda $99c
+     sta $78c
+     lda $99d
+     sta $78d
+     lda $99e
+     sta $78e
+     lda $99f
+     sta $78f
+     lda $9a0
+     sta $790
+     lda $9a1
+     sta $791
+     lda $9a2
+     sta $792
+     lda $9a3
+     sta $793
+     lda $9a4
+     sta $794
+     lda $9a5
+     sta $795
+     lda $9a6
+     sta $796
+     lda $9a7
+     sta $797
+     lda $9a8
+     sta $798
+     lda $9a9
+     sta $799
+     lda $9aa
+     sta $79a
+     lda $9ab
+     sta $79b
+     lda $9ac
+     sta $79c
+     lda $9ad
+     sta $79d
+     lda $9ae
+     sta $79e
+     lda $9af
+     sta $79f
+     lda $9b0
+     sta $7a0
+     lda $9b1
+     sta $7a1
+     lda $9b2
+     sta $7a2
+     lda $9b3
+     sta $7a3
+     lda $9b4
+     sta $7a4
+     lda $9b5
+     sta $7a5
+     lda $9b6
+     sta $7a6
+     lda $9b7
+     sta $7a7
+     lda $9b8
+     sta $428
+     lda $9b9
+     sta $429
+     lda $9ba
+     sta $42a
+     lda $9bb
+     sta $42b
+     lda $9bc
+     sta $42c
+     lda $9bd
+     sta $42d
+     lda $9be
+     sta $42e
+     lda $9bf
+     sta $42f
+     lda $9c0
+     sta $430
+     lda $9c1
+     sta $431
+     lda $9c2
+     sta $432
+     lda $9c3
+     sta $433
+     lda $9c4
+     sta $434
+     lda $9c5
+     sta $435
+     lda $9c6
+     sta $436
+     lda $9c7
+     sta $437
+     lda $9c8
+     sta $438
+     lda $9c9
+     sta $439
+     lda $9ca
+     sta $43a
+     lda $9cb
+     sta $43b
+     lda $9cc
+     sta $43c
+     lda $9cd
+     sta $43d
+     lda $9ce
+     sta $43e
+     lda $9cf
+     sta $43f
+     lda $9d0
+     sta $440
+     lda $9d1
+     sta $441
+     lda $9d2
+     sta $442
+     lda $9d3
+     sta $443
+     lda $9d4
+     sta $444
+     lda $9d5
+     sta $445
+     lda $9d6
+     sta $446
+     lda $9d7
+     sta $447
+     lda $9d8
+     sta $448
+     lda $9d9
+     sta $449
+     lda $9da
+     sta $44a
+     lda $9db
+     sta $44b
+     lda $9dc
+     sta $44c
+     lda $9dd
+     sta $44d
+     lda $9de
+     sta $44e
+     lda $9df
+     sta $44f
+     lda $9e0
+     sta $4a8
+     lda $9e1
+     sta $4a9
+     lda $9e2
+     sta $4aa
+     lda $9e3
+     sta $4ab
+     lda $9e4
+     sta $4ac
+     lda $9e5
+     sta $4ad
+     lda $9e6
+     sta $4ae
+     lda $9e7
+     sta $4af
+     lda $9e8
+     sta $4b0
+     lda $9e9
+     sta $4b1
+     lda $9ea
+     sta $4b2
+     lda $9eb
+     sta $4b3
+     lda $9ec
+     sta $4b4
+     lda $9ed
+     sta $4b5
+     lda $9ee
+     sta $4b6
+     lda $9ef
+     sta $4b7
+     lda $9f0
+     sta $4b8
+     lda $9f1
+     sta $4b9
+     lda $9f2
+     sta $4ba
+     lda $9f3
+     sta $4bb
+     lda $9f4
+     sta $4bc
+     lda $9f5
+     sta $4bd
+     lda $9f6
+     sta $4be
+     lda $9f7
+     sta $4bf
+     lda $9f8
+     sta $4c0
+     lda $9f9
+     sta $4c1
+     lda $9fa
+     sta $4c2
+     lda $9fb
+     sta $4c3
+     lda $9fc
+     sta $4c4
+     lda $9fd
+     sta $4c5
+     lda $9fe
+     sta $4c6
+     lda $9ff
+     sta $4c7
+     lda $a00
+     sta $4c8
+     lda $a01
+     sta $4c9
+     lda $a02
+     sta $4ca
+     lda $a03
+     sta $4cb
+     lda $a04
+     sta $4cc
+     lda $a05
+     sta $4cd
+     lda $a06
+     sta $4ce
+     lda $a07
+     sta $4cf
+     lda $a08
+     sta $528
+     lda $a09
+     sta $529
+     lda $a0a
+     sta $52a
+     lda $a0b
+     sta $52b
+     lda $a0c
+     sta $52c
+     lda $a0d
+     sta $52d
+     lda $a0e
+     sta $52e
+     lda $a0f
+     sta $52f
+     lda $a10
+     sta $530
+     lda $a11
+     sta $531
+     lda $a12
+     sta $532
+     lda $a13
+     sta $533
+     lda $a14
+     sta $534
+     lda $a15
+     sta $535
+     lda $a16
+     sta $536
+     lda $a17
+     sta $537
+     lda $a18
+     sta $538
+     lda $a19
+     sta $539
+     lda $a1a
+     sta $53a
+     lda $a1b
+     sta $53b
+     lda $a1c
+     sta $53c
+     lda $a1d
+     sta $53d
+     lda $a1e
+     sta $53e
+     lda $a1f
+     sta $53f
+     lda $a20
+     sta $540
+     lda $a21
+     sta $541
+     lda $a22
+     sta $542
+     lda $a23
+     sta $543
+     lda $a24
+     sta $544
+     lda $a25
+     sta $545
+     lda $a26
+     sta $546
+     lda $a27
+     sta $547
+     lda $a28
+     sta $548
+     lda $a29
+     sta $549
+     lda $a2a
+     sta $54a
+     lda $a2b
+     sta $54b
+     lda $a2c
+     sta $54c
+     lda $a2d
+     sta $54d
+     lda $a2e
+     sta $54e
+     lda $a2f
+     sta $54f
+     lda $a30
+     sta $5a8
+     lda $a31
+     sta $5a9
+     lda $a32
+     sta $5aa
+     lda $a33
+     sta $5ab
+     lda $a34
+     sta $5ac
+     lda $a35
+     sta $5ad
+     lda $a36
+     sta $5ae
+     lda $a37
+     sta $5af
+     lda $a38
+     sta $5b0
+     lda $a39
+     sta $5b1
+     lda $a3a
+     sta $5b2
+     lda $a3b
+     sta $5b3
+     lda $a3c
+     sta $5b4
+     lda $a3d
+     sta $5b5
+     lda $a3e
+     sta $5b6
+     lda $a3f
+     sta $5b7
+     lda $a40
+     sta $5b8
+     lda $a41
+     sta $5b9
+     lda $a42
+     sta $5ba
+     lda $a43
+     sta $5bb
+     lda $a44
+     sta $5bc
+     lda $a45
+     sta $5bd
+     lda $a46
+     sta $5be
+     lda $a47
+     sta $5bf
+     lda $a48
+     sta $5c0
+     lda $a49
+     sta $5c1
+     lda $a4a
+     sta $5c2
+     lda $a4b
+     sta $5c3
+     lda $a4c
+     sta $5c4
+     lda $a4d
+     sta $5c5
+     lda $a4e
+     sta $5c6
+     lda $a4f
+     sta $5c7
+     lda $a50
+     sta $5c8
+     lda $a51
+     sta $5c9
+     lda $a52
+     sta $5ca
+     lda $a53
+     sta $5cb
+     lda $a54
+     sta $5cc
+     lda $a55
+     sta $5cd
+     lda $a56
+     sta $5ce
+     lda $a57
+     sta $5cf
+     lda $a58
+     sta $628
+     lda $a59
+     sta $629
+     lda $a5a
+     sta $62a
+     lda $a5b
+     sta $62b
+     lda $a5c
+     sta $62c
+     lda $a5d
+     sta $62d
+     lda $a5e
+     sta $62e
+     lda $a5f
+     sta $62f
+     lda $a60
+     sta $630
+     lda $a61
+     sta $631
+     lda $a62
+     sta $632
+     lda $a63
+     sta $633
+     lda $a64
+     sta $634
+     lda $a65
+     sta $635
+     lda $a66
+     sta $636
+     lda $a67
+     sta $637
+     lda $a68
+     sta $638
+     lda $a69
+     sta $639
+     lda $a6a
+     sta $63a
+     lda $a6b
+     sta $63b
+     lda $a6c
+     sta $63c
+     lda $a6d
+     sta $63d
+     lda $a6e
+     sta $63e
+     lda $a6f
+     sta $63f
+     lda $a70
+     sta $640
+     lda $a71
+     sta $641
+     lda $a72
+     sta $642
+     lda $a73
+     sta $643
+     lda $a74
+     sta $644
+     lda $a75
+     sta $645
+     lda $a76
+     sta $646
+     lda $a77
+     sta $647
+     lda $a78
+     sta $648
+     lda $a79
+     sta $649
+     lda $a7a
+     sta $64a
+     lda $a7b
+     sta $64b
+     lda $a7c
+     sta $64c
+     lda $a7d
+     sta $64d
+     lda $a7e
+     sta $64e
+     lda $a7f
+     sta $64f
+     lda $a80
+     sta $6a8
+     lda $a81
+     sta $6a9
+     lda $a82
+     sta $6aa
+     lda $a83
+     sta $6ab
+     lda $a84
+     sta $6ac
+     lda $a85
+     sta $6ad
+     lda $a86
+     sta $6ae
+     lda $a87
+     sta $6af
+     lda $a88
+     sta $6b0
+     lda $a89
+     sta $6b1
+     lda $a8a
+     sta $6b2
+     lda $a8b
+     sta $6b3
+     lda $a8c
+     sta $6b4
+     lda $a8d
+     sta $6b5
+     lda $a8e
+     sta $6b6
+     lda $a8f
+     sta $6b7
+     lda $a90
+     sta $6b8
+     lda $a91
+     sta $6b9
+     lda $a92
+     sta $6ba
+     lda $a93
+     sta $6bb
+     lda $a94
+     sta $6bc
+     lda $a95
+     sta $6bd
+     lda $a96
+     sta $6be
+     lda $a97
+     sta $6bf
+     lda $a98
+     sta $6c0
+     lda $a99
+     sta $6c1
+     lda $a9a
+     sta $6c2
+     lda $a9b
+     sta $6c3
+     lda $a9c
+     sta $6c4
+     lda $a9d
+     sta $6c5
+     lda $a9e
+     sta $6c6
+     lda $a9f
+     sta $6c7
+     lda $aa0
+     sta $6c8
+     lda $aa1
+     sta $6c9
+     lda $aa2
+     sta $6ca
+     lda $aa3
+     sta $6cb
+     lda $aa4
+     sta $6cc
+     lda $aa5
+     sta $6cd
+     lda $aa6
+     sta $6ce
+     lda $aa7
+     sta $6cf
+     lda $aa8
+     sta $728
+     lda $aa9
+     sta $729
+     lda $aaa
+     sta $72a
+     lda $aab
+     sta $72b
+     lda $aac
+     sta $72c
+     lda $aad
+     sta $72d
+     lda $aae
+     sta $72e
+     lda $aaf
+     sta $72f
+     lda $ab0
+     sta $730
+     lda $ab1
+     sta $731
+     lda $ab2
+     sta $732
+     lda $ab3
+     sta $733
+     lda $ab4
+     sta $734
+     lda $ab5
+     sta $735
+     lda $ab6
+     sta $736
+     lda $ab7
+     sta $737
+     lda $ab8
+     sta $738
+     lda $ab9
+     sta $739
+     lda $aba
+     sta $73a
+     lda $abb
+     sta $73b
+     lda $abc
+     sta $73c
+     lda $abd
+     sta $73d
+     lda $abe
+     sta $73e
+     lda $abf
+     sta $73f
+     lda $ac0
+     sta $740
+     lda $ac1
+     sta $741
+     lda $ac2
+     sta $742
+     lda $ac3
+     sta $743
+     lda $ac4
+     sta $744
+     lda $ac5
+     sta $745
+     lda $ac6
+     sta $746
+     lda $ac7
+     sta $747
+     lda $ac8
+     sta $748
+     lda $ac9
+     sta $749
+     lda $aca
+     sta $74a
+     lda $acb
+     sta $74b
+     lda $acc
+     sta $74c
+     lda $acd
+     sta $74d
+     lda $ace
+     sta $74e
+     lda $acf
+     sta $74f
+     lda $ad0
+     sta $7a8
+     lda $ad1
+     sta $7a9
+     lda $ad2
+     sta $7aa
+     lda $ad3
+     sta $7ab
+     lda $ad4
+     sta $7ac
+     lda $ad5
+     sta $7ad
+     lda $ad6
+     sta $7ae
+     lda $ad7
+     sta $7af
+     lda $ad8
+     sta $7b0
+     lda $ad9
+     sta $7b1
+     lda $ada
+     sta $7b2
+     lda $adb
+     sta $7b3
+     lda $adc
+     sta $7b4
+     lda $add
+     sta $7b5
+     lda $ade
+     sta $7b6
+     lda $adf
+     sta $7b7
+     lda $ae0
+     sta $7b8
+     lda $ae1
+     sta $7b9
+     lda $ae2
+     sta $7ba
+     lda $ae3
+     sta $7bb
+     lda $ae4
+     sta $7bc
+     lda $ae5
+     sta $7bd
+     lda $ae6
+     sta $7be
+     lda $ae7
+     sta $7bf
+     lda $ae8
+     sta $7c0
+     lda $ae9
+     sta $7c1
+     lda $aea
+     sta $7c2
+     lda $aeb
+     sta $7c3
+     lda $aec
+     sta $7c4
+     lda $aed
+     sta $7c5
+     lda $aee
+     sta $7c6
+     lda $aef
+     sta $7c7
+     lda $af0
+     sta $7c8
+     lda $af1
+     sta $7c9
+     lda $af2
+     sta $7ca
+     lda $af3
+     sta $7cb
+     lda $af4
+     sta $7cc
+     lda $af5
+     sta $7cd
+     lda $af6
+     sta $7ce
+     lda $af7
+     sta $7cf
+     lda $af8
+     sta $450
+     lda $af9
+     sta $451
+     lda $afa
+     sta $452
+     lda $afb
+     sta $453
+     lda $afc
+     sta $454
+     lda $afd
+     sta $455
+     lda $afe
+     sta $456
+     lda $aff
+     sta $457
+     lda $b00
+     sta $458
+     lda $b01
+     sta $459
+     lda $b02
+     sta $45a
+     lda $b03
+     sta $45b
+     lda $b04
+     sta $45c
+     lda $b05
+     sta $45d
+     lda $b06
+     sta $45e
+     lda $b07
+     sta $45f
+     lda $b08
+     sta $460
+     lda $b09
+     sta $461
+     lda $b0a
+     sta $462
+     lda $b0b
+     sta $463
+     lda $b0c
+     sta $464
+     lda $b0d
+     sta $465
+     lda $b0e
+     sta $466
+     lda $b0f
+     sta $467
+     lda $b10
+     sta $468
+     lda $b11
+     sta $469
+     lda $b12
+     sta $46a
+     lda $b13
+     sta $46b
+     lda $b14
+     sta $46c
+     lda $b15
+     sta $46d
+     lda $b16
+     sta $46e
+     lda $b17
+     sta $46f
+     lda $b18
+     sta $470
+     lda $b19
+     sta $471
+     lda $b1a
+     sta $472
+     lda $b1b
+     sta $473
+     lda $b1c
+     sta $474
+     lda $b1d
+     sta $475
+     lda $b1e
+     sta $476
+     lda $b1f
+     sta $477
+     lda $b20
+     sta $4d0
+     lda $b21
+     sta $4d1
+     lda $b22
+     sta $4d2
+     lda $b23
+     sta $4d3
+     lda $b24
+     sta $4d4
+     lda $b25
+     sta $4d5
+     lda $b26
+     sta $4d6
+     lda $b27
+     sta $4d7
+     lda $b28
+     sta $4d8
+     lda $b29
+     sta $4d9
+     lda $b2a
+     sta $4da
+     lda $b2b
+     sta $4db
+     lda $b2c
+     sta $4dc
+     lda $b2d
+     sta $4dd
+     lda $b2e
+     sta $4de
+     lda $b2f
+     sta $4df
+     lda $b30
+     sta $4e0
+     lda $b31
+     sta $4e1
+     lda $b32
+     sta $4e2
+     lda $b33
+     sta $4e3
+     lda $b34
+     sta $4e4
+     lda $b35
+     sta $4e5
+     lda $b36
+     sta $4e6
+     lda $b37
+     sta $4e7
+     lda $b38
+     sta $4e8
+     lda $b39
+     sta $4e9
+     lda $b3a
+     sta $4ea
+     lda $b3b
+     sta $4eb
+     lda $b3c
+     sta $4ec
+     lda $b3d
+     sta $4ed
+     lda $b3e
+     sta $4ee
+     lda $b3f
+     sta $4ef
+     lda $b40
+     sta $4f0
+     lda $b41
+     sta $4f1
+     lda $b42
+     sta $4f2
+     lda $b43
+     sta $4f3
+     lda $b44
+     sta $4f4
+     lda $b45
+     sta $4f5
+     lda $b46
+     sta $4f6
+     lda $b47
+     sta $4f7
+     lda $b48
+     sta $550
+     lda $b49
+     sta $551
+     lda $b4a
+     sta $552
+     lda $b4b
+     sta $553
+     lda $b4c
+     sta $554
+     lda $b4d
+     sta $555
+     lda $b4e
+     sta $556
+     lda $b4f
+     sta $557
+     lda $b50
+     sta $558
+     lda $b51
+     sta $559
+     lda $b52
+     sta $55a
+     lda $b53
+     sta $55b
+     lda $b54
+     sta $55c
+     lda $b55
+     sta $55d
+     lda $b56
+     sta $55e
+     lda $b57
+     sta $55f
+     lda $b58
+     sta $560
+     lda $b59
+     sta $561
+     lda $b5a
+     sta $562
+     lda $b5b
+     sta $563
+     lda $b5c
+     sta $564
+     lda $b5d
+     sta $565
+     lda $b5e
+     sta $566
+     lda $b5f
+     sta $567
+     lda $b60
+     sta $568
+     lda $b61
+     sta $569
+     lda $b62
+     sta $56a
+     lda $b63
+     sta $56b
+     lda $b64
+     sta $56c
+     lda $b65
+     sta $56d
+     lda $b66
+     sta $56e
+     lda $b67
+     sta $56f
+     lda $b68
+     sta $570
+     lda $b69
+     sta $571
+     lda $b6a
+     sta $572
+     lda $b6b
+     sta $573
+     lda $b6c
+     sta $574
+     lda $b6d
+     sta $575
+     lda $b6e
+     sta $576
+     lda $b6f
+     sta $577
+     lda $b70
+     sta $5d0
+     lda $b71
+     sta $5d1
+     lda $b72
+     sta $5d2
+     lda $b73
+     sta $5d3
+     lda $b74
+     sta $5d4
+     lda $b75
+     sta $5d5
+     lda $b76
+     sta $5d6
+     lda $b77
+     sta $5d7
+     lda $b78
+     sta $5d8
+     lda $b79
+     sta $5d9
+     lda $b7a
+     sta $5da
+     lda $b7b
+     sta $5db
+     lda $b7c
+     sta $5dc
+     lda $b7d
+     sta $5dd
+     lda $b7e
+     sta $5de
+     lda $b7f
+     sta $5df
+     lda $b80
+     sta $5e0
+     lda $b81
+     sta $5e1
+     lda $b82
+     sta $5e2
+     lda $b83
+     sta $5e3
+     lda $b84
+     sta $5e4
+     lda $b85
+     sta $5e5
+     lda $b86
+     sta $5e6
+     lda $b87
+     sta $5e7
+     lda $b88
+     sta $5e8
+     lda $b89
+     sta $5e9
+     lda $b8a
+     sta $5ea
+     lda $b8b
+     sta $5eb
+     lda $b8c
+     sta $5ec
+     lda $b8d
+     sta $5ed
+     lda $b8e
+     sta $5ee
+     lda $b8f
+     sta $5ef
+     lda $b90
+     sta $5f0
+     lda $b91
+     sta $5f1
+     lda $b92
+     sta $5f2
+     lda $b93
+     sta $5f3
+     lda $b94
+     sta $5f4
+     lda $b95
+     sta $5f5
+     lda $b96
+     sta $5f6
+     lda $b97
+     sta $5f7
+MOD_DUMP      
+     lda $b98
+     sta $650
+     lda $b99
+     sta $651
+     lda $b9a
+     sta $652
+     lda $b9b
+     sta $653
+     lda $b9c
+     sta $654
+     lda $b9d
+     sta $655
+     lda $b9e
+     sta $656
+     lda $b9f
+     sta $657
+     lda $ba0
+     sta $658
+     lda $ba1
+     sta $659
+     lda $ba2
+     sta $65a
+     lda $ba3
+     sta $65b
+     lda $ba4
+     sta $65c
+     lda $ba5
+     sta $65d
+     lda $ba6
+     sta $65e
+     lda $ba7
+     sta $65f
+     lda $ba8
+     sta $660
+     lda $ba9
+     sta $661
+     lda $baa
+     sta $662
+     lda $bab
+     sta $663
+     lda $bac
+     sta $664
+     lda $bad
+     sta $665
+     lda $bae
+     sta $666
+     lda $baf
+     sta $667
+     lda $bb0
+     sta $668
+     lda $bb1
+     sta $669
+     lda $bb2
+     sta $66a
+     lda $bb3
+     sta $66b
+     lda $bb4
+     sta $66c
+     lda $bb5
+     sta $66d
+     lda $bb6
+     sta $66e
+     lda $bb7
+     sta $66f
+     lda $bb8
+     sta $670
+     lda $bb9
+     sta $671
+     lda $bba
+     sta $672
+     lda $bbb
+     sta $673
+     lda $bbc
+     sta $674
+     lda $bbd
+     sta $675
+     lda $bbe
+     sta $676
+     lda $bbf
+     sta $677    
+     lda $bc0
+     sta $6d0
+     lda $bc1
+     sta $6d1
+     lda $bc2
+     sta $6d2
+     lda $bc3
+     sta $6d3
+     lda $bc4
+     sta $6d4
+     lda $bc5
+     sta $6d5
+     lda $bc6
+     sta $6d6
+     lda $bc7
+     sta $6d7
+     lda $bc8
+     sta $6d8
+     lda $bc9
+     sta $6d9
+     lda $bca
+     sta $6da
+     lda $bcb
+     sta $6db
+     lda $bcc
+     sta $6dc
+     lda $bcd
+     sta $6dd
+     lda $bce
+     sta $6de
+     lda $bcf
+     sta $6df
+     lda $bd0
+     sta $6e0
+     lda $bd1
+     sta $6e1
+     lda $bd2
+     sta $6e2
+     lda $bd3
+     sta $6e3
+     lda $bd4
+     sta $6e4
+     lda $bd5
+     sta $6e5
+     lda $bd6
+     sta $6e6
+     lda $bd7
+     sta $6e7
+     lda $bd8
+     sta $6e8
+     lda $bd9
+     sta $6e9
+     lda $bda
+     sta $6ea
+     lda $bdb
+     sta $6eb
+     lda $bdc
+     sta $6ec
+     lda $bdd
+     sta $6ed
+     lda $bde
+     sta $6ee
+     lda $bdf
+     sta $6ef
+     lda $be0
+     sta $6f0
+     lda $be1
+     sta $6f1
+     lda $be2
+     sta $6f2
+     lda $be3
+     sta $6f3
+     lda $be4
+     sta $6f4
+     lda $be5
+     sta $6f5
+     lda $be6
+     sta $6f6
+     lda $be7
+     sta $6f7
+     lda $be8
+     sta $750
+     lda $be9
+     sta $751
+     lda $bea
+     sta $752
+     lda $beb
+     sta $753
+     lda $bec
+     sta $754
+     lda $bed
+     sta $755
+     lda $bee
+     sta $756
+     lda $bef
+     sta $757
+     lda $bf0
+     sta $758
+     lda $bf1
+     sta $759
+     lda $bf2
+     sta $75a
+     lda $bf3
+     sta $75b
+     lda $bf4
+     sta $75c
+     lda $bf5
+     sta $75d
+     lda $bf6
+     sta $75e
+     lda $bf7
+     sta $75f
+     lda $bf8
+     sta $760
+     lda $bf9
+     sta $761
+     lda $bfa
+     sta $762
+     lda $bfb
+     sta $763
+     lda $bfc
+     sta $764
+     lda $bfd
+     sta $765
+     lda $bfe
+     sta $766
+     lda $bff
+     sta $767
+     lda $c00
+     sta $768
+     lda $c01
+     sta $769
+     lda $c02
+     sta $76a
+     lda $c03
+     sta $76b
+     lda $c04
+     sta $76c
+     lda $c05
+     sta $76d
+     lda $c06
+     sta $76e
+     lda $c07
+     sta $76f
+     lda $c08
+     sta $770
+     lda $c09
+     sta $771
+     lda $c0a
+     sta $772
+     lda $c0b
+     sta $773
+     lda $c0c
+     sta $774
+     lda $c0d
+     sta $775
+     lda $c0e
+     sta $776
+     lda $c0f
+     sta $777
+     lda $c10
+     sta $7d0
+     lda $c11
+     sta $7d1
+     lda $c12
+     sta $7d2
+     lda $c13
+     sta $7d3
+     lda $c14
+     sta $7d4
+     lda $c15
+     sta $7d5
+     lda $c16
+     sta $7d6
+     lda $c17
+     sta $7d7
+     lda $c18
+     sta $7d8
+     lda $c19
+     sta $7d9
+     lda $c1a
+     sta $7da
+     lda $c1b
+     sta $7db
+     lda $c1c
+     sta $7dc
+     lda $c1d
+     sta $7dd
+     lda $c1e
+     sta $7de
+     lda $c1f
+     sta $7df
+     lda $c20
+     sta $7e0
+     lda $c21
+     sta $7e1
+     lda $c22
+     sta $7e2
+     lda $c23
+     sta $7e3
+     lda $c24
+     sta $7e4
+     lda $c25
+     sta $7e5
+     lda $c26
+     sta $7e6
+     lda $c27
+     sta $7e7
+     lda $c28
+     sta $7e8
+     lda $c29
+     sta $7e9
+     lda $c2a
+     sta $7ea
+     lda $c2b
+     sta $7eb
+     lda $c2c
+     sta $7ec
+     lda $c2d
+     sta $7ed
+     lda $c2e
+     sta $7ee
+     lda $c2f
+     sta $7ef
+     lda $c30
+     sta $7f0
+     lda $c31
+     sta $7f1
+     lda $c32
+     sta $7f2
+     lda $c33
+     sta $7f3
+     lda $c34
+     sta $7f4
+     lda $c35
+     sta $7f5
+     lda $c36
+     sta $7f6
+     lda $c37
+     sta $7f7
+     RTS
+; =============================================================================
+SCROLLGR
+!zone
+	 lda $651
+     sta $650
+     lda $652
+     sta $651
+     lda $653
+     sta $652
+     lda $654
+     sta $653
+     lda $655
+     sta $654
+     lda $656
+     sta $655
+     lda $657
+     sta $656
+     lda $658
+     sta $657
+     lda $659
+     sta $658
+     lda $65a
+     sta $659
+     lda $65b
+     sta $65a
+     lda $65c
+     sta $65b
+     lda $65d
+     sta $65c
+     lda $65e
+     sta $65d
+     lda $65f
+     sta $65e
+     lda $660
+     sta $65f
+     lda $661
+     sta $660
+     lda $662
+     sta $661
+     lda $663
+     sta $662
+     lda $664
+     sta $663
+     lda $665
+     sta $664
+     lda $666
+     sta $665
+     lda $667
+     sta $666
+     lda $668
+     sta $667
+     lda $669
+     sta $668
+     lda $66a
+     sta $669
+     lda $66b
+     sta $66a
+     lda $66c
+     sta $66b
+     lda $66d
+     sta $66c
+     lda $66e
+     sta $66d
+     lda $66f
+     sta $66e
+     lda $670
+     sta $66f
+     lda $671
+     sta $670
+     lda $672
+     sta $671
+     lda $673
+     sta $672
+     lda $674
+     sta $673
+     lda $675
+     sta $674
+     lda $676
+     sta $675
+     lda $677
+     sta $676
+     lda $6d1
+     sta $6d0
+     lda $6d2
+     sta $6d1
+     lda $6d3
+     sta $6d2
+     lda $6d4
+     sta $6d3
+     lda $6d5
+     sta $6d4
+     lda $6d6
+     sta $6d5
+     lda $6d7
+     sta $6d6
+     lda $6d8
+     sta $6d7
+     lda $6d9
+     sta $6d8
+     lda $6da
+     sta $6d9
+     lda $6db
+     sta $6da
+     lda $6dc
+     sta $6db
+     lda $6dd
+     sta $6dc
+     lda $6de
+     sta $6dd
+     lda $6df
+     sta $6de
+     lda $6e0
+     sta $6df
+     lda $6e1
+     sta $6e0
+     lda $6e2
+     sta $6e1
+     lda $6e3
+     sta $6e2
+     lda $6e4
+     sta $6e3
+     lda $6e5
+     sta $6e4
+     lda $6e6
+     sta $6e5
+     lda $6e7
+     sta $6e6
+     lda $6e8
+     sta $6e7
+     lda $6e9
+     sta $6e8
+     lda $6ea
+     sta $6e9
+     lda $6eb
+     sta $6ea
+     lda $6ec
+     sta $6eb
+     lda $6ed
+     sta $6ec
+     lda $6ee
+     sta $6ed
+     lda $6ef
+     sta $6ee
+     lda $6f0
+     sta $6ef
+     lda $6f1
+     sta $6f0
+     lda $6f2
+     sta $6f1
+     lda $6f3
+     sta $6f2
+     lda $6f4
+     sta $6f3
+     lda $6f5
+     sta $6f4
+     lda $6f6
+     sta $6f5
+     lda $6f7
+     sta $6f6
+     lda $751
+     sta $750
+     lda $752
+     sta $751
+     lda $753
+     sta $752
+     lda $754
+     sta $753
+     lda $755
+     sta $754
+     lda $756
+     sta $755
+     lda $757
+     sta $756
+     lda $758
+     sta $757
+     lda $759
+     sta $758
+     lda $75a
+     sta $759
+     lda $75b
+     sta $75a
+     lda $75c
+     sta $75b
+     lda $75d
+     sta $75c
+     lda $75e
+     sta $75d
+     lda $75f
+     sta $75e
+     lda $760
+     sta $75f
+     lda $761
+     sta $760
+     lda $762
+     sta $761
+     lda $763
+     sta $762
+     lda $764
+     sta $763
+     lda $765
+     sta $764
+     lda $766
+     sta $765
+     lda $767
+     sta $766
+     lda $768
+     sta $767
+     lda $769
+     sta $768
+     lda $76a
+     sta $769
+     lda $76b
+     sta $76a
+     lda $76c
+     sta $76b
+     lda $76d
+     sta $76c
+     lda $76e
+     sta $76d
+     lda $76f
+     sta $76e
+     lda $770
+     sta $76f
+     lda $771
+     sta $770
+     lda $772
+     sta $771
+     lda $773
+     sta $772
+     lda $774
+     sta $773
+     lda $775
+     sta $774
+     lda $776
+     sta $775
+     lda $777
+     sta $776
+     lda $7d1
+     sta $7d0
+     lda $7d2
+     sta $7d1
+     lda $7d3
+     sta $7d2
+     lda $7d4
+     sta $7d3
+     lda $7d5
+     sta $7d4
+     lda $7d6
+     sta $7d5
+     lda $7d7
+     sta $7d6
+     lda $7d8
+     sta $7d7
+     lda $7d9
+     sta $7d8
+     lda $7da
+     sta $7d9
+     lda $7db
+     sta $7da
+     lda $7dc
+     sta $7db
+     lda $7dd
+     sta $7dc
+     lda $7de
+     sta $7dd
+     lda $7df
+     sta $7de
+     lda $7e0
+     sta $7df
+     lda $7e1
+     sta $7e0
+     lda $7e2
+     sta $7e1
+     lda $7e3
+     sta $7e2
+     lda $7e4
+     sta $7e3
+     lda $7e5
+     sta $7e4
+     lda $7e6
+     sta $7e5
+     lda $7e7
+     sta $7e6
+     lda $7e8
+     sta $7e7
+     lda $7e9
+     sta $7e8
+     lda $7ea
+     sta $7e9
+     lda $7eb
+     sta $7ea
+     lda $7ec
+     sta $7eb
+     lda $7ed
+     sta $7ec
+     lda $7ee
+     sta $7ed
+     lda $7ef
+     sta $7ee
+     lda $7f0
+     sta $7ef
+     lda $7f1
+     sta $7f0
+     lda $7f2
+     sta $7f1
+     lda $7f3
+     sta $7f2
+     lda $7f4
+     sta $7f3
+     lda $7f5
+     sta $7f4
+     lda $7f6
+     sta $7f5
+     lda $7f7
+     sta $7f6
+     RTS
+ ; =============================================================================
+!align 255,0
+
+TLetterB	!byte <TCar0,<TCar1,<TCar2,<TCar3,<TCar4,<TCar5,<TCar6,<TCar7,<TCar8,<TCar9,<TCar10,<TCar11,<TCar12,<TCar13,<TCar14
+			!byte <TCar15,<TCar16,<TCar17,<TCar18,<TCar19,<TCar20,<TCar21,<TCar22,<TCar23,<TCar24,<TCar25,<TCar26,<TCar27
+			!byte <TCar28,<TCar29,<TCar30,<TCar31
+			
+TLetterH	!byte >TCar0,>TCar1,>TCar2,>TCar3,>TCar4,>TCar5,>TCar6,>TCar7,>TCar8,>TCar9,>TCar10,>TCar11,>TCar12,>TCar13,>TCar14
+			!byte >TCar15,>TCar16,>TCar17,>TCar18,>TCar19,>TCar20,>TCar21,>TCar22,>TCar23,>TCar24,>TCar25,>TCar26,>TCar27
+			!byte >TCar28,>TCar29,>TCar30,>TCar31
+
+TCar0	; Espace (00)
+		!byte $00,$00,$00,$00
+TCar1	;A (01)
+		!byte $1E,$33,$3F,$33
+TCar2	;B
+		!byte $0F,$3B,$33,$3F
+TCar3	;C
+		!byte $3E,$03,$03,$3E
+TCar4	;D
+		!byte $1F,$33,$33,$1F
+TCar5	;E
+		!byte $3E,$1F,$03,$3F
+TCar6   ;F
+		!byte $3E,$03,$1F,$03
+TCar7	;G
+		!byte $3E,$03,$33,$3E
+TCar8	;H
+		!byte $33,$3F,$33,$33
+TCar9	;I
+		!byte $1E,$0C,$0C,$1E
+TCar10	;J
+		!byte $30,$30,$30,$1F
+TCar11	;K
+		!byte $33,$1F,$1B,$33
+TCar12	;L
+		!byte $03,$03,$03,$3E
+TCar13	;M
+		!byte $1F,$2B,$2B,$23
+TCar14	;N
+		!byte $1F,$33,$33,$33
+TCar15	;O
+		!byte $1E,$33,$33,$1E
+TCar16	;P
+		!byte $1F,$33,$1F,$03
+TCar17	;Q
+		!byte $1E,$33,$3B,$3E
+TCar18	;R
+		!byte $1F,$33,$1F,$33
+TCar19	;S
+		!byte $06,$1C,$30,$1F
+TCar20	;T
+		!byte $3F,$0C,$0C,$0C
+TCar21	;U
+		!byte $33,$33,$33,$1E
+TCar22	;V
+		!byte $33,$33,$1E,$0C
+TCar23	;W
+		!byte $23,$2B,$2B,$3E
+TCar24	;X
+		!byte $33,$1E,$33,$33
+TCar25	;Y
+		!byte $33,$1E,$0C,$0C
+TCar26	;Z (26)
+		!byte $3F,$1C,$0E,$3F
+TCar27 	; . (27)
+		!byte $00,$00,$0C,$0C
+TCar28	; ! (28)
+		!byte $0C,$0C,$00,$0C
+TCar29	; ? (29)
+		!byte $3E,$32,$00,$18 
+TCar30	; ' (30)
+		!byte $18,$0C,$00,$00
+TCar31	; : (31)
+		!byte $00,$0C,$00,$0C
+
+TColor	!byte 	$FF,$DD,$99,$11    ; blanc/jaune/orange/rouge/
+; ----------------------------------------------------------------------------
+
+
+
+CREDIT_FT	!fill 15,0
+			!byte $ff, $ff, $ef, $ff, $ff, $80, $0, $28, $0, $1, $80, $0, $28, $0, $1, $80, $0, $28, $0, $1, $e0, $7c, $28, $0, $1, $20, $44, $28, $0, $1, $20, $47, $ef, $e0, $7f, $20, $40, $0, $20, $40, $20, $40, $0, $20, $40, $20, $5f, $80, $20, $40, $20, $70, $80, $20, $40, $20, $0, $80, $20, $40, $20, $0, $80, $20, $40, $20, $0, $80, $20, $40, $20, $70, $80, $20, $40, $20, $5f, $80, $20, $40, $20, $40, $0, $20, $40, $20, $40, $0, $20, $40, $e0, $70, $0, $e0, $70, $80, $10, $0, $80, $10, $80, $10, $0, $80, $10, $80, $10, $0, $80, $10, $80, $10, $0, $80, $10, $ff, $f0, $0, $ff, $f0
+CREDIT_CODE	!fill 15,0
+			!byte $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $1f, $3, $c3, $e0, $fe, $7f, $cf, $f3, $f8, $fe, $71, $ce, $73, $bc, $e0, $71, $ce, $73, $9c, $e0, $50, $a, $72, $8c, $bc, $50, $a, $72, $8c, $bc, $71, $ce, $73, $9c, $e0, $71, $ce, $73, $bc, $e0, $7f, $cf, $f3, $f8, $fe, $1f, $3, $c3, $e0, $fe, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0
+CREDIT_GRK	!fill 15,0
+			!byte $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $fe, $fd, $fb, $f7, $bf, $82, $85, $a, $54, $a5, $92, $95, $2a, $57, $a5, $9e, $95, $2a, $54, $a1, $92, $95, $2a, $54, $a7, $92, $85, $2a, $54, $a1, $9a, $8d, $2a, $54, $a5, $82, $85, $a, $14, $a5, $82, $95, $a, $14, $a5, $fe, $fd, $fb, $f7, $bf, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0
+CREDIT_MUS	!fill 15,0
+			!byte $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $e3, $b9, $1f, $1c, $7c, $e3, $b9, $7f, $c1, $ff, $f7, $b9, $77, $dd, $c7, $f7, $b9, $70, $1d, $c7, $be, $a9, $50, $15, $40, $be, $a9, $5f, $d5, $40, $e3, $b9, $7f, $dd, $c7, $e3, $b9, $0, $dd, $c7, $e3, $bf, $7f, $dd, $ff, $e3, $9e, $7f, $1c, $7c, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0
+CREDIT_JAR	!fill 15,0
+			!byte $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $f, $7f, $7f, $7f, $7f, $9, $41, $41, $41, $41, $9, $4d, $4d, $4d, $4f, $f9, $4d, $4d, $4d, $4f, $99, $41, $4d, $4d, $41, $99, $4d, $4d, $4d, $4f, $99, $4d, $43, $43, $4f, $81, $4d, $41, $41, $41, $81, $4d, $49, $49, $41, $ff, $7f, $7f, $7f, $7f, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0			
+CREDIT_REM	!fill 15,0
+			!byte $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $ff, $7f, $71, $dd, $c7, $ff, $7f, $71, $c1, $c7, $e7, $70, $7b, $dd, $c7, $e7, $70, $7b, $dc, $fe, $bf, $5e, $5f, $54, $28, $bf, $5e, $5f, $54, $28, $e6, $70, $71, $dc, $fe, $e6, $70, $71, $dc, $c6, $e7, $7f, $71, $dd, $c7, $e7, $7f, $71, $dd, $c7, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0
+CREDIT_FUK	!fill 15,0
+			!byte $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $1f, $e7, $e7, $e7, $f0, $10, $24, $a4, $a4, $10, $13, $e4, $a4, $a4, $d0, $13, $e4, $a4, $24, $d0, $10, $24, $a4, $e4, $10, $10, $24, $a4, $24, $10, $13, $e4, $a4, $a4, $d0, $12, $4, $a4, $a4, $d0, $12, $4, $24, $a4, $d0, $1e, $7, $e7, $e7, $f0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0
+CREDIT_GFX	!fill 15,0
+			!byte $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $3, $f0, $ff, $9c, $70, $f, $fc, $ff, $9c, $70, $e, $1c, $e0, $1c, $70, $e, $0, $e0, $1f, $f0, $a, $0, $bf, $6, $c0, $a, $3c, $bf, $6, $c0, $e, $3c, $e0, $1f, $f0, $e, $1c, $e0, $1c, $70, $f, $fc, $e0, $1c, $70, $3, $f0, $e0, $1c, $70, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0
+CREDIT_FTI	!fill 15,0
+			!byte $0, $0, $10, $0, $0, $7f, $ff, $d7, $ff, $fe, $7f, $ff, $d7, $ff, $fe, $7f, $ff, $d7, $ff, $fe, $1f, $83, $d7, $ff, $fe, $df, $bb, $d7, $ff, $fe, $df, $b8, $10, $1f, $80, $df, $bf, $ff, $df, $bf, $df, $bf, $ff, $df, $bf, $df, $a0, $7f, $df, $bf, $df, $8f, $7f, $df, $bf, $df, $ff, $7f, $df, $bf, $df, $ff, $7f, $df, $bf, $df, $ff, $7f, $df, $bf, $df, $8f, $7f, $df, $bf, $df, $a0, $7f, $df, $bf, $df, $bf, $ff, $df, $bf, $df, $bf, $ff, $df, $bf, $1f, $8f, $ff, $1f, $8f, $7f, $ef, $ff, $7f, $ef, $7f, $ef, $ff, $7f, $ef, $7f, $ef, $ff, $7f, $ef, $7f, $ef, $ff, $7f, $ef, $0, $f, $ff, $0, $f
+CREDIT_CRED	!fill 15,0
+			!byte $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $31, $c7, $8c, $3b, $c6, $6d, $65, $da, $33, $4d, $dd, $f6, $1e, $1, $9f, $c1, $e7, $db, $39, $b8, $c1, $e7, $db, $b9, $3c, $c1, $86, $1b, $b9, $8c, $c1, $86, $1b, $b9, $86, $c1, $86, $1b, $b9, $83, $c1, $e6, $1b, $39, $83, $dd, $e7, $de, $39, $bb, $fd, $b7, $de, $39, $bf, $7d, $b7, $dc, $39, $8f, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $0
+			!fill 15,0

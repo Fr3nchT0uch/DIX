@@ -1,0 +1,289 @@
+; French Touch framework
+; (c) Cyril Lambin, Grouik (French Touch)
+
+;  This program is free software: you can redistribute it and/or modify
+;  it under the terms of the GNU Affero General Public License as
+;  published by the Free Software Foundation, either version 3 of the
+;  License, or (at your option) any later version.
+;
+;  This program is distributed in the hope that it will be useful,
+;  but WITHOUT ANY WARRANTY; without even the implied warranty of
+;  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;  GNU Affero General Public License for more details.
+;
+;  You should have received a copy of the GNU Affero General Public License
+;  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+; ====================================================================================
+; LZ4 unpacking rout
+;
+; Code by fenarinarsa/FRENCH TOUCH
+; 09/05/2022
+
+!sl "lbl/lbl_decomplz4.txt"
+
+LZ4_DEBUG = 0
+
+; Files MUST be packed with the following options:
+; lz4 -9 --no-frame-crc <input> <output>
+;
+; input:
+; lz4_src (16 bits)  pointer to input data (lz4 file)
+; lz4_dest (16 bits) pointer to output buffer
+; 
+; Overlapping buffers are not supported but if you leave at least 256 bytes
+; between the end of unpacking buffer and the end of the input data you
+; should be okay I guess (it depends of the size of the last segments)
+;
+; This is NOT a GENERIC LZ4 unpacking rout because it has some off-spec limitations.
+; - the lz4 header must be 11 bytes exactly which should be the case for <64k files
+;     packed with the above command line
+; - max supported size of unpacked data is 65039 bytes because I don't read length chains
+;     the usual way other unpackers do.
+;
+; This rout is optimized for SPEED and not for code size.
+;
+
+lz4_src        	= $0C   	; +$03
+lz4_dest        	= $0E   	; +$05
+lz4_len        	= $10
+lz4_token       	= $11
+
+	* = $FA80
+
+; =============================================================================
+DECOMPLZ4
+!zone
+	; Skip lz4 header (11 bytes)
+	; of course this won't work if lz4 header is larger than 11 bytes, make sure it isn't
+	CLC
+	LDA lz4_src
+	ADC #$0b
+	STA lz4_src
+	BCS +		; inverted carry because I use a "negative Y" just below
+	DEC lz4_src+1	;    - and negative Y is not possible so 1 is substracted from the high byte
++	; check for data pack format
+	LDY #-1
+	LDA (lz4_src),Y	; negative = data is not packed
+	TAX
+	; find length & setup end data test
+	LDY #-4		; length of packed data
+	CLC
+	LDA (lz4_src),Y	; find end of packed data
+	STA lz4_len	; save for .unpacked
+	ADC lz4_src
+	STA .modL+1
+	INY
+	LDA (lz4_src),Y
+	STA lz4_len+1	; save for .unpacked
+	INC lz4_src+1
+	ADC lz4_src+1
+	STA .modH+1
+	; negative = unpacked data / positive = packed data
+	TXA
+	BPL .packed
+
+;================ UNPACKED DATA ================
+; This happens when the lz4 encoder detected it couldn't do anything about the original data.
+; memcpy possible to:
+; => lower memory
+; => not overlapping buffer 
+
+.unpacked
+	LDX lz4_len+1	; length high byte
+	INX
+	LDY #0
+.loopunpack
+	DEX
+	BEQ .endunpacked
+
+-	LDA (lz4_src),Y
+	STA (lz4_dest),Y
+	INY
+	BNE -
+	BEQ .loopunpack
+
+.endunpacked
+	LDX lz4_len	; length low byte
+	STX .copymod+1
+
+-	LDA (lz4_src),Y
+	STA (lz4_dest),Y
+	INY
+.copymod	CPY #$AA
+	BNE -
+	RTS
+
+;================ PACKED DATA ================
+; unpacking possible to:
+; => not overlapping buffer
+; => lower memory but not guaranteed, depends on the last lz4 segments' size which must not be overwritten
+
+.packed
+	LDY #0
+	STY lz4_len
+
+; --------> Read lz4 token
+
+.readtoken
+	; READ NEW SRC BYTE
+	; get new lz4 token
+	LDA (lz4_src),Y
+	INC lz4_src		
+	BNE +
+	INC lz4_src+1	
++               
+        	STA lz4_token
+!if LZ4_DEBUG=1 {
+	STA $C030		; click! (outputs garbage tbh)
+}
+	AND #$F0
+	BEQ .match	; no literals
+	LSR
+	LSR
+	LSR
+	LSR
+
+; --------> Copy "literals" data string
+
+.literals
+	; Copy literal string of data
+	; A = initial length (max $0F) from lz4 token
+	; Y should be ̂$00, will return as $00
+	TAX		; length of the current segment (max $FF)
+	CPX #$0F		; length is encoded in more than 1 byte
+	BEQ .litlength
+	LDA lz4_src
+	STA .modcopy+1	
+	LDA lz4_src+1
+	STA .modcopy+2
+	JMP .startliterals
+
+.litlength
+	; find end of length encoding
+-	LDA (lz4_src),Y
+	INY
+	CMP #255
+	BEQ -
+	; max length is 255 bytes so 254*255+254+15 = 65039 bytes which should be enough for Apple II :p
+	; note: there is no check for this limitation, which is not part of the spec.
+	; Pack files that are < 65039 bytes only
+
+	STY lz4_len	; length of the byte chain that codes "literals" length
+
+	; adjust src pointer and put it directly in LDA instructions
+	TYA
+	LDY lz4_src+1
+	CLC
+	ADC lz4_src
+	STA .modcopy+1
+	BCC +
+	INY
++	STY .modcopy+2
+	
+.startliterals
+	JSR .copy
+
+.doneliterals
+	LDA .modcopy+1	; restore back lz4_src
+	STA lz4_src
+	LDA .modcopy+2
+	STA lz4_src+1
+
+; --------> Check for end of packed data
+; The last segment contains only "literals" so the check must be done before match testing
+
+	;LDA lz4_src+1 ; useless because of previous STA
+.modH	CMP #$AA
+	BNE .match
+	LDA lz4_src
+.modL	CMP #$AA
+	BNE .match
+	RTS		; EOF
+
+; --------> Copy "match" data string
+; previous redondant unpacked data to copy back to current destination
+; this is where we need to switch memory banks if src bank != dest bank
+
+.match 	; add offset to dest and set up the pointer in copy rout
+	SEC
+	LDA lz4_dest
+	SBC (lz4_src),Y
+	STA .modcopy+1
+	INY
+	LDA lz4_dest+1
+	SBC (lz4_src),Y
+	STA .modcopy+2
+	LDY #0	; Y=0 expected later
+	; lz4_src+=2, to point to the length chain
+	CLC
+	LDA lz4_src
+	ADC #2
+	STA lz4_src
+	BCC +
+	INC lz4_src+1
++
+	LDA lz4_token
+	AND #$0F
+	CLC
+	ADC #4
+	TAX		; length of the current segment-4
+	CPX #$13		; length is encoded in more than 1 byte
+	BNE .startmatch
+
+	; find end of length encoding (max 255 bytes, again not spec)
+-	LDA (lz4_src),Y
+	INY
+	CMP #255
+	BEQ -
+	STY lz4_len	; length of the byte chain that codes length
+
+.startmatch
+	JSR .copy
+	JMP .readtoken
+	; end of unpacking loop here
+
+; --------> Common data copy loop
+
+.copy	
+	INC lz4_len	; lz4_len = nb of "length chain" bytes +1
+	; X = (still) initial length from token
+	LDY #0
+.loopcopy	STX .modcopy2+1
+.modcopy	LDA $AAAA,Y	; copy byte (modified src address)
+	STA (lz4_dest),Y
+	INY
+	DEX
+	BNE .modcopy
+	; adjust src and dest pointers (+Y bytes)
+.modcopy2 LDY #$AA
+	TYA
+	CLC
+	ADC .modcopy+1
+	STA .modcopy+1
+	BCC +
+	INC .modcopy+2
++	TYA
+	CLC
+	ADC lz4_dest
+	STA lz4_dest
+	BCC +
+	INC lz4_dest+1
++	; how many "length" bytes to read?
+	LDY #0		; clear Y
+	DEC lz4_len
+	BEQ .endcopy	; none
+
+	; READ NEW SRC BYTE
+	; get new length byte (max $FF)
+	LDA (lz4_src),Y
+	INC lz4_src		
+	BNE +
+	INC lz4_src+1	
++
+	TAX	
+	BNE .loopcopy	; special case: the length chain can end with $00
+.endcopy	STY lz4_len	; clean length which may not be zero because of this special case
+	RTS
+
+EO_DECOMPLZ4

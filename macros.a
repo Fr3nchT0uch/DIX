@@ -1,0 +1,156 @@
+; French Touch framework
+; (c) Cyril Lambin, Grouik (French Touch)
+
+;  This program is free software: you can redistribute it and/or modify
+;  it under the terms of the GNU Affero General Public License as
+;  published by the Free Software Foundation, either version 3 of the
+;  License, or (at your option) any later version.
+;
+;  This program is distributed in the hope that it will be useful,
+;  but WITHOUT ANY WARRANTY; without even the implied warranty of
+;  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;  GNU Affero General Public License for more details.
+;
+;  You should have received a copy of the GNU Affero General Public License
+;  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+; ====================================================================================
+; MACROS (for Acme 0.96.4)
+;
+; Code by fenarinarsa/FRENCH TOUCH
+
+!macro inc16 .target {
+	INC .target
+	BNE +	; "bne * + 5" would not work in zp
+	INC .target + 1
++
+ }
+!macro add8to16 .src, .target {
+	CLC
+	LDA .target
+    	ADC #.src
+    	STA .target
+    	LDA .target+1
+    	ADC #0
+    	STA .target+1
+}
+!macro sub8to16 .src, .target {
+	SEC
+	LDA .target
+    	SBC #.src
+    	STA .target
+    	LDA .target+1
+    	SBC #0
+    	STA .target+1
+}
+!macro add8to16mem .src, .target {
+	CLC
+	LDA .target
+    	ADC .src
+    	STA .target
+    	LDA .target+1
+    	ADC #0
+    	STA .target+1
+}
+!macro sub8to16mem .src, .target {
+	SEC
+	LDA .target
+    	SBC .src
+    	STA .target
+    	LDA .target+1
+    	SBC #0
+    	STA .target+1
+}
+!macro add16direct .src, .target {
+	CLC
+	LDA .target
+	ADC #(.src & $ff)
+	STA .target
+	LDA .target+1
+	ADC #((.src>>8) & $ff)
+	STA .target+1
+}
+!macro add16mem .src, .target {
+	CLC
+	LDA .target
+	ADC .src
+	STA .target
+	LDA .target+1
+	ADC .src+1
+	STA .target+1
+}
+!macro set_ptr .src, .pointer {
+	LDA #<.src
+	STA .pointer
+	LDA #>.src
+	STA .pointer+1
+}
+!macro set_ptr2 .src, .pointer1, .pointer2 {
+	LDA #<.src
+	STA .pointer1
+	STA .pointer1
+	LDA #>.src
+	STA .pointer2+1
+	STA .pointer2+1
+}
+!macro modify .src, .instruction {
+	LDA #<.src
+	STA .instruction+1
+	LDA #>.src
+	STA .instruction+2
+}
+!macro mov16 .src, .dest {
+	LDA .src
+	STA .dest
+	LDA .src+1
+	STA .dest+1
+}
+
+; monitoring CPU time in AppleWin FT
+!macro start_monitoring {
+!if DEBUG=1 {
+	STA $C067
+	}
+}
+
+!macro stop_monitoring {
+!if DEBUG=1 {
+	STA $C066
+	}
+}
+!macro start_monitoring_interrupt {
+!if DEBUG=1 {
+	STA $C069
+	}
+}
+
+!macro stop_monitoring_interrupt {
+!if DEBUG=1 {
+	STA $C068
+	}
+}
+
+!macro print_debug .char {
+!if DEBUG=1 {
+	LDA #.char
+	STA $7D0
+	}
+}
+
+!macro print_debugtop .char {
+!if DEBUG=1 {
+	LDA #.char
+	STA $400
+	}
+}
+
+
+; compilation time checks
+
+	!zone
+!macro build_check_crosspage .start {
+	; check for crosspage at compilation time
+	!if (.start & $ff00) != ((*-1) & $ff00) {
+		!error "!!!!!!!! CROSSPAGE detected !!!!!!!! start=", .start ," end=", (*-1)
+		}
+}

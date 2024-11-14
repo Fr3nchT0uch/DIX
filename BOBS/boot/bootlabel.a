@@ -1,0 +1,11 @@
+EXECFROMBOOT2  =$857; unused
+nbSector  =$856; ?
+OffMin  =$f0
+Init  =$81e; ?
+DEBUT2  =$f103
+FIN  =$81b; ?
+TableInter  =$845; ?
+START  =$801; unused
+suite  =$807
+bMachine  =$b
+OffHi  =$855; ?

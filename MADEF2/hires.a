@@ -1,0 +1,12 @@
+!sl "lbl_hires.txt"
+
+*= $1000
+
+hires0
+	!binary "HIRES/jd.lz4"
+hires1
+	!binary "HIRES/degrad.lz4"
+hires2
+	!binary "HIRES/carre3.lz4"
+hires3
+	!binary "HIRES/rec3.lz4"

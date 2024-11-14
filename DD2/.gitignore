@@ -1,0 +1,12 @@
+*.cfg
+*.b
+lbl_*.txt
+*.code-workspace
+Thumbs.db
+build.bat
+floadc_lbl.a
+effect_lbl.a
+*.woz
+*.dsk
+TEST/
+

@@ -1,0 +1,47 @@
+; -------------------------------
+;  APPLE 2 SYSTEM CONSTANTS
+; -------------------------------
+; see http://www.kreativekorp.com/miscpages/a2info/iomemory.shtml
+;
+; RAM areas names:
+; ZP       $0000-$00FF
+; Stack    $0100-$01FF
+; 48K      $0200-$BFFF
+; LC       $D000-$FFFF [reset: mapped to ROM Read+LC Write]
+; BANK     $D000-$DFFF [two switchable 4K banks in LC, reset: BANK2]
+;
+; MAIN = first 64K bank [reset: default]
+; AUX  = extra 64K bank [optional on IIe, always present on IIc]
+ 
+_80STOREoff	= $C000	; W
+_80STOREon	= $C001	; W
+_RAMRDmain	= $C002	; W   Read  MAIN 48K
+_RAMRDaux		= $C003	; W   Read  AUX  48K
+_RAMWRTmain	= $C004	; W   Write MAIN 48K
+_RAMWRTaux	= $C005	; W   Write AUX  48K
+_ALTZPoff		= $C008	; W   MAIN ZP+Stack+LC
+_ALTZPon		= $C009	; W   AUX  ZP+Stack+LC
+_80COLoff		= $C00C	; W
+_80COLon		= $C00D	; W
+_VERTBLANK	= $C019	; R7 (IIe), R (IIc)
+_TEXToff		= $C050	; WR
+_TEXTon		= $C051	; WR
+_MIXEDoff		= $C052	; WR
+_MIXEDon		= $C053	; WR
+_PAGE2off		= $C054	; WR
+_PAGE2on		= $C055	; WR
+_HIRESoff		= $C056	; WR
+_HIRESon		= $C057	; WR
+_VSYNCdisable	= $C05A	; WR (IIc)
+_VSYNCenable	= $C05B	; WR (IIc)
+_AN3off		= $C05E	; WR
+_AN3on		= $C05F	; WR
+_VSYNCIRFreset	= $C070   ; WR (IIc)
+_IOUdisable	= $C078	; W
+_IOUenable	= $C079	; W
+_IOUDISoff	= $C07E	; W
+_IOUDISon		= $C07F	; W 
+_LCBANK2w		= $C081	; RR  LC: RAM  W [BANK2], ROM R
+_LCBANK2rw	= $C083	; RR  LC: RAM RW [BANK2]
+_LCBANK1w		= $C089	; RR  LC: RAM  W [BANK1], ROM R
+_LCBANK1rw	= $C08B	; RR  LC: RAM RW [BANK1]

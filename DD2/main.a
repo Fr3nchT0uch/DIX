@@ -1,0 +1,1536 @@
+; ACME 0.96.4
+; 
+; [binary MAX Size: $D000-$FBFF = (16+16+12)*256 = 11264 bytes]
+;
+; DIGIDREAM 2 aka DIGIDREAM SID VOICE EDITION
+; [FRENCH TOUCH]
+; GROUiK
+; 05/2024
+;
+; v0.8 - First public version
+;
+!cpu 6502
+!convtab "a2txt.bin" ; 
+!sl "lbl_main.txt"
+
+; include
+;!source "floadc_lbl.a"
+!source "effect_lbl.a"
+!source "../macros.a"
+!source "../sysconst.a"
+
+                *= $E000 ; ORG = $D000 (RAM Langage Card)
+
+; =============================================================================
+; SYSTEM/CONSTANT
+VERTBLANK       = $C019     ;
+
+DISVBL	        = $C05A	    ; (WR) (IIc)
+ENVBL   	    = $C05B	    ; (WR) (IIc)
+VBLCLR	        = $C070     ; (WR) (IIc)
+IOUDSBL 	    = $C078	    ; (W)
+IOUENBL 	    = $C079	    ; (W)
+; =============================================================================
+; ZERO PAGE
+bIIc_boot       = $03
+ExpoMode        = $04
+MB_BASEADDR     = $10
+bIIc            = $3E       ; = $80 if IIc / $00 if IIe
+bINTIIc         = $3F
+
+MBpatch_start   = $30 ;16b
+MBpatch_end     = $32 ;16b
+
+; decompLZ4
+; src1        	= $30   	; +$31
+; src2        	= $32   	; +$33
+; dest        	= $34   	; +$35
+; lenL        	= $36
+; lenH        	= $37
+; token       	= $38
+
+
+; USED by PLAYER PYM + INT
+; ------------------------
+saveA       	= $4D
+saveY       	= $4E
+saveX       	= $4F
+
+nREG0	        = $50
+vREG0	        = $51
+dREG0	        = $52	; +$53
+nREG1	        = $54
+vREG1	        = $55
+dREG1	        = $56	; +$57
+nREG2	        = $58
+vREG2	        = $59
+dREG2	        = $5A	; +$5B
+nREG3	        = $5C
+vREG3	        = $5D
+dREG3	        = $5E	; +$5F
+nREG4	        = $60
+vREG4	        = $61 
+dREG4	        = $62	; +$63
+nREG5	        = $64
+vREG5	        = $65 
+dREG5	        = $66	; +$67
+nREG6	        = $68
+vREG6	        = $69
+dREG6	        = $6A	; +$6B
+nREG7	        = $6C
+vREG7	        = $6D
+dREG7	        = $6E	; +$6F
+nREG8	        = $70
+dREG8	        = $71	; +$72
+nREG9	        = $73
+dREG9	        = $74	; +$75
+nREGA	        = $76
+dREGA		    = $77	; +$78
+nREGB		    = $79
+vREGB		    = $7A 
+dREGB		    = $7B	; +$7C
+nREGC		    = $7D
+vREGC		    = $7E 
+dREGC		    = $7F	; +$80
+nREGD		    = $81
+vREGD		    = $82
+dREGD		    = $83	; +$84
+; 3 next variables must follow each other (not really needed for this prod)
+vREG8           = $85
+vREG9           = $86
+vREGA           = $87
+
+count1Pat   	= $88
+
+iREG0       	= $89
+iREG1       	= $8A
+iREG2       	= $8B
+iREG3       	= $8C
+iREG4       	= $8D
+iREG5       	= $8E
+iREG6       	= $8F
+iREG7       	= $90
+iREG8       	= $91
+iREG9       	= $92
+iREGA       	= $93
+iREGB       	= $94
+iREGC       	= $95
+iREGD       	= $96
+
+nREGE		    = $97
+vREGE		    = $98
+dREGE		    = $99	; +$9A
+nREGF		    = $9B
+vREGF		    = $9C
+dREGF		    = $9D	; +$9E
+iREGE       	= $9F
+iREGF       	= $A0
+
+; effet
+color           = $A1
+saveIntro       = $A2
+; SID-VOICES specific       
+valV            = $A3
+intL            = $A4
+intH            = $A5
+valEOR          = $A6                           
+bSidOff         = $A7                           ; bolean if SID-VOICES on this tick!   
+; ------------------------------------------------
+; all ZP variables that need to be initialized to zero are grouped together below!
+ZP_ZERO         = $A8                           ; = same as first address of vars need to be reset
+; ------------------------------------------------
+; SID_VOICES
+bSIDA           = $A8                       
+
+; effects
+indexTEX		= $A9                       
+count		    = $AA
+indexLAYER1	    = $AB
+countLAYER1	    = $AC
+indexLAYER2	    = $AD
+countLAYER2	    = $AE
+indexIntro      = $AF
+countIntro      = $B0
+
+; player PYM / track timing
+indexPat    	= $B1
+indexTTrack     = $B2
+Tick        	= $B3   ; +$B4
+; ------------------------------------------------
+; SID_VOICES
+bInt            = $B5
+
+; WARNING: do not reach $CC
+; =================================================================================================
+MAIN
+!zone
+	STA ExpoMode
+                STA $C000           		        ; 80STOREOFF
+                STA $C008           		        ; zero Page = Main (+ $FXXX MAIN)
+
+	LDX #00
+	LDA bIIc_boot                   ; check if prog is running on a IIc (check method is OK for the goal here)
+	BNE +
+	LDX #$80                    ; IIc ON "value"
++	STX bIIc 
+
+	; init SCBUFFER
+	LDA #00
+	LDX #00
+-	STA SCBUFFER,X
+	INX
+	CPX #30
+	BNE -
+
+	; Patch Mockingboard registers
+	+set_ptr Init_MB,MBpatch_start
+	+set_ptr M_LOOP,MBpatch_end
+	JSR MB_PATCH
+	+set_ptr INT_ROUT,MBpatch_start
+	+set_ptr INIT_PATTERN,MBpatch_end
+	JSR MB_PATCH
+
+
+		        
+                ; write ONE line GR (AUX part)
+	      STA _RAMWRTaux
+                LDA #$FF
+                LDY #$27                    
+-               STA $4A8,Y
+                DEY
+                BPL -
+
+                STA $C004 		                    ; write MAIN          
+   
+
+                ; set mode for "INTRO" part
+                BIT $C050                           ; mode GFX
+                BIT $C055                           ; PAGE 2
+                BIT $C056                           ; (D)GR
+                STA $C00D		                    ; 80 colonnes
+		        STA $C05E		                    ; RESET AN3
+
+                STA $C004                           ; WRITE MAIN
+
+                ; write ONE line GR (MAIN part)
+                LDA #$FF
+                LDY #$27                    
+-               STA $4A8,Y
+                DEY
+                BPL -
+                ; ---------------------------------------
+
+                STA $C003                           ; READ AUX ($200-$BFFF) - for Music Data
+                
+; =================================================================================================
+Init_MB     	; init Mockingboard (SLOT#4)        
+!zone
+                
+                ; init MB (6522/AY1)
+            	LDA #$FF
+           	    STA AY_ADDR+3    	
+            	LDA #$07
+            	STA AY_ADDR+2        
+            	; ---------
+            	; clean REGISTERS AY1
+            	LDA #$00
+            	STA AY_ADDR
+            	LDA #$04
+            	STA AY_ADDR
+            	; ---------
+                ; init var
+            	LDA #PATTERNSIZE
+            	STA count1Pat
+                LDX #01
+                STX bSidOff                         
+            	DEX                                 ; = 0
+                STX saveIntro
+                STX bInt    
+                JSR ResetVar
+                
+            	; X = 0 - init with pattern 0
+            	JSR INIT_PATTERN                    ; init music data with initial parameters
+; -------------------------------------
+Init_INT    	; init interrupt
+!zone       
+                SEI
+            	; SET INT routine address
+            	LDA #<INT_ROUT
+            	STA $FFFE       
+            	LDA #>INT_ROUT
+            	STA $FFFF
+ 
+            	; Set INT
+            	LDA #%01000000      		        ; 
+            	STA AY_ADDR+$B ;$C40B           		        ; Auxiliary Control Register 6522-1 [T1/6522-1 Continuous Interrupt (FREE MODE) / PB7 disabled / T2 One Shot Mode]
+            	LDA #%11100000      		        ; 
+            	STA AY_ADDR+$E ;$C40E           		        ; Interrupt Enable Register [6522-1 Enable Timer 1 INT AND Timer 2 INT Enabled]
+                
+                CLI
+
+                LDA bIIc
+                BPL .IIe
+                ; ==========================================================
+                ; CODE specific FOR IIc
+                ; ==========================================================
+.IIc            ; enable IIc VSYNC interrupt
+	            STA IOUENBL 	                    ; (IIc specific) enable IOU access
+ 	            STA ENVBL   	                    ; (IIc specific) enable VBL INT
+ 	            STA IOUDSBL 	                    ; (IIc specific) disable IOU access
+	            
+                ; wait for DISPLAY
+-               LDA VERTBLANK                       ; wait for start of VBL (IIc specific) and INT occurs
+                BPL - 
+                LDY #120                            ; then WAIT 120 (PAL: 70+50) lines = VBL delay                            
+                JSR WAIT65
+                LDA #00
+                STA bINTIIc                         ; init to zero (IIc only)
+                JMP .next
+                ; ==========================================================
+
+                ; ==========================================================
+                ; CODE FOR IIe 
+                ; ==========================================================
+.IIe            ; wait for DISPLAY
+-           	LDA VERTBLANK
+            	BMI -        
+-           	LDA VERTBLANK
+            	BPL -                       		; wait until next DISPLAY
+                ; ==========================================================
+
+.next           ; here "beginning" of DISPLAY (no need to be more precise)
+                LDY #75
+                JSR WAIT65                          ; wait Y lines (first part of HGR)
+
+                SEI
+
+                ; set 6522-1/T2 INT delay - sync code for beginning DGR window
+                LDX #$36                                                        
+            	LDY #$4F                            ; one full PAL frame (20280-2)                                                                  
+            	STX AY_ADDR+8 ;$C408                   		; T2C_1-Lower                    
+            	STY AY_ADDR+9 ;$C409                   		; T2C_1-High  (+reset interrupt flag)
+
+                HEIGHT = 90                         ; lines/height of DGR window
+                DELAY1 = HEIGHT*65-2                ; nb of cyles for DGR window (minus 2 for INT)
+                DELAY2 = (192+50+70-HEIGHT)*65-2    ; nb of cycles of the rest of the frame (display+vbl-window) (minus 2) 
+
+                LDY #HEIGHT
+                JSR WAIT65                          ; wait Y lines (DGR window "height")               
+                
+                ; set 6522-1/T1 first INTERRUPT (initial SID VOICE TIMER - value not really matter here)
+                INT1_INIT_DELAY = 10000               
+                LDA #<INT1_INIT_DELAY
+                STA AY_ADDR+4 ;$C404
+                LDA #>INT1_INIT_DELAY
+                STA AY_ADDR+5 ;$C405
+                
+                CLI 
+; =================================================== 
+M_LOOP          ; MAIN LOOP   
+!zone    		    
+                LDA bIIc
+                BPL .IIe
+.IIc            ; ==========================================================
+                ; CODE FOR IIc version 
+                ; ==========================================================
+-               LDA bINTIIc                         ; wait for start of VBL (IIc specific) and INT occurs -> bINTIIc set
+                BEQ - 
+                DEC bINTIIc                         ; reset boolean
+                JMP .next
+                ; ==========================================================
+
+.IIe            ; ==========================================================
+                ; CODE FOR IIe version 
+                ; ==========================================================
+                ; wait for VBL
+-           	LDA VERTBLANK
+            	BPL -                               ; wait until next DISPLAY
+-           	LDA VERTBLANK
+            	BMI -                       		; wait until next VBL
+                ; ==========================================================
+.next
+                ; play one tick
+            	JSR PLAYER_PYM
+
+	LDA ExpoMode
+	BEQ +
+	LDA Tick+1
+	CMP #$1E
+	BEQ END
++	LDA $C000
+	CMP #27+$80
+	BEQ END
+
+                ; effect part
+modJSR_PART     JSR EMPTY
+            	
+                ; ; inc frame counter / check timeline
+            	INC Tick                    		                                       
+            	BNE +                                                                               
+            	INC Tick+1                                                                  
++           	LDA Tick
+                LDX indexTTrack                  
+            	CMP TimeLineL,X
+                BNE M_LOOP
+            	LDA Tick+1
+            	CMP TimeLineH,X                      
+            	BNE M_LOOP
+
+                ; set and prepare next Part
+                ;LDX indexTTrack
+                LDA TablePARTL,X
+                STA modJSR_PART+1
+                LDA TablePARTH,X
+                STA modJSR_PART+2
+                LDA TablePrepaPartL,X
+                STA modJSR_PREPA+1
+                LDA TablePrepaPartH,X
+                STA modJSR_PREPA+2
+                INC indexTTrack
+modJSR_PREPA    JSR $FFFF               
+                JMP M_LOOP
+
+END	STA $C010
+	SEI
+	RTS
+
+; -------------------------------------------------------------------------------------------------
+ResetVar
+!zone           
+                LDA #00
+                LDY #12
+-               STA ZP_ZERO,Y
+                DEY
+                BPL -
+                RTS
+; =================================================================================================
+; PARTS as subroutines
+; =================================================================================================
+LOOP_SONG
+!zone
+                LDA #PATTERNSIZE
+            	STA count1Pat
+                JSR ResetVar                        ; reset effects vars
+                TAX                                 ; = 0 here                 
+                JSR INIT_PATTERN                    ; re-init music data with initial parameters
+                ; restore old bar
+                LDX saveIntro                       ; old BAR#
+                LDY #$AA
+                LDA #$55
+                STA $C002                           ; READ MAIN
+                JSR EFFECT_INTRO
+                STA $C003                           ; READ AUX
+                ; reset mode for INTRO again
+                LDA #$0D
+                STA mod80_1+1
+                STA mod80_2+1  
+                LDA #$5E
+                STA modAN3_1+1
+                STA modAN3_2+1 
+                LDA #$55
+                STA modPAGE_1+1
+                STA modPAGE_2+1
+                LDA #$56
+                STA modGFX_1+1
+                STA modGFX_2+1 
+                RTS
+; -------------------------------------------------------------------------------------------------
+INTRO           ; AUX Color [0x00,0x08,0x01,0x09,0x02,0x0A,0x03,0x0B,0x04,0x0C,0x05,0x0D,0x06,0x0E,0x07,0x0F]
+!zone           ; Main Color   00   01   02   03   04   05   06   07   08   09   0A   0B   0C   0D   0E   0F
+                INC countIntro
+                LDA countIntro
+                CMP #8
+                BNE .quit
+                LDA #00
+                STA countIntro
+                ; restore old bar
+                LDX saveIntro                       ; old BAR#
+                LDY #$AA
+                LDA #$55
+                STA $C002                           ; READ MAIN
+                JSR EFFECT_INTRO
+                STA $C003                           ; READ AUX
+                ; color new bar
+                LDY indexIntro
+                LDX TableIntro,Y
+                STX saveIntro                       ; save for next restoring
+                LDY #$EE
+                LDA #$DD
+                STA $C002                           ; READ MAIN
+                JSR EFFECT_INTRO
+                STA $C003                           ; READ AUX
+                LDY indexIntro
+                INY                                 
+                CPY #10
+                BNE +
+                LDY #00
++               STY indexIntro
+.quit           RTS
+; -------------------------------------------------------------------------------------------------
+PREPA_CRED
+!zone   
+                LDA #$57
+                STA modGFX_2+1                      ; HGR
+                LDA #$54
+                STA modPAGE_2+1                     ; PAGE 1
+                LDA #$0C
+                STA mod80_2+1                       ; 80 colonnes OFF
+                LDA #$5F
+                STA modAN3_2+1                      ; SET AN3
+; labels used for "empty" routine (just one RTS)
+EMPTY           
+CREDITS
+                RTS
+; -------------------------------------------------------------------------------------------------
+PREPA_F
+!zone
+                LDA #$00
+                STA color
+                LDA #$0C
+                STA mod80_1+1                       ; set $C00C = 80 col ON
+                LDA #$5F
+                STA modAN3_1+1                      ; set $C05F = SET AN3
+                LDA #$54
+                STA modPAGE_1+1                     ; set PAGE 1
+                STA modPAGE_2+1       
+                LDA #$57
+                STA modGFX_1+1                      ; set HGR
+                ; init tex (because of loop!)
+END_PF          LDX #>TEX1A                         ; high part only
+                LDY #>TEX1M
+                JSR CHANGE_TEX
+                RTS
+; -------------------------------------------------------------------------------------------------
+PREPA_F2
+!zone
+                ; we just need to change high part of OFFSET (tables must be aligned)
+                LDA #$FF
+                STA color
+                JMP END_PF
+                RTS
+; ------------------------------------------------------------------------------------------------
+CHANGE_TEX
+!zone           ; X = offset HIGH TEX AUX part / Y = offset HIGH TEX MAIN part 
+                STX modTEXA_00+2
+                STX modTEXA_01+2
+                STX modTEXA_02+2
+                STX modTEXA_03+2
+                STX modTEXA_04+2
+                STX modTEXA_05+2
+                STX modTEXA_06+2
+                STX modTEXA_07+2
+                STX modTEXA_08+2
+                STX modTEXA_09+2
+                STX modTEXA_10+2
+                STX modTEXA_11+2
+                STX modTEXA_12+2
+                STX modTEXA_13+2
+                STX modTEXA_14+2
+                STX modTEXA_15+2
+
+                STY modTEXM_00+2
+                STY modTEXM_01+2
+                STY modTEXM_02+2
+                STY modTEXM_03+2
+                STY modTEXM_04+2
+                STY modTEXM_05+2
+                STY modTEXM_06+2
+                STY modTEXM_07+2
+                STY modTEXM_08+2
+                STY modTEXM_09+2
+                STY modTEXM_10+2
+                STY modTEXM_11+2
+                STY modTEXM_12+2
+                STY modTEXM_13+2
+                STY modTEXM_14+2
+                STY modTEXM_15+2
+                RTS
+; -------------------------------------------------------------------------------------------------
+PREPA_T
+!zone           ; we just need to change high part of OFFSET (tables must be aligned)
+                LDA #00
+                STA color
+END_PT          LDX #>TEX3A
+                LDY #>TEX3M
+                JSR CHANGE_TEX
+                RTS
+; -------------------------------------------------------------------------------------------------
+PREPA_T2
+                LDA #$FF
+                STA color
+                JMP END_PT
+; -------------------------------------------------------------------------------------------------
+PREPA_PARA
+!zone           ; we just need to change high part of OFFSET (tables must be aligned)
+                LDX #>TEX2A
+                LDY #>TEX2M
+                JSR CHANGE_TEX                
+                RTS
+; -------------------------------------------------------------------------------------------------
+PREPA_PARA2
+!zone           ; we just need to change high part of OFFSET (tables must be aligned)
+                LDX #>TEX2A
+                LDY #>TEX2M
+                JSR CHANGE_TEX                
+                RTS
+; -------------------------------------------------------------------------------------------------
+CALL1_EFF1                                            
+!zone
+                LDA count
+		        EOR #01
+		        STA count
+		        BEQ ++
+		        LDX indexTEX
+		        STA $C002                           ; READ MAIN
+                JSR EFFECT1
+                STA $C003                           ; READ AUX 
+		        INX
+		        CPX #16
+		        BNE +
+		        LDX #00
++		        STX indexTEX                
+++              RTS
+; -------------------------------------------------------------------------------------------------
+CALL2_EFF1                                            
+!zone
+                LDA count
+		        EOR #01
+		        STA count
+		        BEQ ++
+		        LDX indexTEX
+		        STA $C002                           ; READ MAIN
+                JSR EFFECT1
+                STA $C003                           ; READ AUX 
+		        DEX
+		        BPL +
+		        LDX #15
++		        STX indexTEX                
+++              RTS
+; ------------------------------------------------------------------------------------------------
+EFF_SCROLL
+!zone
+		        ; fill buffer with new TEX
+		        ; layer 1 (background) (30*6 steps)
+		        LDY indexLAYER1
+		        LDX #00
+-		        LDA TEX1,Y
+		        STA SCBUFFER,X
+		        INY
+		        INX
+		        CPX #30
+		        BNE -
+		        CPY #(30*6)
+		        BNE +
+		        LDY #00
++		        DEC countLAYER1
+		        BNE +
+		        STY indexLAYER1
+		        LDA #02
+		        STA countLAYER1
++
+		        ; layer 2 (20 * 10 steps)
+		        LDY indexLAYER2
+		        LDX #00
+-		        LDA SCBUFFER,X
+		        AND MTEX2,Y
+		        ORA TEX2,Y
+		        STA SCBUFFER,X
+		        INY
+		        INX
+		        CPX #20
+		        BNE -
+		        CPY #(20*10)
+		        BNE +
+		        LDY #00
++		        STY indexLAYER2
+
+		        STA $C002                           ; READ MAIN
+                JSR EFFECT2
+                STA $C003                           ; READ AUX 
+
+		        RTS
+; =================================================================================================
+INT_ROUT 
+!zone                
+                ; check if 6522-1/T1 INT (sid voice)
+        	    BIT AY_ADDR+$D ;$C40D                           ; bit6 IFR -> V - if set, Timer1 = 0 so int occured      
+                BVS .int_sid   
+                
+                ; -----------------------------------
+                ; IIc specific
+                BIT bIIc                            ; $80 ? so IIc here...
+                BPL .int_sync                       ; else another INT
+                BIT VERTBLANK                       ; check if VBL INT occured
+                BPL .int_sync                       ; not here because of VBL INT
+                BIT VBLCLR      	                ; otherwise VBL clear (reset INT)
+                INC bINTIIc                         ; set bINTIIc
+                RTI                                 ; exit
+                ; -----------------------------------
+
+                ; else 6522-1/T2 INT (sync)
+.int_sync       
+                ; set DGR windows (start)
+                STA saveA
+                LDA bInt
+                BNE +
+
+                ; INT for Ending of DGR window
+modGFX_2        BIT $C056                           ; (D)GR
+modPAGE_2       BIT $C055                           ; PAGE 2/1
+mod80_2         STA $C00D		                    ; 80 colonnes
+modAN3_2		STA $C05E		                    ; RESET AN3
+
+                ; set new delay
+                LDA #(<DELAY1-14)                   ; 14 => (LDA+SEC+ADC+STA=12 to substract) - 2 (6522/timer)
+                SEC                                 ; compute new delay value (minus cycles already passed)
+                ADC AY_ADDR+8 ;$C408                           ; SEC/negative value here (counter = $FFXX)
+                STA AY_ADDR+8 ;$C408
+                LDA #>DELAY1
+                ADC AY_ADDR+9 ;$C409         
+            	STA AY_ADDR+9 ;$C409                   		; write T2C_1-High / reset IFR
+                LDA #01
+                STA bInt
+                JMP .quit_intsync
+                ; ----------------------------------
+                ; INT for beginning of DGR window
++                                                   ; note: HGR disabled/DGR enabled for INTRO so following parameters:
+mod80_1         STA $C00D                           ; $C00D = 80 col ON / $C00C = 80 col OFF
+modAN3_1        STA $C05E                           ; $C05E = RESET AN3 / $C05F = SET AN3
+modPAGE_1       BIT $C055                           ; PAGE 2 / PAGE 1
+modGFX_1        BIT $C056                           ; GR / HGR (again)
+
+                ; set new delay
+                LDA #(<DELAY2-14)                   ; 14 = (LDA+SEC+ADC+STA=12 to substract) - 2 (6522/timer)
+                SEC                                 ; compute new delay value (minus cycles already passed)
+                ADC AY_ADDR+8 ;$C408                           ; SEC/negative value here (counter = $FFXX)
+                STA AY_ADDR+8 ;$C408
+                LDA #>DELAY2
+                ADC AY_ADDR+9 ;$C409         
+            	STA AY_ADDR+9 ;$C409                   		; write T2C_1-High / reset IFR
+                LDA #00
+                STA bInt
+                ; ----------------------------------
+.quit_intsync   LDA saveA
+                RTI
+
+.int_sid        ; 6522-1/T1 INT occured / SID VOICE effect
+                STA saveA                           ; save A/Y registers used later      
+            	STX saveX                           
+                
+                LDA bSidOff
+                BNE ++
+
+		        LDA #08                            	; register# volume SID VOICE (08 here)
+		        STA AY_ADDR+1		                ; reg#				
+		        LDA #$07			                ; Set fct "Set PSG Reg #"
+		        STA AY_ADDR		                    ; ORB1 (fct)
+		        LDX #$04			                ; Set fct "Inactive"
+		        STX AY_ADDR		                    ; ORB1 (fct)
+
+		        LDA valV			                ; reg value
+		        STA AY_ADDR+1		                ; ORA1 (data)
+		        LDA #$06			                ; Set fct "Write DATA"
+		        STA AY_ADDR		                    ; ORB1 (fct) 
+		        STX AY_ADDR		                    ; Set fct "Inactive" / ORB1 (fct)
+
++            	LDA valV
+            	EOR valEOR                          ; 0 <-> vol SID VOICE
+            	STA valV
+
+++            	BIT AY_ADDR+4 ;$C404           		        ; IFR b6 cleared by read T1C_1-Lower (T1/6522-1)
+                LDA saveA
+            	LDX saveX
+
+mod_RTI         RTI                                 ; RTI/NOP ($40/$EA)
+
+                STY saveY                           ; save Y used later
+
+                ; SET SID VOICE INT
+                ; ------------------
+                ; set new TIMER delay (T1/6522-1) for SID-VOICES	
+.setsidInt      LDX intL
+                LDY intH
+                STX AY_ADDR+4 ;$C404      	                 	; T1C_1-Lower       	
+        		STY AY_ADDR+5 ;$C405                        	; T1C_1-High   => countdown from now! / IFR b6 cleared
+                STX mod_comp_intL+1                 ; save last INT delay value for next comp
+                STY mod_comp_intH+1
+
+                LDA #$40                            ; restore RTI opcode
+                STA mod_RTI
+
+                LDA vREG8                           ; set new value for valV and valEOR from sid_voice vol
+                LDX valV
+                BEQ +                               ; if valv = 0 we don't change vol for next INT, just valEOR
+                STA valV                            ; because we don't want two consecutive values of "non-zero" vol 
++               STA valEOR                          ; [greetz to fenarinarsa to find and fix this bug!]
+
+                LDA saveA
+            	LDX saveX
+            	LDY saveY 
+                RTI
+; =================================================================================================
+PLAYER_PYM
+!zone		    
+                LDA #00
+                STA bSIDA                           ; reset for each frame
+
+                SEI                                 ; inib INT while changing ANY AY REGISTERS (or while reading INT info from RE/RF)
+                ; ----------------------------------
+                ; "REGISTER" F       		        ; containing high INT delay value
+        		LDY vREGF                           
+                BMI .noSid                          ; if bit 7 = 1, SID VOICE off this frame (no need to load intL)                       
+
+                ; "REGISTER" E       		        ; containing low INT delay value
+        		LDX vREGE    
+mod_comp_intL   CPX #00                             ; compare to last int delay (Low)
+                BNE .setnextInt                     ; not the same ? So set INT
+                
+mod_comp_intH   CPY #00                             ; compare to last int delay (High)
+                BEQ .noNewInt                       ; same ? Ok check valV
+                
+                ; set new int after next INT
+.setnextInt     LDA #$EA                            ; NOP
+                STA mod_RTI                         ; will replace RTI to setup next int               
+                STY intH                            ; save INT param L/H
+                STX intL
+                LDY #00
+                BEQ +                               ; always
+
+.noNewInt       ; keep same INT so we check only valV value / set valEOR value / and mute normal volume!
+                LDA vREG8
+                STA valEOR
+                LDY #00
+                LDA valV
+                BEQ +                               ; if = 0 keep going
+                LDA vREG8                           ; else set new volume (for XOR in INT_ROUT)
+                STA valV                            
++               INC bSIDA                           ; set = skip "normal" set volume for concerned SID channel THIS frame 
+                ; ------------------                
+.noSid          STY bSidOff                         ; !=0 if no sid or 0 if sid voice this frame
+                ; -------------------------------------
+
+                ; REGISTER 0
+		        LDA #00                             ; reg = 0
+		        STA AY_ADDR+1		                ; reg#				
+		        LDA #$07			                ; Set fct "Set PSG Reg #"
+		        STA AY_ADDR		                    ; ORB1 (fct)
+		        LDX #$04			                ; Set fct "Inactive"
+		        STX AY_ADDR		                    ; ORB1 (fct)
+
+		        LDA vREG0			                ; reg value
+		        STA AY_ADDR+1		                ; ORA1 (data)
+		        LDY #$06			                ; Set fct "Write DATA"
+		        STY AY_ADDR		                    ; ORB1 (fct)
+		        STX AY_ADDR		                    ; Set fct "Inactive" / ORB1 (fct)
+        
+		        ; REGISTER 1
+        		LDA #$01
+		        STA AY_ADDR+1
+		        LDA #$07	                        
+		        STA AY_ADDR
+		        STX AY_ADDR		                    
+
+		        LDA vREG1	
+		        STA AY_ADDR+1
+		        STY AY_ADDR
+		        STX AY_ADDR
+		
+                CLI
+                SEI
+
+		        ; REGISTER 2
+        		LDA #$02
+		        STA AY_ADDR+1
+		        LDA #$07	
+		        STA AY_ADDR
+		        STX AY_ADDR
+
+		        LDA vREG2	
+		        STA AY_ADDR+1	
+		        STY AY_ADDR
+		        STX AY_ADDR
+
+         		; REGISTER 3
+        		LDA #$03
+		        STA AY_ADDR+1
+		        LDA #$07	
+		        STA AY_ADDR
+		        STX AY_ADDR
+
+		        LDA vREG3	
+		        STA AY_ADDR+1	
+		        STY AY_ADDR
+		        STX AY_ADDR
+
+                CLI
+                SEI
+
+        		; REGISTER 4
+        		LDA #$04
+		        STA AY_ADDR+1
+		        LDA #$07	
+		        STA AY_ADDR
+		        STX AY_ADDR
+
+		        LDA vREG4	
+		        STA AY_ADDR+1	
+		        STY AY_ADDR
+		        STX AY_ADDR
+
+         		; REGISTER 5
+        		LDA #$05
+		        STA AY_ADDR+1
+		        LDA #$07	
+		        STA AY_ADDR
+		        STX AY_ADDR
+
+		        LDA vREG5	
+		        STA AY_ADDR+1	
+		        STY AY_ADDR
+		        STX AY_ADDR
+		
+                CLI
+                SEI
+
+        		; REGISTER 6
+        		LDA #$06
+		        STA AY_ADDR+1
+		        LDA #$07	
+		        STA AY_ADDR
+		        STX AY_ADDR
+
+		        LDA vREG6	
+		        STA AY_ADDR+1	
+		        STY AY_ADDR
+		        STX AY_ADDR	
+
+                CLI
+                SEI
+		
+        		; REGISTER 7
+        		LDA #$07
+		        STA AY_ADDR+1
+		        ;LDA #$07	
+		        STA AY_ADDR
+		        STX AY_ADDR
+
+		        LDA vREG7	
+		        STA AY_ADDR+1	
+		        STY AY_ADDR
+		        STX AY_ADDR
+
+                CLI
+                SEI
+
+        		; REGISTER 8
+                LDA bSIDA                   ; skip if this voice is used for SID_VOICES this frame
+                BNE ++
+        		LDA #$08
+		        STA AY_ADDR+1
+		        LDA #$07	
+		        STA AY_ADDR
+		        STX AY_ADDR
+
+                LDA vREG8	
+		        STA AY_ADDR+1	
+		        STY AY_ADDR
+		        STX AY_ADDR
+++      
+         		CLI
+                SEI
+
+                ; REGISTER 9
+                LDA #$09
+		        STA AY_ADDR+1
+		        LDA #$07	
+		        STA AY_ADDR
+		        STX AY_ADDR
+
+                LDA vREG9	
+		        STA AY_ADDR+1	
+		        STY AY_ADDR
+		        STX AY_ADDR
+
+                CLI
+                SEI 
+
+                ; REGISTER 10
+        		LDA #$0A
+		        STA AY_ADDR+1
+		        LDA #$07	
+		        STA AY_ADDR
+		        STX AY_ADDR
+
+		        LDA vREGA	
+		        STA AY_ADDR+1	
+		        STY AY_ADDR
+		        STX AY_ADDR
+
+                CLI
+                SEI
+
+        		; REGISTER 11
+        		LDA #$0B
+		        STA AY_ADDR+1
+		        LDA #$07	
+		        STA AY_ADDR
+		        STX AY_ADDR
+
+		        LDA vREGB	
+		        STA AY_ADDR+1	
+		        STY AY_ADDR
+		        STX AY_ADDR
+
+        		; REGISTER 12       		; 0 for all values
+
+                CLI
+                SEI
+
+         		; REGISTER 13	            ; skip if = $FF
+		        LDA vREGD
+		        BMI +
+		        TAY			                ; save value for later
+		        LDA #$0D				
+		        STA AY_ADDR+1        		; reg#				
+		        LDA #$07			        ; Set fct "Set PSG Reg #"
+		        STA AY_ADDR		            ; ORB1 (fct)			 
+		        STX AY_ADDR		            ; Set fct "Inactive" / ORB1 (fct)
+
+		        TYA			                ; restore value to write
+		        STA AY_ADDR+1        		; ORA1 (data)
+		        LDA #$06			        ; Set fct "Write DATA"
+		        STA AY_ADDR		            ; ORB1 (fct)
+		        STX AY_ADDR        		    ; Set fct "Inactive" / ORB1 (fct)
++               
+                CLI                         ; allow INT again!
+
+                ; get value registers for next frame 
+                DEC nREG0
+		        BNE .r1
+        		LDY iREG0
+        		LDA (dREG0),Y
+		        STA nREG0
+		        INY
+		        LDA (dREG0),Y
+		        STA vREG0
+		        INY
+        		STY iREG0
+
+.r1             DEC nREG1
+		        BNE .r2
+        		LDY iREG1
+        		LDA (dREG1),Y
+		        STA nREG1
+		        INY
+		        LDA (dREG1),Y
+		        STA vREG1
+		        INY
+        		STY iREG1
+
+.r2             DEC nREG2
+		        BNE .r3
+        		LDY iREG2
+        		LDA (dREG2),Y
+		        STA nREG2
+		        INY
+		        LDA (dREG2),Y
+		        STA vREG2
+		        INY
+        		STY iREG2
+
+.r3             DEC nREG3
+		        BNE .r4
+        		LDY iREG3
+        		LDA (dREG3),Y
+		        STA nREG3
+		        INY
+		        LDA (dREG3),Y
+		        STA vREG3
+		        INY
+        		STY iREG3
+
+.r4             DEC nREG4
+		        BNE .r5
+        		LDY iREG4
+        		LDA (dREG4),Y
+		        STA nREG4
+		        INY
+		        LDA (dREG4),Y
+		        STA vREG4
+		        INY
+        		STY iREG4
+
+.r5             DEC nREG5
+		        BNE .r6
+        		LDY iREG5
+        		LDA (dREG5),Y
+		        STA nREG5
+		        INY
+		        LDA (dREG5),Y
+		        STA vREG5
+		        INY
+        		STY iREG5
+
+.r6             DEC nREG6
+		        BNE .r7
+        		LDY iREG6
+        		LDA (dREG6),Y
+		        STA nREG6
+		        INY
+		        LDA (dREG6),Y
+		        STA vREG6
+		        INY
+        		STY iREG6
+
+.r7             DEC nREG7
+		        BNE .r8
+        		LDY iREG7
+        		LDA (dREG7),Y
+		        STA nREG7
+		        INY
+		        LDA (dREG7),Y
+		        STA vREG7
+		        INY
+        		STY iREG7
+
+.r8             DEC nREG8
+		        BNE .r9
+        		LDY iREG8
+        		LDA (dREG8),Y
+		        STA nREG8
+		        INY
+		        LDA (dREG8),Y
+		        STA vREG8
+		        INY
+        		STY iREG8
+                
+.r9             DEC nREG9
+		        BNE .ra
+        		LDY iREG9
+        		LDA (dREG9),Y
+		        STA nREG9
+		        INY
+		        LDA (dREG9),Y
+		        STA vREG9
+		        INY
+        		STY iREG9
+                
+.ra             DEC nREGA
+		        BNE .rb
+        		LDY iREGA
+        		LDA (dREGA),Y
+		        STA nREGA
+		        INY
+		        LDA (dREGA),Y
+		        STA vREGA
+		        INY
+        		STY iREGA
+
+.rb             DEC nREGB
+		        BNE .rd
+        		LDY iREGB
+        		LDA (dREGB),Y
+		        STA nREGB
+		        INY
+		        LDA (dREGB),Y
+		        STA vREGB
+		        INY
+        		STY iREGB
+.rc
+.rd   		    DEC nREGD
+		        BNE .re
+        		LDY iREGD
+        		LDA (dREGD),Y
+		        STA nREGD
+		        INY
+		        LDA (dREGD),Y
+		        STA vREGD
+		        INY
+        		STY iREGD
+
+.re             DEC nREGE
+		        BNE .rf
+        		LDY iREGE
+        		LDA (dREGE),Y
+		        STA nREGE
+		        INY
+		        LDA (dREGE),Y
+		        STA vREGE
+		        INY
+        		STY iREGE
+
+.rf             DEC nREGF
+		        BNE .checkpattern
+        		LDY iREGF
+        		LDA (dREGF),Y
+		        STA nREGF
+		        INY
+		        LDA (dREGF),Y
+		        STA vREGF
+		        INY
+        		STY iREGF
+
+.checkpattern   DEC count1Pat       		        ; end of ONE pattern ?
+        		BEQ +               		        ; if yes, next pattern!
+        		RTS
++       		; next pattern
+        		LDA #PATTERNSIZE
+        		STA count1Pat
+        		INC indexPat
+        		LDX indexPat
+
+INIT_PATTERN
+        		; init new pattern
+        		LDA D_REG0,X
+        		STA dREG0
+        		LDA D_REG0+NBPATTERNS,X
+        		STA dREG0+1
+        		LDY #00
+        		LDA (dREG0),Y
+		        STA nREG0
+		        INY
+		        LDA (dREG0),Y
+		        STA vREG0
+		        INY
+        		STY iREG0
+        		LDA D_REG1,X
+        		STA dREG1
+        		LDA D_REG1+NBPATTERNS,X
+        		STA dREG1+1
+        		LDY #00
+        		LDA (dREG1),Y
+		        STA nREG1
+		        INY
+		        LDA (dREG1),Y
+		        STA vREG1
+		        INY
+        		STY iREG1
+        		LDA D_REG2,X
+        		STA dREG2
+        		LDA D_REG2+NBPATTERNS,X
+        		STA dREG2+1
+        		LDY #00
+        		LDA (dREG2),Y
+		        STA nREG2
+		        INY
+		        LDA (dREG2),Y
+		        STA vREG2
+		        INY
+        		STY iREG2
+        		LDA D_REG3,X
+        		STA dREG3
+        		LDA D_REG3+NBPATTERNS,X
+        		STA dREG3+1
+        		LDY #00
+        		LDA (dREG3),Y
+		        STA nREG3
+		        INY
+		        LDA (dREG3),Y
+		        STA vREG3
+		        INY
+        		STY iREG3
+        		LDA D_REG4,X
+        		STA dREG4
+        		LDA D_REG4+NBPATTERNS,X
+        		STA dREG4+1
+        		LDY #00
+        		LDA (dREG4),Y
+		        STA nREG4
+		        INY
+		        LDA (dREG4),Y
+		        STA vREG4
+		        INY
+        		STY iREG4
+        		LDA D_REG5,X
+        		STA dREG5
+        		LDA D_REG5+NBPATTERNS,X
+        		STA dREG5+1
+        		LDY #00
+        		LDA (dREG5),Y
+		        STA nREG5
+		        INY
+		        LDA (dREG5),Y
+		        STA vREG5
+		        INY
+        		STY iREG5
+        		LDA D_REG6,X
+        		STA dREG6
+        		LDA D_REG6+NBPATTERNS,X
+        		STA dREG6+1
+        		LDY #00
+        		LDA (dREG6),Y
+		        STA nREG6
+		        INY
+		        LDA (dREG6),Y
+		        STA vREG6
+		        INY
+        		STY iREG6
+        		LDA D_REG7,X
+        		STA dREG7
+        		LDA D_REG7+NBPATTERNS,X
+        		STA dREG7+1
+        		LDY #00
+        		LDA (dREG7),Y
+		        STA nREG7
+		        INY
+		        LDA (dREG7),Y
+		        STA vREG7
+		        INY
+        		STY iREG7
+        		LDA D_REG8,X
+        		STA dREG8
+        		LDA D_REG8+NBPATTERNS,X
+        		STA dREG8+1
+        		LDY #00
+        		LDA (dREG8),Y
+		        STA nREG8
+	    	    INY
+		        LDA (dREG8),Y
+		        STA vREG8
+		        INY
+        		STY iREG8
+        		LDA D_REG9,X
+        		STA dREG9
+        		LDA D_REG9+NBPATTERNS,X
+        		STA dREG9+1
+        		LDY #00
+        		LDA (dREG9),Y
+		        STA nREG9
+		        INY
+		        LDA (dREG9),Y
+		        STA vREG9
+		        INY
+        		STY iREG9
+        		LDA D_REGA,X
+        		STA dREGA
+        		LDA D_REGA+NBPATTERNS,X
+        		STA dREGA+1
+        		LDY #00
+        		LDA (dREGA),Y
+		        STA nREGA
+		        INY
+		        LDA (dREGA),Y
+		        STA vREGA
+		        INY
+        		STY iREGA
+        		LDA D_REGB,X
+        		STA dREGB
+        		LDA D_REGB+NBPATTERNS,X
+        		STA dREGB+1
+        		LDY #00
+        		LDA (dREGB),Y
+		        STA nREGB
+		        INY
+		        LDA (dREGB),Y
+		        STA vREGB
+		        INY
+        		STY iREGB
+        		LDA D_REGD,X
+        		STA dREGD
+        		LDA D_REGD+NBPATTERNS,X
+        		STA dREGD+1
+        		LDY #00
+        		LDA (dREGD),Y
+		        STA nREGD
+		        INY
+		        LDA (dREGD),Y
+		        STA vREGD
+        		INY
+        		STY iREGD
+        		LDA D_REGE,X
+        		STA dREGE
+        		LDA D_REGE+NBPATTERNS,X
+        		STA dREGE+1
+        		LDY #00
+        		LDA (dREGE),Y
+		        STA nREGE
+		        INY
+		        LDA (dREGE),Y
+		        STA vREGE
+        		INY
+        		STY iREGE
+        		LDA D_REGF,X
+        		STA dREGF
+        		LDA D_REGF+NBPATTERNS,X
+        		STA dREGF+1
+        		LDY #00
+        		LDA (dREGF),Y
+		        STA nREGF
+		        INY
+		        LDA (dREGF),Y
+		        STA vREGF
+        		INY
+        		STY iREGF
+        		RTS
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP	; to avoid crosspage in WAIT65
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+; =================================================================================================
+WAIT65                      ; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 8 cycles obligatoire -> LDY #xx / JSR WAIT65)
+WAIT65ZP = * + 1            ; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 9 cycles obligatoire -> LDY ZP / JSR WAIT65Z)
+!zone           
+		        LDA $EA     ; 3 (dummy)  -> on arrive sur NOP si JSR WAIT65Z
+WAIT62          ; = attend 1*62 cycles exactement (JSR/RTS compris -> LDY #01 / JSR WAIT63)
+                DEY			; 2					
+		        BEQ .S1	    ; 3/2			
+                  
+.WL1 	        LDX #$0B				            
+.WL2 	        DEX							
+		        BNE .WL2	; 2 + (2+3)*10 + 2 + 2 = 56															
+                      
+		        NOP			; 2					
+		        NOP			; 2					
+		        DEY			; 2					
+		        BNE .WL1	; (56+2+2+2+3)*(Y-2) + 56 + 2 + 2 + 2 + 2 = 65*Y - 2*65 + 64 = 65*Y - 66				
+
+WAIT59          ; = attend 1*59 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT59)											                      
+		        LDX #$08					
+.WL3 	        DEX							
+		        BNE .WL3	; 2 + (2+3)*7 + 2 + 2 = 41					
+                							
+		        NOP			; 2					
+		        NOP			; 2					
+		        RTS			; 6
+
+                            ; WAIT62 = 2 + 2 + (65-66) + 41 + 2 + 2 + 6 + (8) = 62 
+                            ; WAIT65 = 3 + 2 + 2 + (65*Y-66) + 41 + 2 + 2 + 6 + (8) = 65*Y
+                            ; WAIT59 = 41 + 2 + 2 + 6 + (8) = 59 					
+
+WAIT57          ; = attend 1*57 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT57)											         
+.S1	 	        NOP         ; 2
+WAIT55          ; = attend 1*55 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT55)	
+                LDX #08					
+                      
+.WL4 	        DEX							
+		        BNE .WL4    ; 2 + (2+3)*7 + 2 + 2 = 41					
+		        RTS         ; 6
+                            ; = 49
+
+                            ; WAIT65 = 3 + 2 + 3 + 49 + (8) = 65
+                            ; WAIT62 = 2 + 3 + 49 + (8) = 62
+                            ; WAIT57 = 49 + (8) = 57
+                            ; WAIT55 = 47 + (8) = 55
+EO_CODE   
+	+build_check_crosspage WAIT65
+; =============================================================================
+; patch all STAs/STXs to mockinboard registers
+
+MB_PATCH
+!zone
+    LDA MBpatch_end+1
+    STA .modmb1+1
+    LDA MBpatch_end
+    STA .modmb2+1
+.loop
+    LDY #0
+    LDA (MBpatch_start),Y
+    CMP #$8D    ; "STA xxxx"
+    BEQ .yes2
+    CMP #$8C    ; "STY xxxx"
+    BEQ .yes2
+    CMP #$2C    ; "BIT xxxx"
+    BEQ .yes2
+    CMP #$AD    ; "LDA xxxx"
+    BEQ .yes2
+    CMP #$6D    ; "ADC xxxx"
+    BEQ .yes2
+    CMP #$8E    ; "STX xxxx"
+    BNE .not
+.yes2
+     INY
+      LDA (MBpatch_start),Y
+      AND #$F0
+     CMP #$00
+     BEQ .yes
+     CMP #$80
+     BNE .not
+.yes
+    INY
+    LDA (MBpatch_start),Y
+    CMP #$CF        ; "STA $CFxx" or "STX $CFxx"
+    BNE .not
+    ; patching
+    LDA MB_BASEADDR+1
+    STA (MBpatch_start),Y
+.not
+    INC MBpatch_start
+    BNE +
+    INC MBpatch_start+1
++   LDA MBpatch_start+1
+.modmb1
+    CMP #$00
+    BNE .loop
+    LDA MBpatch_start
+.modmb2
+    CMP #$00
+    BNE .loop
+    RTS
+; =================================================================================================
+AY_ADDR         = $CF00        ; AY1 = $C400 / AY2 = $C480 (MB SLOT#4)
+
+PATTERNSIZE     = 64           
+NBPATTERNS      = 256          
+FRAMEMAX        = 16384
+
+D_REG0 = $1000
+D_REG1 = $30F6
+D_REG2 = $34A2
+D_REG3 = $454E
+D_REG4 = $48E6
+D_REG5 = $4DDA
+D_REG6 = $51EC
+D_REG7 = $54D0
+D_REG8 = $5E4E
+D_REG9 = $6F26
+D_REGA = $7D14
+D_REGB = $803A
+D_REGD = $858A
+D_REGE = $87AC
+D_REGF = $A7AA
+
+; ==================================================================================================
+SCBUFFER = $F000 ;	!fill 30,$00
+;                        0       1          2         3         4        5          6        7          8          9
+TablePrepaPartL !byte <EMPTY,<PREPA_F,<PREPA_PARA,<PREPA_F2,<PREPA_T,<PREPA_PARA2,<EMPTY,<PREPA_T2,<PREPA_CRED,<LOOP_SONG        ; "EMPTY" is just a simple "RTS"
+TablePrepaPartH !byte >EMPTY,>PREPA_F,>PREPA_PARA,>PREPA_F2,>PREPA_T,>PREPA_PARA2,>EMPTY,>PREPA_T2,>PREPA_CRED,>LOOP_SONG
+
+!align 255,0
+TEX1 	!byte 0x00,0x00,0x00,0x00,0x80,0x10,0x80,0x30,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x11,0x99,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x09,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x08,0x11,0x98,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x11,0x99,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x09,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x10,0x80,0x30,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x11,0x99,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x11,0x99,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x08,0x11,0x98,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x11,0x99,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x09,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x10,0x80,0x30,0x00,0x00,0x00,0x00,0x00,0x00,0x08,0x11,0x98,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x11,0x99,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+
+;                        0         1           2          3          4            5           6          7           8      9
+TablePARTL      !byte <INTRO,<CALL1_EFF1,<CALL2_EFF1,<CALL2_EFF1,<CALL1_EFF1,<CALL1_EFF1,<EFF_SCROLL,<CALL2_EFF1,<CREDITS,<EMPTY
+TablePARTH      !byte >INTRO,>CALL1_EFF1,>CALL2_EFF1,>CALL2_EFF1,>CALL1_EFF1,>CALL1_EFF1,>EFF_SCROLL,>CALL2_EFF1,>CREDITS,>EMPTY
+
+
+!align 255,0
+TEX2 	!byte 0x11,0x22,0x31,0x02,0x01,0x06,0x00,0x00,0x00,0x00,0x11,0x22,0x31,0x02,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x22,0x11,0x62,0x01,0x02,0x03,0x00,0x00,0x00,0x00,0x22,0x11,0x62,0x01,0x06,0x00,0x00,0x00,0x00,0x00,0x00,0x11,0x22,0x31,0x02,0x01,0x06,0x00,0x00,0x00,0x00,0x11,0x22,0x31,0x02,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x22,0x11,0x62,0x01,0x02,0x03,0x00,0x00,0x00,0x00,0x22,0x11,0x62,0x01,0x06,0x00,0x00,0x00,0x00,0x00,0x00,0x11,0x22,0x31,0x02,0x01,0x06,0x00,0x00,0x00,0x00,0x11,0x22,0x31,0x02,0x03,0x00,0x03,0x00,0x00,0x00,0x00,0x22,0x11,0x62,0x01,0x02,0x00,0x00,0x00,0x00,0x00,0x22,0x11,0x62,0x01,0x06,0x01,0x06,0x00,0x00,0x00,0x00,0x11,0x22,0x31,0x02,0x03,0x00,0x00,0x00,0x00,0x00,0x11,0x22,0x31,0x02,0x01,0x02,0x03,0x00,0x00,0x00,0x00,0x22,0x11,0x62,0x01,0x06,0x00,0x00,0x00,0x00,0x00,0x22,0x11,0x62,0x31,0x02,0x01,0x06,0x00,0x00,0x00,0x00,0x11,0x22,0x31,0x02,0x03,0x00,0x00,0x00,0x00,0x00,0x11,0x22,0x11,0x62,0x01,0x02,0x03,0x00,0x00,0x00,0x00,0x22,0x11,0x62,0x01,0x06,0x00,0x00,0x00,0x00,0x00,0x22
+
+; tick at xs = x*50
+;                   0       1     2     3    4     5     6     7     8        9        
+;                  10.3   20.5  30.7  40.9  51.2  71,7  93.1 113.6 133.2 
+TimeLineL !byte <(515-8),<1025,<1535,<2048,<2560,<3585,<4655,<5680,<6660,<(FRAMEMAX)
+TimeLineH !byte >(515-8),>1025,>1535,>2048,>2560,>3585,>4655,>5680,>6660,>(FRAMEMAX)
+
+TableIntro !byte 4,8,0,2,7,1,5,6,3,7
+
+!align 255,0
+MTEX2	!byte 0x00,0x00,0x00,0xF0,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xFF,0xF0,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0x00,0xF0,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0x00,0xF0,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0xF0,0xF0,0xFF,0xFF,0xFF,0xFF,0xFF,0x00
+
+ENDMAIN

@@ -1,0 +1,1800 @@
+; ACME 0.96.4
+; 10 YEARS ANNIVERSARY BLOCK DEVICE LOADER
+; by fenarinarsa/French Touch 
+;
+; This file also contains resident tools for sync code that can be called or used by the loaded demos.
+
+!cpu 6502
+!convtab "a2txt.bin"    ; incorporation table caractère APPLE II (normal) invert
+!source "macros.a"
+!source "sysconst.a"
+
+DEBUG = 0
+
+bSLOT       = $02   ; numero SLOT * 0x10
+bIIc        = $03
+ExpoMode   = $04
+
+MB_BASEADDR = $10 ;+ $11
+
+; SAVE_A	= $13
+; SAVE_X	= $14
+; SAVE_Y	= $15
+
+
+SP_DEVICE = $43
+SP_DEST = $44
+SP_BLOCK = $46
+
+bRefresh = $0B
+
+Temp = $16
+Temp2 = $18
+
+; -------------------------------------
+; adresses P0 réutilisables
+;
+; LZ4 unpacking (old rout)
+;Tmp			= $F6
+token		= $17 
+dest		= $18	; + $F9
+src1		= $1A	; + $FB
+src2 		= $1C  	; + $FD
+lenL		= $1E 
+lenH		= $1F
+; decompLZ4
+lz4_src     = $18   	; +$91
+lz4_dest    = $1A   	; +$93
+lz4_len     = $1C     ; +$95 (tmp)
+lz4_token   = $1D
+lz4_bank_src = $1E
+lz4_bank_dst = $1F 
+
+IIc_DETECT = $03
+
+; F4~FE MUTUAL INTs
+DISPLAYSYNC	= $F4
+VSYNC		= $F5
+T2Timing		= $F6
+WaitSyncPTR	= $F8
+WaitDisplayPTR	= $FA
+T1RoutPTR		= $FC  ;16b
+T2SyncCodePTR 	= $FE   ;16b
+
+CurrentChoice = $DFFF
+
+; Default number of cycles to wait before Timer 2 is executed
+; this makes it call the user sync code on exactly the last line of VBLANK, cycle 0
+; (65 cycles before display)
+; change it +/- n*65 to move the sync code call up or down on screen
+; and write your value to SYNC_COUNTERL and SYNC_COUNTERH (located in tools_irqhandler.a)
+; ===> NOTE: for NTSC you should substract 3250 cycles.
+;DEFAULT_SYNC_TIMER = 4247 ; Old AppleWin (FT) NTSC
+DEFAULT_SYNC_TIMER = 7479 ; IRL machines PAL
+
+
+!macro initMove2aux .src, .dest, .length {
+	LDA #00
+	STA Temp
+	STA Temp2
+	LDA #>.src
+	STA Temp+1
+	LDA #>.dest
+	STA Temp2+1
+	LDX #.length
+}
+
+FRAME_CYCLES = 20280
+;FRAME_CYCLES = 17030
+
+
+	*= $D000
+
+	LDA bSLOT
+	LSR
+	LSR
+	LSR
+	LSR
+	ORA #$C0
+	STA modread+2
+
+	LDA #0
+	STA bRefresh  ; force PAL
+
+	; activate LC bank2
+	LDA _LCBANK2rw
+	LDA _LCBANK2rw
+	;JSR DEPACK_ROUTS
+
+	+print_debug 'S'	; Sync setup
+
+	JSR TIMERS_SETUP
+	+print_debug 'Y'
+	JSR TIMERS_SYNC
+	SEI
+	
+;	JSR HOME
+	STA _TEXTon
+	STA _PAGE2off
+	LDA #$00
+	STA ExpoMode
+	STA CurrentChoice
+
+-	JSR LOAD_MENU
+	LDX CurrentChoice 
+	DEX
+	LDA DemosL,X
+	STA Demo+1
+	LDA DemosH,X
+	STA Demo+2
+Demo	JSR *
+	JMP -
+
+AUTOMODE	LDA #1
+	STA ExpoMode
+-	JSR LOAD_UNLIMITEDBOBS
+	JSR LOAD_SCROLL
+	JSR LOAD_CRAZYCYCLES
+	JSR LOAD_AQOF
+	JSR LOAD_PLS
+	JSR LOAD_RB
+	JSR LOAD_CRAZYCYCLES2
+	JSR LOAD_OMT
+	JSR LOAD_MADEF
+	JSR LOAD_MADEF2
+	JSR LOAD_TRIBUTE
+	JSR LOAD_MAD3
+	JSR LOAD_DIGIDREAM
+	JSR LOAD_OFV
+	JSR LOAD_DD2
+	JMP -
+
+DemosL	!byte <LOAD_UNLIMITEDBOBS,<LOAD_SCROLL,<LOAD_CRAZYCYCLES,<LOAD_AQOF,<LOAD_PLS,<LOAD_RB,<LOAD_CRAZYCYCLES2,<LOAD_OMT,<LOAD_MADEF,<LOAD_MADEF2,<LOAD_TRIBUTE,<LOAD_MAD3,<LOAD_DIGIDREAM,<LOAD_OFV,<LOAD_DD2,<AUTOMODE
+DemosH	!byte >LOAD_UNLIMITEDBOBS,>LOAD_SCROLL,>LOAD_CRAZYCYCLES,>LOAD_AQOF,>LOAD_PLS,>LOAD_RB,>LOAD_CRAZYCYCLES2,>LOAD_OMT,>LOAD_MADEF,>LOAD_MADEF2,>LOAD_TRIBUTE,>LOAD_MAD3,>LOAD_DIGIDREAM,>LOAD_OFV,>LOAD_DD2,>AUTOMODE
+
+READ_FILE
+	LDX bSLOT
+modread	JSR $C50A      ; read 1 block
+	INC SP_BLOCK         ; next block
+	BNE +
+	INC SP_BLOCK+1  
++	INC SP_DEST+1         ; RAM +512 bytes
+	INC SP_DEST+1
+	DEC SP_BLOCKS2READ
+	BNE READ_FILE
+	RTS
+
+SP_PARAMS
+	!byte 01        ; read ($42)
+	!byte 50        ; drive 1 slot 5 ($43)
+	!byte $00, $60   ; RAM destination ($44-$45)
+	!byte 01, 00    ; block #1  ($46-$47)
+SP_BLOCKS2READ
+	!byte 16        ; nb of 512 bytes blocks to read
+
+
+LOAD_TEST
+	LDA #5	; start block 5
+	STA SP_BLOCK
+	LDA #$F1
+	STA SP_DEST+1
+	LDA #1
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	JSR $F100
+	RTS
+
+
+LOAD_MENU
+	; main.b
+	+set_ptr 10, SP_BLOCK
+	LDA #$E0
+	STA SP_DEST+1
+	LDA #9
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	; music.lz4
+	LDA #$60
+	STA SP_DEST+1
+	LDA #12
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $6000,lz4_src
+	+set_ptr $6000,lz4_dest
+	STA _RAMWRTaux
+	JSR DECOMPLZ4
+	STA _RAMWRTmain
+
+	;player_fym.b
+	LDA #$F1
+	STA SP_DEST+1
+	LDA #7
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	;logo.lz4
+	LDA #$60
+	STA SP_DEST+1
+	LDA #4
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $6000,lz4_src
+	+set_ptr $2000,lz4_dest
+	JSR DECOMPLZ4
+	+set_ptr $6000,lz4_src
+	+set_ptr $4000,lz4_dest
+	JSR DECOMPLZ4
+
+	;starfield.b
+	LDA #$60
+	STA SP_DEST+1
+	LDA #16
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	;intro.aux+intro.mai
+	LDA #$08
+	STA SP_DEST+1
+	LDA #4
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+initMove2aux $0C00, $0800, 4
+	JSR MOVE2AUX
+
+	;dixascii.b
+	LDA #$B0
+	STA SP_DEST+1
+	LDA #2
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	JSR SAVE_ALL
+	JSR $E000
+	; LDA ExpoMode
+	; STA .modexpo+1
+	JSR RESTORE_ALL
+; .modexpo	LDA #$0
+; 	STA ExpoMode
+	RTS
+
+
+LOAD_UNLIMITEDBOBS
+	+set_ptr TEXT_BOBS,Temp
+	JSR PRINT_LOADING
+
+	+set_ptr 100, SP_BLOCK
+	LDA #$60
+	STA SP_DEST+1
+	LDA #16
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	LDA #$F1
+	STA SP_DEST+1
+	LDA #5
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	LDA #$20
+	STA SP_DEST+1
+	LDA #32
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	JSR SAVE_ALL
+	LDA ExpoMode
+	JSR $F100
+	JSR RESTORE_ALL
+
+	RTS	
+
+; $F100 SCROLL/Sources/main.b	60          ;  5 blocks
+; $4000 SCROLL/Sources/routines.b 65    ; 31 blocks
+; $2000 SCROLL/Sources/hgr/hgr 86       ; 16 blocks
+LOAD_SCROLL
+	+set_ptr TEXT_SCROLL,Temp
+	JSR PRINT_LOADING
+
+	+set_ptr 153, SP_BLOCK
+	LDA #$F1
+	STA SP_DEST+1
+	LDA #5
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	LDA #$40
+	STA SP_DEST+1
+	LDA #31
+	STA SP_BLOCKS2READ
+
+	JSR READ_FILE
+	LDA #$20
+	STA SP_DEST+1
+	LDA #16
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	JSR SAVE_ALL
+	LDA ExpoMode
+	JSR $F100
+	JSR RESTORE_ALL
+	RTS
+
+; $F100 main.b	128          ;  4 blocks
+; $9000 routines.b  132    ; 13 blocks
+
+LOAD_CRAZYCYCLES
+	+set_ptr TEXT_CC,Temp
+	JSR PRINT_LOADING
+
+	+set_ptr 205, SP_BLOCK
+	LDA #$F1
+	STA SP_DEST+1
+	LDA #4
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	LDA #$90
+	STA SP_DEST+1
+	LDA #13
+	STA SP_BLOCKS2READ
+
+	JSR READ_FILE
+	JSR DISABLE_TIMERS
+	JSR SAVE_ALL
+	JSR $F100
+	JSR SAVE_HOLES
+	JSR RESTORE_ALL
+	RTS
+
+LOAD_AQOF
+	+set_ptr 336, SP_BLOCK
+	LDA #$F1
+	STA SP_DEST+1
+	LDA #3
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+print_debug '1'
+
+	JSR SAVE_ALL
+	;JSR DISABLE_TIMERS
+	LDA ExpoMode
+	JSR $F100
+	JSR RESTORE_ALL
+	RTS
+
+LOAD_PLS
+	+set_ptr TEXT_PLS,Temp
+	JSR PRINT_LOADING
+
+	+set_ptr 530, SP_BLOCK
+	LDA #$F1
+	STA SP_DEST+1
+	LDA #4
+	STA SP_BLOCKS2READ 
+	JSR READ_FILE	  ; main.b
+
+	LDA #$40
+	STA SP_DEST+1
+	LDA #22
+	STA SP_BLOCKS2READ
+	JSR READ_FILE	; routines.b
+
+	LDA #$80
+	STA SP_DEST+1
+	LDA #4
+	STA SP_BLOCKS2READ
+	JSR READ_FILE	; ZIC	
+
+	JSR SAVE_ALL
+	JSR SETUP_MB
+	JSR RESET_AY
+	JSR $F100
+	JSR RESTORE_ALL
+	RTS
+
+
+LOAD_RB
+	+set_ptr TEXT_RB,Temp
+	JSR PRINT_LOADING
+	
+	+set_ptr 560, SP_BLOCK
+	LDA #$F1
+	STA SP_DEST+1
+	LDA #2
+	STA SP_BLOCKS2READ 
+	JSR READ_FILE	  ; main.b
+
+	LDA #$80
+	STA SP_DEST+1
+	LDA #5
+	STA SP_BLOCKS2READ
+	JSR READ_FILE	; ZIC
+	; unpacking in AUX
+	+set_ptr $8000,src2
+	+set_ptr $200,dest
+	JSR DECOMP_OLD
+	STA $C004			; restore write MAIN Memory
+
+	LDA #$0D
+	STA SP_DEST+1
+	LDA #9
+	STA SP_BLOCKS2READ
+	JSR READ_FILE	; tables.b	
+
+	LDA #$20
+	STA SP_DEST+1
+	LDA #16
+	STA SP_BLOCKS2READ
+	JSR READ_FILE	; hgr
+
+	LDA #$80
+	STA SP_DEST+1
+	LDA #27
+	STA SP_BLOCKS2READ
+	JSR READ_FILE	; routines.b
+
+	LDA #$40
+	STA SP_DEST+1
+	LDA #16
+	STA SP_BLOCKS2READ
+	JSR READ_FILE	; maskhgr.b
+	
+	JSR SAVE_ALL
+	JSR SETUP_MB
+	;JSR DISABLE_TIMERS
+	JSR $F100
+	JSR RESTORE_ALL
+	RTS
+
+LOAD_CRAZYCYCLES2	; this is a multipart demo, loading takes place in its own code
+	+print_debug '0'
+	+set_ptr 635, SP_BLOCK
+	LDA #$F1
+	STA SP_DEST+1
+	LDA #5
+	STA SP_BLOCKS2READ
+
+	JSR READ_FILE
+	;JSR DISABLE_TIMERS
+	JSR SAVE_ALL
+	JSR SETUP_MB
+	JSR $F100
+	JSR SAVE_HOLES
+	JSR RESTORE_ALL
+
+	RTS
+
+LOAD_OMT
+	+set_ptr TEXT_OMT,Temp
+	JSR PRINT_LOADING
+
+	; data.b (AUX)
+	+set_ptr 836, SP_BLOCK
+	LDA #$0C
+	STA SP_DEST+1
+	LDA #90
+	STA SP_BLOCKS2READ 
+	JSR READ_FILE
+	; move to AUX
+	+initMove2aux $0C00, $0C00, 180
+	JSR MOVE2AUX
+
+	; main.b
+	LDA #$E0
+	STA SP_DEST+1
+	LDA #8
+	STA SP_BLOCKS2READ 
+	JSR READ_FILE
+
+	; ppt3.b
+	LDA #$60
+	STA SP_DEST+1
+	LDA #11
+	STA SP_BLOCKS2READ 
+	JSR READ_FILE
+
+	JSR SETUP_MB
+	JSR SAVE_ALL
+	JSR $E000
+	JSR RESTORE_ALL
+	RTS
+
+LOAD_MADEF
+	+set_ptr TEXT_MADEF,Temp
+	JSR PRINT_LOADING
+	
+	; title screen
+	+set_ptr 945, SP_BLOCK
+	LDA #$20
+	STA SP_DEST+1
+	LDA #16
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	STA _HIRESon	; display immediately
+	STA _TEXToff
+	; lores
+	LDA #$40
+	STA SP_DEST+1
+	LDA #6
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	; hires
+	LDA #$50
+	STA SP_DEST+1
+	LDA #33
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	; lores to AUX
+	+initMove2aux $4000, $1000, 12
+	JSR MOVE2AUX
+	; hires to AUX
+	+initMove2aux $5000, $2000, 66
+	JSR MOVE2AUX
+	; main.b
+	LDA #$E0
+	STA SP_DEST+1
+	LDA #7
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	; routine.b.lz4
+	LDA #$40
+	STA SP_DEST+1
+	LDA #11
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	JSR SETUP_MB
+	JSR SAVE_ALL
+	JSR RESET_AY
+	LDA ExpoMode
+	JSR $E000
+	JSR RESTORE_ALL
+	RTS
+
+LOAD_MADEF2
+	+set_ptr TEXT_MADEF2,Temp
+	JSR PRINT_LOADING
+	
+	; main.b
+	+set_ptr 1018, SP_BLOCK
+	LDA #$E0
+	STA SP_DEST+1
+	LDA #9
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	; hires package
+	LDA #$10
+	STA SP_DEST+1
+	LDA #28
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	; hires to AUX
+	+initMove2aux $1000, $1000, 56
+	JSR MOVE2AUX
+
+	; title screen
+	LDA #$20
+	STA SP_DEST+1
+	LDA #7
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	; music
+	LDA #$40
+	STA SP_DEST+1
+	LDA #7
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	JSR SETUP_MB
+	JSR SAVE_ALL
+	JSR RESET_AY
+	LDX #<DECOMPLZ4
+	LDY #>DECOMPLZ4
+	JSR $E000
+	JSR RESTORE_ALL
+
+	RTS
+
+
+LOAD_TRIBUTE
+	+set_ptr TEXT_TRIBU,Temp
+	JSR PRINT_LOADING
+
+	; pts.b
+	+set_ptr 1069, SP_BLOCK
+	LDA #$10
+	STA SP_DEST+1
+	LDA #13
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $1000, lz4_src
+	+set_ptr $8000, lz4_dest
+	JSR DECOMPLZ4
+
+	; main.b
+	LDA #$E0
+	STA SP_DEST+1
+	LDA #3
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	; HGR
+	LDA #$60
+	STA SP_DEST+1
+	LDA #9
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $6000, lz4_src
+	+set_ptr $2000, lz4_dest
+	JSR DECOMPLZ4
+
+	; sub.b
+	LDA #$70
+	STA SP_DEST+1
+	LDA #3
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $7000, lz4_src
+	+set_ptr $6000, lz4_dest
+	JSR DECOMPLZ4
+
+	JSR SAVE_ALL
+	JSR $E000
+	JSR RESTORE_ALL
+	RTS
+
+LOAD_MAD3
+	+set_ptr TEXT_MAD3,Temp
+	JSR PRINT_LOADING
+	
+	; ZIC.lz4
+	+set_ptr 1097, SP_BLOCK
+	LDA #$60
+	STA SP_DEST+1
+	LDA #3
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $6000, lz4_src
+	+set_ptr $6000, lz4_dest
+	STA _RAMWRTaux
+	JSR DECOMPLZ4
+	STA _RAMWRTmain
+	
+	; sub.b.lz4
+	LDA #$10
+	STA SP_DEST+1
+	LDA #15
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $1000, lz4_src
+	+set_ptr $6000, lz4_dest
+	JSR DECOMPLZ4
+
+	; TITLE.lz4
+	LDA #$A0
+	STA SP_DEST+1
+	LDA #7
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $A000, lz4_src
+	+set_ptr $2000, lz4_dest
+	JSR DECOMPLZ4
+
+	; main.b
+	LDA #$E0
+	STA SP_DEST+1
+	LDA #10
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	JSR SAVE_ALL
+	JSR RESET_AY
+	JSR HOME
+	LDX #<DECOMPLZ4
+	LDY #>DECOMPLZ4
+	JSR $E000
+	JSR RESTORE_ALL
+	RTS
+
+
+LOAD_DIGIDREAM
+	+set_ptr TEXT_DD,Temp
+	JSR PRINT_LOADING
+
+	; drum
+	+set_ptr 1132, SP_BLOCK
+	LDA #$10
+	STA SP_DEST+1
+	LDA #3
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $1000, lz4_src
+	+set_ptr $1000, lz4_dest
+	STA _RAMWRTaux
+	JSR DECOMPLZ4
+	STA _RAMWRTmain
+	
+	; music
+	LDA #$20
+	STA SP_DEST+1
+	LDA #9
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $2000, lz4_src
+	+set_ptr $2000, lz4_dest
+	STA _RAMWRTaux
+	JSR DECOMPLZ4
+	STA _RAMWRTmain
+
+	; HGR
+	LDA #$60
+	STA SP_DEST+1
+	LDA #8
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $6000, lz4_src
+	+set_ptr $2000, lz4_dest
+	JSR DECOMPLZ4
+
+	; main.b
+	LDA #$E0
+	STA SP_DEST+1
+	LDA #4
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	JSR SAVE_ALL
+	JSR DISABLE_TIMERS
+	JSR RESET_AY
+	LDA ExpoMode
+	JSR $E000
+	JSR RESTORE_ALL
+	RTS
+
+LOAD_OFV
+	+set_ptr TEXT_OFV,Temp
+	JSR PRINT_LOADING
+	
+	; data.b
+	+set_ptr 1156, SP_BLOCK
+	LDA #$A0
+	STA SP_DEST+1
+	LDA #10
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $A000, lz4_src
+	+set_ptr $4000, lz4_dest
+	JSR DECOMPLZ4
+	; main.b
+	LDA #$A0
+	STA SP_DEST+1
+	LDA #7
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $A000, lz4_src
+	+set_ptr $E000, lz4_dest
+	JSR DECOMPLZ4
+
+	JSR SAVE_ALL
+	JSR $E000
+	JSR RESTORE_ALL
+	RTS
+
+LOAD_DD2
+	+set_ptr TEXT_DD2,Temp
+	JSR PRINT_LOADING
+	; ZIC.lz4
+	+set_ptr 1173, SP_BLOCK
+	LDA #$10
+	STA SP_DEST+1
+	LDA #24
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $1000, lz4_src
+	+set_ptr $1000, lz4_dest
+	STA _RAMWRTaux
+	JSR DECOMPLZ4
+	STA _RAMWRTmain
+
+	; main.b
+	LDA #$E0
+	STA SP_DEST+1
+	LDA #6
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+	; effect.b.lz4
+	LDA #$10
+	STA SP_DEST+1
+	LDA #7
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $1000, lz4_src
+	+set_ptr $6000, lz4_dest
+	JSR DECOMPLZ4
+
+	; HGR.lz4
+	LDA #$40
+	STA SP_DEST+1
+	LDA #7
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $4000, lz4_src
+	+set_ptr $2000, lz4_dest
+	JSR DECOMPLZ4
+
+	; DGR.lz4
+	LDA #$08
+	STA SP_DEST+1
+	LDA #3
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+set_ptr $C00, lz4_src
+	+set_ptr $800, lz4_dest
+	STA _RAMWRTaux
+	JSR DECOMPLZ4
+	STA _RAMWRTmain
+
+	JSR SAVE_ALL
+	JSR DISABLE_TIMERS
+	JSR RESET_AY
+	LDA ExpoMode
+	JSR $E000
+	JSR RESTORE_ALL
+	RTS
+
+	
+	; Temp = Source
+	; Temp2 = Dest
+	; X = number of pages to copy 
+MOVE2AUX
+	; move to AUX
+	STA _RAMWRTaux
+.mvtoAUX	LDY #0
+-	LDA (Temp),Y
+	STA (Temp2),Y
+	INY
+	BNE -
+	INC Temp+1
+	INC Temp2+1
+	DEX
+	BNE .mvtoAUX
+	STA _RAMWRTmain
+	RTS
+
+DISABLE_TIMERS
+	LDA #%01100000      	; Disable T1+T2
+	LDY #$0E
+	STA (MB_BASEADDR),Y           ; Interrupt Enable Register
+	LDY #$04
+	LDA (MB_BASEADDR),Y 	; clear T1 IFR
+	LDY #$08
+	LDA (MB_BASEADDR),Y 	; clear T2 IFR
+	RTS
+
+SETUP_MB
+	; setup data
+	LDA MB_BASEADDR
+	STA $22
+	LDA MB_BASEADDR+1
+	STA $23
+	RTS
+
+TIMERS_SYNC
+
+; -------------- TIMER 1 --------------
+
+	; Set Mockingboard's T1 interrupt to cycle 0 of the last VBLANK line
+	!zone
+	; Number of cycles in a frame for timer interrupt counter: 20280 ($4F38) PAL or 17030 ($4286) NTSC
+	; Timer should be set up with 2 cycles less (time for the counter to reset)
+	; select PAL or NTSC by changing VIDEO_SYNC in setup.a
+
+	LDA #<(FRAME_CYCLES-2) 
+	STA Temp
+	LDA #>(FRAME_CYCLES-2)
+	STA Temp2
+	; Change MB slot
+	LDX MB_BASEADDR+1
+
+; Detection on Apple IIe uses VBLANK polling.
+; Detection on Apple IIc uses VSYNC IRQ polling.
+
+	; Video cycle-perfect sync setup for Apple IIe and IIc
+	STX Mod2_MBslot+2
+	STX Mod2_MBslot+5
+
+	; /!\ 6502 interrupts must be previously disabled /!\
+	; code by fenarinarsa/Cyril Lambin
+
+	; enable IIc VSYNC interrupt
+	STA _IOUenable	; IIc: enable IOU access
+ 	STA _VSYNCenable	; IIc: enable VBL int
+ 	STA _IOUdisable	; IIc: disable IOU access
+	LDA _VSYNCIRFreset	; IIc: reset VSYNC IRF (Interrupt Flag)
+	JMP .SyncDetect
+	!align 255,0
+	; IIc: VERTBLANK = $80 to indicate VSYNC IRQ (start of VBLANK)
+	; IIe: VERTBLANK >= $80 to indicate VBLANK is ON
+.SyncDetect
+-	LDA _VERTBLANK	; IIc: wait for VSYNC IRQ / IIe: wait for VBLANK start
+	BPL -
+	LDA _VSYNCIRFreset	; IIc: reset VSYNC IRF
+-	LDA _VERTBLANK	; IIe: wait for VBLANK end
+	BMI -
+-	LDA _VERTBLANK         
+	BPL -		; IIc: wait for VSYNC IRQ / IIe: wait for VBLANK start
+
+	; Unprecise sync here => START (IIc) or END (IIe) OF VBLANK
+
+	NOP
+	NOP
+
+-
+	LDY #255		; PAL
+	; LDY #205	; NTSC = PAL - 50 lines
+
+	JSR WAIT65                  	; 255*65 = 16575	16575 (PAL)
+
+	LDA _VSYNCIRFreset	; IIc:reset VSYNC IRF	; 4		16579
+
+	LDY #55      		; 55
+	JSR WAIT65                	; 55*65 = 3575	20154
+
+	LDY #00
+	JSR WAIT59                  	; 59		20213
+	LDY #00
+	JSR WAIT59                  	; 59		20272
+
+
+	LDA _VERTBLANK               	; 4 (read on 4th cycle)  20276
+	BMI -                       	; 3		20279
+	; IIe: loops until the cycle of end of VBLANK is reached (end of VBLANK/start of DISPLAY)
+	; IIc: loops until the cycle *just before* VSYNC IRQ is reached (start of VBLANK/end of DISPLAY)
+	; each loop is 1 cycle short (20279 instead of 20280) to shift the detection 1 cycle sooner
+
+	+build_check_crosspage .SyncDetect ; compilation check
+
+	; precise sync here
+	; IIe => START OF DISPLAY + 5 cycles
+	; IIc => END OF DISPLAY + 5 cycles
+
+	LDA IIc_DETECT	
+	BEQ .IIc		; IIc + 1 cycle
+	BNE +		; IIe + 1 + 2 cycles
++
+
+	; IIe: we must wait 192 lines -2 cycles to be in sync with IIc
+	NOP : NOP		; 4
+	LDY #1
+	JSR WAIT59	; +59 = 63
+	LDY #191
+	JSR WAIT65	; 65 * 191
+
+.IIc	; IIe/IIc => END OF DISPLAY + 11 cycles
+	LDX Temp                                	              	; 3
+	LDY Temp2                      	                   		; 3           
+Mod2_MBslot
+	STX $C404                   	; T1C_1-Lower                       	; 4
+	STY $C405                   	; T1C_1-High                        	; 4 (counter launched at the last cycle of STY)
+                    	          ; -> writing T1C_H launch countdown     ; = [14]
+
+	; Timer 1 is now running in free run
+	; IRQ will execute at line 192 (first line of VBLANK), cycle 25
+
+	; disable IIc VSYNC interrupt
+	STA _IOUenable	; enable IOU access
+ 	STA _VSYNCdisable	; disable VBL int
+ 	STA _IOUdisable	; disable IOU access
+	LDA _VSYNCIRFreset	; reset VSYNC IRF
+
+	RTS
+
+; -------------- TIMERS GENERAL SETUP --------------
+
+TIMERS_SETUP
+
+	SEI                 	; inhib
+	
+	; init INT - T1/6522/1 
+	LDA #%01000000      	; T1 Continuous Interrupt (FREE MODE) / PB7 disabled / T2 One Shot
+	LDY #$0B
+	STA (MB_BASEADDR),Y          	; Auxiliary Control Register
+
+	LDA #%11100000      	; Enable Timer 1 & Timer 2
+	LDY #$0E
+	STA (MB_BASEADDR),Y           ; Interrupt Enable Register
+
+	+set_ptr TIMER_HANDLER,$FFFE	; universal handler
+
+	LDA #0
+	STA T2SyncCodePTR+1
+	STA T1RoutPTR+1
+	STA T2SyncCodePTR+1
+
+	LDA #<WAIT_VSYNC
+	STA WaitSyncPTR
+	LDA #>WAIT_VSYNC
+	STA WaitSyncPTR+1
+
+	LDA #<WAIT_DISPLAY
+	STA WaitDisplayPTR
+	LDA #>WAIT_DISPLAY
+	STA WaitDisplayPTR+1
+
+	LDA #<DEFAULT_SYNC_TIMER
+	STA T2Timing
+	LDA #>DEFAULT_SYNC_TIMER
+	STA T2Timing+1
+
+	RTS
+
+; =============================================================================
+
+WAIT_VSYNC
+	LDA #$FF
+	STA VSYNC
+-	LDA VSYNC
+	BNE -
+	RTS
+
+WAIT_DISPLAY
+	LDA #$FF
+	STA DISPLAYSYNC
+-	LDA DISPLAYSYNC
+	BNE -
+	RTS
+
+
+; ============== TIMER HANDLER ===============
+
+
+
+
+TIMER_HANDLER
+	; Timer 1 counter information (for precise sync)
+	; T1CL is MAX $2F here. 7 cycles for the interrupt handling by the 6502.
+	; (T1CL = <$4F36 - 7 cycles = $36-7 = $2F)
+	; Jitter can go up to +7 cycles (max instruction time)
+	; $28 <= T1CL <= $2F
+	; T1CL and T2CL count BACKWARD
+
+    ;=== need to use the stack here because nested interrupts will happen
+	; STA SAVE_A		; 3
+	; STX SAVE_X		; 3
+	; STY SAVE_Y		; 3
+    PHA   ; 3
+    TXA   ; 3
+    PHA   ; 3
+    TYA   ; 3
+    PHA   ; 3
+
+	LDY #$0D			; 2	
+	LDA (MB_BASEADDR),Y		; 5/ read IRF register (interrupt flags)
+	AND #%01000000		; 2/ I am Timer1 interrupt?
+	BEQ TIMER2_HANDLER		; x/ Nope I'm Timer 2
+				; 2
+	LDY #$04			; 2
+	LDA (MB_BASEADDR),Y		; 5/ read T1CL (low counter) & reset T1 IRF
+	;      IRL: $0E <= T1CL <= $15
+	; AppleWin: $0F <= T1CL <= $16    
+
+	; ------ Timer 1 handler ------
+	
+; ========= Perfect sync with Timer 1/display
+	; only required to launch Timer 2 (if requested)
+	SEC
+;!if VIDEO_SYNC != 2 {
+	SBC #$0B	; lowest possible counter value (PAL)
+;}
+;!if VIDEO_SYNC = 2 {
+;	SBC #$5C	; lowest possible counter value (NTSC)
+;}
+	TAX
+.T1sync
+!for i, 0, 9  {	; max jitter should be 7 cycles but we need to take account old buggy AppleWin
+	DEX
+	BPL +	; we add a 1 cycle delay to compensate early Interrupt handling
++	}
+	+build_check_crosspage .T1sync
+	; perfect sync with display achieved here.
+
+; ========= Setting up T2
+	; NOTE: the count is set up for the T2 to achieve sync exactly 1 line before display
+	; however it can be modified WITHOUT ANY NEED TO MODIFY THE T2 HANDLER SYNC ROUT
+	LDY #$08
+;SYNC_COUNTERL = *+1
+	LDA T2Timing
+	STA (MB_BASEADDR),Y
+	INY
+;SYNC_COUNTERH = *+1
+	LDA T2Timing+1
+    BEQ .NoT2
+	STA (MB_BASEADDR),Y	; start Timer 2
+
+; ========= T1 demo routs
+.NoT2	+start_monitoring_interrupt
+
+;.modmusic	;BIT CALL_PLAYER
+
+	LDA T1RoutPTR+1
+ 	BEQ .NoT1Rout
+    STA .modT1Rout+2
+    LDA T1RoutPTR
+    STA .modT1Rout+1
+.modT1Rout
+ 	JSR $0000 		; not called if $00xx (usually music player is here)
+.NoT1Rout
+	+stop_monitoring_interrupt
+	LDY #$0
+	STY VSYNC
+END_HANDLER
+    PLA
+    TAY
+    PLA
+    TAX
+    PLA
+
+	RTI
+
+
+TIMER2_HANDLER
+	; Timer 2 counter information (for precise sync)
+	; NO NEED TO ADJUST VALUES OF THE SYNC ROUT unless you modify something before BEQ TIMER2_HANDLER
+
+	LDY #$08
+	LDA (MB_BASEADDR),Y		; read T2CL (low counter) & reset T2 IRF
+	;      IRL: $D4 <= TC2L <= $DB
+	; AppleWin: $D8 <= TC2L <= $DF
+
+; ========= Perfect sync with Timer 2/display ==========
+	SEC
+	SBC #$D2	; lowest possible counter value
+	TAX
+.T2sync
+!for i, 0, 9 {	; max jitter should be 7 cycles but we need to take account old buggy AppleWin
+	DEX
+	BPL +	; we add a 1 cycle delay to compensate early Interrupt handling
++	}
+	+build_check_crosspage .T2sync
+	; perfect sync with display achieved here.
+
+	LDA T2SyncCodePTR+1
+	BEQ +
+	; Special case: syncrout required, we exit the handler without RTI
+	; and go directly to the synced rout
+	LDA T2SyncCodePTR	; modify JMP
+	STA .modJMP+1
+	LDA T2SyncCodePTR+1
+	STA .modJMP+2
+	;PLP	; unstack RTI data
+	;PLA
+	;PLA
+;	JMP (SyncCodePTR)
+.modJMP	JSR $0000  ; to avoid JMP ($xxxx) which has different running time on 65C02
++
+	LDA #0
+	STA DISPLAYSYNC
+
+	JMP END_HANDLER
+
+
+TOOLS
+
+	!align 255, 0	; align to start of page
+;====================================================================
+; SYNC ROUTS ($1E bytes)
+;====================================================================
+
+; Total size = 30 bytes
+
+WAIT65              ; = wait for Y * 65 cycles exactly (JSR/RTS included -> CALL IN 8 cycles mandatory -> LDY #xx / JSR WAIT65)
+WAIT65ZP = * + 1    ; = wait for Y * 65 cycles exactly (JSR/RTS included -> CALL IN 9 cycles mandatory -> LDY ZP / JSR WAIT65Z)
+!zone           
+	LDA $EA     ; 3 (dummy)  -> we land on NOP if JSR WAIT65Z
+WAIT62    ; = wait for 1*62 cycles exactly (JSR/RTS included -> LDY #01 / JSR WAIT63)
+          DEY			; 2					
+	BEQ .S1	    ; 3/2			
+                  
+.WL1 	LDX #$0B				            
+.WL2 	DEX							
+	BNE .WL2	; 2 + (2+3)*10 + 2 + 2 = 56															
+                      
+	NOP			; 2					
+	NOP			; 2					
+	DEY			; 2					
+	BNE .WL1	; (56+2+2+2+3)*(Y-2) + 56 + 2 + 2 + 2 + 2 = 65*Y - 2*65 + 64 = 65*Y - 66				
+
+WAIT59    ; = wait for 1*59 cycles exactly (JSR/RTS included -> LDY #xx / JSR WAIT59)											                      
+	LDX #$08					
+.WL3 	DEX							
+	BNE .WL3	; 2 + (2+3)*7 + 2 + 2 = 41					
+
+	NOP			; 2					
+	NOP			; 2					
+	RTS			; 6
+
+          ; WAIT62 = 2 + 2 + (65-66) + 41 + 2 + 2 + 6 + (8) = 62 
+          ; WAIT65 = 3 + 2 + 2 + (65*Y-66) + 41 + 2 + 2 + 6 + (8) = 65*Y
+           ; WAIT59 = 41 + 2 + 2 + 6 + (8) = 59 					
+
+WAIT57    ; = wait for 1*57 cycles exactly (JSR/RTS included -> LDY #xx / JSR WAIT57)											         
+.S1	NOP         ; 2
+WAIT55    ; = wait for 1*55 cycles exactly (JSR/RTS included -> LDY #xx / JSR WAIT55)	
+          LDX #08					
+                      
+.WL4 	DEX							
+	BNE .WL4    ; 2 + (2+3)*7 + 2 + 2 = 41					
+	RTS         ; 6
+	; = 49
+
+          ; WAIT65 = 3 + 2 + 3 + 49 + (8) = 65
+          ; WAIT62 = 2 + 3 + 49 + (8) = 62
+          ; WAIT57 = 49 + (8) = 57
+          ; WAIT55 = 47 + (8) = 55
+	+build_check_crosspage WAIT65 ; compilation check
+
+;================================================================================================
+RESET_AY
+	; init MB (6522/AY1) / (6522/AY2)
+	LDY #$03
+	LDA #$FF
+	STA (MB_BASEADDR),Y ;$C503          		
+	DEY
+	LDA #$07
+	STA (MB_BASEADDR),Y ;$C502          
+
+	LDY #$83
+	LDA #$FF
+	STA (MB_BASEADDR),Y ;$C583          		
+	DEY
+	LDA #$07
+	STA (MB_BASEADDR),Y ;$C582     
+	; ---------
+	; clean REGISTER AY1 / AY2
+	LDY #$00
+	LDA #$00
+	STA (MB_BASEADDR),Y ;$C500
+	LDA #$04
+	STA (MB_BASEADDR),Y ;$C500
+
+	LDY #$80
+	LDA #$00
+	STA (MB_BASEADDR),Y ;$C580
+	LDA #$04
+	STA (MB_BASEADDR),Y ;$C580
+	RTS
+
+
+DECOMP_OLD
+	!zone
+	; routine de d�compression LZ4
+	; code: XXL and FOX (from Atari Scene)
+	; modified: FT
+	;
+	; dans A - partie haute adresse data compress�es
+
+	; init
+
+	LDY #0
+	STY lenH
+	STY lenL	
+
+	; init m�moire
+
+	STA $C000		; 80STOREOFF
+	STA $C002		; read MAIN Memory
+	STA $C005 	; write AUX Memory
+	STA $C008		; zero Page = Main
+
+	; -------------------------------------
+	; d�comp LZ4 routine
+	; -------------------------------------				
+.BP
+	jsr   	.GET_BYTE                  
+	sta    	token
+	lsr
+	lsr
+	lsr
+	lsr
+	beq    	.read_offset                     ; there is no literal
+	cmp    	#$0f
+	jsr    	.getLength
+
+.b_literals         jsr    	.GET_BYTE
+	jsr    	.store
+	bne    	.b_literals
+
+.read_offset       	jsr    	.GET_BYTE		; offset L
+	tax
+	sec
+	eor    	#$ff
+	adc    	dest
+	sta    	src1
+	txa
+	php							
+	jsr    	.GET_BYTE		; offset H
+	plp
+	bne    	.not_done
+	tax
+	beq    	.unlz4_done	; sortie routine !
+.not_done          	eor    	#$ff
+	adc    	dest+1				; calcul offset H (absolu)
+	STA	src1+1				; sauvegarde de l'offset apr�s correction hors page $C0 : $C0->$D0 / $D0->$E0
+	LDY 	#00					; remise � 0 de Y
+	; c=1
+	lda    	token
+	and    	#$0f
+	adc    	#$03        ; 3+1=4
+	cmp    	#$13
+	jsr    	.getLength
+
+.b1	STA 	$C003			; read AUX Memory
+	lda    	(src1),Y
+	STA 	$C002			; read MAIN Memory
+	INC 	src1
+	BNE 	.s1
+	INC 	src1+1 	
+.s1                 jsr    	.store
+	bne    	.b1
+	jmp	.BP                  
+
+
+.store	sta    	(dest),Y
+	INC	dest
+	BEQ 	.s2               	
+	dec    	lenL
+	beq    	.s2b
+.unlz4_done	rts
+.s2b	dec    	lenH
+	rts
+.s2	INC 	dest+1
+	dec    	lenL
+	beq    	.s2b
+	rts
+														
+
+.getLength_next    	jsr    	.GET_BYTE
+	tax
+	clc
+	adc    	lenL
+	bcc    	s3
+	inc    	lenH
+s3	inx
+
+.getLength	sta    	lenL
+	beq    	.getLength_next
+	tax
+	beq    	.s4
+	inc    	lenH
+.s4	rts
+
+.GET_BYTE	LDA	(src2),Y		
+	INC 	src2		
+	BEQ 	.s5
+	RTS					
+.s5	INC 	src2+1			
+	RTS
+
+; =============================================================================
+DECOMPLZ4
+; by fenarinarsa
+; compatible with lz4 1.9.3 by Yann Collet
+; use 'lz4 -f -9 --no-frame-crc' to pack data
+; setup MAIN/AUX RW according to the src/dest bank to automatically unpack from one bank to another
+
+!zone
+	; MAIN/AUX status detection
+	;        MAIN RW = main>main
+	; MAIN R + AUX W = main>aux
+	; AUX R + MAIN W = aux>main
+	;         AUX RW = aux>aux
+	BIT $C013  ; AUX READ Status
+	BPL +
+	LDY #$03        ; AUX R
+	STY lz4_bank_src
+	STY lz4_bank_dst
+	BIT $C014
+	BMI ++
+	LDY #$02         ; MAIN W
+	STY lz4_bank_dst
+	JMP ++
++	LDY #$02          ; MAIN R
+	STY lz4_bank_src
+	STY lz4_bank_dst
+	BIT $C014  ; AUX WRITE status
+	BPL ++
+	LDY #$03    ; AUX W
+	STY lz4_bank_dst
+++  ; original setup: always read from src bank
+	LDY lz4_bank_src
+	STY PATCHDECOMP+1
+	STY PATCHDECOMP2+1
+
+	; Skip lz4 header (11 bytes)
+	; of course this won't work if lz4 header is larger than 11 bytes, make sure it isn't
+	CLC
+	LDA lz4_src
+	ADC #$0b
+	STA lz4_src
+	BCS +		; inverted carry because I use a "negative Y" just below
+	DEC lz4_src+1	;    - and negative Y is not possible so 1 is substracted from the high byte
++	; check for data pack format
+	LDY #-1
+	LDA (lz4_src),Y	; negative = data is not packed
+	TAX
+	; find length & setup end data test
+	LDY #-4		; length of packed data
+	CLC
+	LDA (lz4_src),Y	; find end of packed data
+	STA lz4_len	; save for .unpacked
+	ADC lz4_src
+	STA .modL+1
+	INY
+	LDA (lz4_src),Y
+	STA lz4_len+1	; save for .unpacked
+	INC lz4_src+1
+	ADC lz4_src+1
+	STA .modH+1
+	; negative = unpacked data / positive = packed data
+	TXA
+	BPL .packed
+
+;================ UNPACKED DATA ================
+; This happens when the lz4 encoder detected it couldn't do anything about the original data.
+; memcpy possible to:
+; => lower memory
+; => not overlapping buffer 
+
+.unpacked
+	LDX lz4_len+1	; length high byte
+	INX
+	LDY #0
+.loopunpack
+	DEX
+	BEQ .endunpacked
+
+-	LDA (lz4_src),Y
+	STA (lz4_dest),Y
+	INY
+	BNE -
+	BEQ .loopunpack
+
+.endunpacked
+	LDX lz4_len	; length low byte
+	STX .copymod+1
+
+-	LDA (lz4_src),Y
+	STA (lz4_dest),Y
+	INY
+.copymod	CPY #$AA
+	BNE -
+	RTS
+
+;================ PACKED DATA ================
+; unpacking possible to:
+; => not overlapping buffer
+; => lower memory but not guaranteed, depends on the last lz4 segments' size which must not be overwritten
+
+.packed
+	LDY #0
+	STY lz4_len
+
+; --------> Read lz4 token
+
+.readtoken
+	; READ NEW SRC BYTE
+	; get new lz4 token
+	LDA (lz4_src),Y
+	INC lz4_src		
+	BNE +
+	INC lz4_src+1	
++               
+	STA lz4_token
+	AND #$F0
+	BEQ .match	; no literals
+	LSR
+	LSR
+	LSR
+	LSR
+
+; --------> Copy "literals" data string
+
+.literals
+	; Copy literal string of data
+	; A = initial length (max $0F) from lz4 token
+	; Y should be ̂$00, will return as $00
+	TAX		; length of the current segment (max $FF)
+	CPX #$0F		; length is encoded in more than 1 byte
+	BEQ .litlength
+	LDA lz4_src
+	STA .modcopy+1	
+	LDA lz4_src+1
+	STA .modcopy+2
+	JMP .startliterals
+
+.litlength
+	; find end of length encoding
+-	LDA (lz4_src),Y
+	INY
+	CMP #255
+	BEQ -
+	; max length is 255 bytes so 254*255+254+15 = 65039 bytes which should be enough for Apple II :p
+	; note: there is no check for this limitation, which is not part of the spec.
+	; Pack files that are < 65039 bytes only
+
+	STY lz4_len	; length of the byte chain that codes "literals" length
+
+	; adjust src pointer and put it directly in LDA instructions
+	TYA
+	LDY lz4_src+1
+	CLC
+	ADC lz4_src
+	STA .modcopy+1
+	BCC +
+	INY
++	STY .modcopy+2
+	
+.startliterals
+	LDA lz4_bank_src  ; read from src bank
+	STA PATCHDECOMP+1
+	JSR .copy
+
+.doneliterals
+	LDA .modcopy+1	; restore back lz4_src
+	STA lz4_src
+	LDA .modcopy+2
+	STA lz4_src+1
+
+; --------> Check for end of packed data
+; The last segment contains only "literals" so the check must be done before match testing
+
+	;LDA lz4_src+1 ; useless because of previous STA
+.modH	CMP #$AA
+	BNE .match
+	LDA lz4_src
+.modL	CMP #$AA
+	BNE .match
+	RTS		; EOF
+
+; --------> Copy "match" data string
+; previous redondant unpacked data to copy back to current destination
+; this is where we need to switch memory banks if src bank != dest bank
+
+.match 	; add offset to dest and set up the pointer in copy rout
+	SEC
+	LDA lz4_dest
+	SBC (lz4_src),Y
+	STA .modcopy+1
+	INY
+	LDA lz4_dest+1
+	SBC (lz4_src),Y
+	STA .modcopy+2
+	LDY #0	; Y=0 expected later
+	; lz4_src+=2, to point to the length chain
+	CLC
+	LDA lz4_src
+	ADC #2
+	STA lz4_src
+	BCC +
+	INC lz4_src+1
++
+	LDA lz4_token
+	AND #$0F
+	CLC
+	ADC #4
+	TAX		; length of the current segment-4
+	CPX #$13		; length is encoded in more than 1 byte
+	BNE .startmatch
+
+	; find end of length encoding (max 255 bytes, again not spec)
+-	LDA (lz4_src),Y
+	INY
+	CMP #255
+	BEQ -
+	STY lz4_len	; length of the byte chain that codes length
+
+.startmatch
+	LDA lz4_bank_dst  ; read from dest bank (already depacked data)
+	STA PATCHDECOMP+1
+	JSR .copy
+	JMP .readtoken
+	; end of unpacking loop here
+
+; --------> Common data copy loop
+
+.copy	
+	INC lz4_len	; lz4_len = nb of "length chain" bytes +1
+	; X = (still) initial length from token
+	LDY #0
+.loopcopy	
+	STX .modcopy2+1	
+PATCHDECOMP
+	STA $C002
+.modcopy	LDA $AAAA,Y	; copy byte (modified src address)
+
+	STA (lz4_dest),Y
+	INY
+	DEX
+	BNE .modcopy
+PATCHDECOMP2
+	STA $C002   ; switch back bank if needed
+	; adjust src and dest pointers (+Y bytes)
+.modcopy2 LDY #$AA
+	TYA
+	CLC
+	ADC .modcopy+1
+	STA .modcopy+1
+	BCC +
+	INC .modcopy+2
++	TYA
+	CLC
+	ADC lz4_dest
+	STA lz4_dest
+	BCC +
+	INC lz4_dest+1
++	; how many "length" bytes to read?
+	LDY #0		; clear Y
+	DEC lz4_len
+	BEQ .endcopy	; none
+
+	; READ NEW SRC BYTE
+	; get new length byte (max $FF)
+	LDA (lz4_src),Y
+	INC lz4_src		
+	BNE +
+	INC lz4_src+1	
++
+	TAX	
+	BNE .loopcopy	; special case: the length chain can end with $00
+.endcopy	STY lz4_len	; clean length which may not be zero because of this special case
+	RTS
+
+EO_DECOMPLZ4
+
+SAVE_HOLES
+	LDY #7
+-	LDA $478,y
+	STA BACKUPED_HOLES,Y
+	LDA $4F8,y
+	STA BACKUPED_HOLES+8,Y
+	LDA $578,y
+	STA BACKUPED_HOLES+16,Y
+	LDA $5F8,y
+	STA BACKUPED_HOLES+24,Y
+	LDA $678,y
+	STA BACKUPED_HOLES+32,Y
+	LDA $6F8,y
+	STA BACKUPED_HOLES+40,Y
+	LDA $778,y
+	STA BACKUPED_HOLES+48,Y
+	LDA $7F8,y
+	STA BACKUPED_HOLES+56,Y
+	DEY
+	BPL -
+	RTS
+
+RESTORE_HOLES
+	LDY #7
+-	LDA BACKUPED_HOLES,Y
+	STA $478,y
+	LDA BACKUPED_HOLES+8,Y
+	STA $4F8,y
+	LDA BACKUPED_HOLES+16,Y
+	STA $578,y
+	LDA BACKUPED_HOLES+24,Y
+	STA $5F8,y
+	LDA BACKUPED_HOLES+32,Y
+	STA $678,y
+	LDA BACKUPED_HOLES+40,Y
+	STA $6F8,y
+	LDA BACKUPED_HOLES+48,Y
+	STA $778,y
+	LDA BACKUPED_HOLES+56,Y
+	STA $7F8,y
+	DEY
+	BPL -
+	RTS
+
+
+SAVE_ZP
+	LDY #$50
+-	LDA $0000,y
+	STA BACKUPED_ZP,Y
+	DEY
+	BPL -
+	RTS
+
+RESTORE_ZP
+	LDY #$50
+-	LDA BACKUPED_ZP,Y
+	STA $0000,y
+	DEY
+	BPL -
+	RTS
+
+BACKUPED_HOLES = $200  ; to $240
+BACKUPED_ZP    = $240  ; to $290
+
+HOME
+	LDY #$77
+	LDA #' '
+-	STA $400,y
+	STA $480,y
+	STA $500,y
+	STA $580,y
+	STA $600,y
+	STA $680,y
+	STA $700,y
+	STA $780,y
+	DEY
+	BPL -
+	RTS
+
+SAVE_ALL
+	JSR HOME
+	JSR SAVE_HOLES
+	JSR SAVE_ZP
+	RTS
+
+RESTORE_ALL
+	SEI
+	STA _RAMRDmain
+	STA _RAMWRTmain
+	JSR RESET_AY
+	JSR HOME
+	STA _TEXTon
+	STA _PAGE2off
+	STA _80COLoff
+	STA _MIXEDoff
+	STA _AN3on
+	JSR RESTORE_HOLES
+	JSR RESTORE_ZP
+	JSR TIMERS_SETUP
+	JSR TIMERS_SYNC
+	RTS
+
+PRINT_LOADING
+	LDY #39
+-	LDA TEXT_LOADING,Y
+	STA $480,Y
+	LDA (Temp),Y
+	;CLC
+	;ADC #$C0
+	STA $680,Y
+	DEY
+	BPL -
+	RTS
+
+TEXT_LOADING
+	!text "                LOADING                 "
+TEXT_BOBS
+	!text "          UNLIMITED BOBS (2014)         "
+TEXT_SCROLL
+	!text "      SCROLL SCROLL SCROLL (2014)       "
+TEXT_CC
+	!text "          CRAZY CYCLES (2015)           "
+TEXT_PLS
+	!text "           PLASMAGORIA (2015)           "
+TEXT_RB
+	!text "           RASTER BARS (2015)           "
+TEXT_OMT
+	!text "         ONE MORE THING (2019)          "
+TEXT_MADEF
+	!text "           MAD EFFECT (2019)            "
+TEXT_MADEF2
+	!text "          MAD EFFECT 2 (2019)           "
+TEXT_TRIBU
+	!text "  UNREEEAL SUPERHERO 3 TRIBUTE (2020)   "
+TEXT_MAD3
+	!text "          MAD EFFECT 3 (2020)           "
+TEXT_DD
+	!text "            DIGIDREAM (2020)            "
+TEXT_OFV
+	!text "      OLDSKOOL FORT ET VERT (2021)      "
+TEXT_DD2
+	!text "      DIGIDREAM SID EDITION (2024)      "

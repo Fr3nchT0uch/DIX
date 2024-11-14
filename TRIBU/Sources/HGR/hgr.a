@@ -1,0 +1,6 @@
+	*=$2000
+
+	!binary "1.bin"
+	!align 255,0
+	!binary "2.bin"
+

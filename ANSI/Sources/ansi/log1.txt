@@ -1,0 +1,31 @@
+
+InsertNFO v0.1 - 2014
+
+
+Injection de TC-RPM_MIR soit 21 secteurs (0X1500 octets) de T0F/S01 … T10/S05
+
+Injection de GW-ASYLM_MIR soit 21 secteurs (0X1500 octets) de T10/S06 … T11/S0A
+
+Injection de JNK-GIRL soit 27 secteurs (0X1B00 octets) de T11/S0B … T13/S05
+
+Injection de BADLACD1 soit 21 secteurs (0X1500 octets) de T13/S06 … T14/S0A
+
+Injection de ACID-VN soit 24 secteurs (0X1800 octets) de T14/S0B … T16/S02
+
+Injection de CN2ACID soit 32 secteurs (0X2000 octets) de T16/S03 … T18/S02
+
+Injection de KPEGA soit 26 secteurs (0X1A00 octets) de T18/S03 … T19/S0C
+
+Injection de CT-TCS_MIR soit 25 secteurs (0X1900 octets) de T19/S0D … T1B/S05
+
+Injection de mm-wtcdg soit 11 secteurs (0XB00 octets) de T1B/S06 … T1C/S00
+
+Injection de RS-CLSO soit 52 secteurs (0X3400 octets) de T1C/S01 … T1F/S04
+
+Injection de AM-ARKH_ICE soit 23 secteurs (0X1700 octets) de T1F/S05 … T20/S0B
+
+Injection de ICE9-92_MEM soit 23 secteurs (0X1700 octets) de T20/S0C … T22/S02
+
+Injection de TDOCODE soit 11 secteurs (0XB00 octets) de T22/S03 … T22/S0D
+
+-> fichier test1.dsk modifi‚ et sauv‚

@@ -1,0 +1,1979 @@
+; ACME 0.96.4
+; 
+; MAIN
+; MAX Size: (16+12)*256 = 7168 bytes
+; MAD EFFECT 2 - THE REVENGE OF THE SCROLLING
+; FRENCH TOUCH - 10/2019
+;
+; v0.10 - Final version
+;
+;
+!cpu 6502
+!convtab "a2txt.bin" ; 
+!sl "lbl_main.txt"
+!source "lbl_hires.txt"
+!source "../macros.a"
+!source "../sysconst.a"
+DEBUG = 0
+
+; INCLUDE
+
+           *= $E000 ; ORG = $D000 (RAM Langage Card)
+
+; =====================================
+; PAGE ZERO => FIXED
+bRefresh    = $01   ; byte REFRESH RATE ($56/50Hz | $06/60Hz)
+bSLOT       = $02   ; numero SLOT * 0x10
+IntL        = $03   ; L value for INT delay
+IntH        = $04   ; H value for INT delay
+
+; INTx
+MB_BASEADDR = $10 ;+ $11
+; save_A      = $05
+; save_X      = $06
+; save_Y      = $07
+
+; FAST LOAD
+; PISDEP      = $0A   ; PISTE DE DEPART
+; SECDEP      = $0B   ; SECTEUR DE DEPART
+; BUFFER      = $0C   ; Buffer LOW+HIGH ; + $0D
+; TOTSEC      = $0E   ; TOTAL DES SECTEURS A CHARGER
+; CURTRK1     = $0F   ; piste de d�part DRIVE 1 - A INITIALISER A ZERO pour le premier appel !
+
+; Main -------
+Dummy       = $30
+SCROLLP     = $31
+Row         = $32
+L0          = $33
+L1          = $34
+L2          = $35
+L3          = $36
+L4          = $37
+L5          = $38
+
+IndexL      = $39
+
+; decompLZ4
+lz4_src     = $18   	; +$91
+lz4_dest    = $1A   	; +$93
+lz4_len     = $1C     ; +$95 (tmp)
+lz4_token   = $1D
+lz4_bank_src = $1E
+lz4_bank_dst = $1F 
+; --------
+Tmp1        = $16
+Tmp2        = $18
+MBpatch_start = $18 ; +$19
+MBpatch_end   = $1A ; +$1B
+dest = lz4_dest
+
+; PLAYER YM/AY
+; ------
+nREG0		= $50
+vREG0		= $51
+dREG0		= $52	; +$53
+nREG1		= $54
+vREG1		= $55
+dREG1		= $56	; +$57
+nREG2		= $58
+vREG2		= $59
+dREG2		= $5A	; +$5B
+nREG3		= $5C
+vREG3		= $5D
+dREG3		= $5E	; +$5F
+nREG4		= $60
+vREG4		= $61 
+dREG4		= $62	; +$63
+nREG6		= $64
+vREG6		= $65 
+dREG6		= $66	; +$67
+nREG7		= $68
+vREG7		= $69
+dREG7		= $6A	; +$6B
+nREG8		= $6C
+vREG8		= $6D
+dREG8		= $6E	; +$6F
+nREG9		= $70
+vREG9		= $71
+dREG9		= $72	; +$73
+nREGA		= $74
+vREGA		= $75
+dREGA		= $76	; +$77
+nREGB		= $78
+vREGB		= $79 
+dREGB		= $7A	; +$7B
+nREGC		= $7C
+vREGC		= $7D 
+dREGC		= $7E	; +$7F
+nREGD		= $80
+vREGD		= $81
+dREGD		= $82	; +$83
+
+CounterL	    = $84
+CounterH	    = $85
+IndexTimeLine   = $86
+bTime           = $87
+tick1           = $88
+tick2           = $89
+
+; F6~FE 
+DISPLAYSYNC	= $F4
+VSYNC		= $F5
+T2Timing    = $F6
+WaitSyncPTR = $F8
+WaitDisplayPTR = $FA
+T1RoutPTR = $FC  ; + $FFF9
+T2SyncCodePTR = $FE   ; + $FF
+; =============================================================================
+MAIN
+!zone
+    SEI
+    STX DECOMPLZ4+1
+    STY DECOMPLZ4+2
+    
+
+            ; Init Screen + some init
+            STA $C000           ; 80STOREOFF
+            STA $C008           ; zero Page = Main (+ $FXXX MAIN)
+
+            ; DECOMP MUSC -> $4000(M) - > $6000(A) 
+            +set_ptr $4000,lz4_src
+            +set_ptr $6000,lz4_dest
+            STA _RAMRDmain
+            STA _RAMWRTaux
+            JSR DECOMPLZ4
+            STA _RAMWRTmain
+
+            ; title screen
+            +set_ptr $2000,lz4_src
+            +set_ptr $4000,lz4_dest
+            JSR DECOMPLZ4
+
+            ; init TLINE (with SPACE data)
+            LDA #3
+            STA Row
+            LDA #00
+            STA L0
+            STA L1
+            STA L2
+            STA L3
+            STA L4
+            STA L5
+            ; other inits
+            STA IndexL 
+            STA SCROLLP
+            STA IndexTimeLine
+            STA bTime
+
+        ; Patch Mockingboard registers
+        +set_ptr Init_MB,MBpatch_start
+        +set_ptr EO_Init_MB,MBpatch_end
+        JSR MB_PATCH
+        +set_ptr PLAYER_YM,MBpatch_start
+        +set_ptr EO_PLAYER_YM,MBpatch_end
+        JSR MB_PATCH
+        ; init scroll buffer
+        LDA #0
+        LDX #65
+-       STA DATABIT0,X
+        DEX
+        BPL -
+
+; =============================================================================
+Init_MB     ; init Mockingboard             
+!zone
+            ; PREMIER init MB (6522/AY1) / (6522/AY2)
+            LDA #$FF
+            STA $CF03          ; DDRA1
+            STA $CF83
+            LDA #$07
+            STA $CF02          ; DDRB1
+            STA $CF82
+
+            ; clean REGISTER AY1 / AY2
+            LDA #$00
+            STA $CF00
+            STA $CF80
+            LDA #$04
+            STA $CF00
+            STA $CF80
+
+EO_Init_MB
+
+; -------------------------------------
+INIT_REGISTERS
+!zone
+			LDA #<NBVBL
+			STA CounterL
+			LDA #((>NBVBL)+1)
+			STA CounterH
+			
+			LDX #(13*4-1)
+.b1			LDA TableREG,X
+			STA nREG0,X
+			DEX
+			BPL .b1
+; -------------------------------------
+Init_INT    ; init interrupt
+!zone       
+            SEI                         ; inhib
+;    LDA #<DEFAULT_SYNC_TIMER
+;    STA T2Timing
+;    LDA #>DEFAULT_SYNC_TIMER
+;    STA T2Timing+1
+
+    +set_ptr INT_ROUT2,T1RoutPTR
+    ; +set_ptr TIMER_HANDLER,$FFFE
+    LDA #0
+    STA T2SyncCodePTR+1
+            
+; =============================================================================
+STORYBOARD
+!zone
+; PART I * black screen [TEXT1] * beginning of Music * [INT_ROUT2] * TL = [0 - 320]
+PART1
+            CLI                 ; music!
+
+wait1 
+    JSR TESTKBD
+            LDA bTime
+            BNE +
+            JMP wait1
++
+; PART II * Title [HIRES1] * Display title screen * [INT_ROUT2] * TL = [320 - 960]
+PART2
+            BIT $C055
+            BIT $C050
+            BIT $C057
+            DEC bTime           ; remise à 0
+            INC IndexTimeLine   ; next TL
+            ; CLEAR PAGE1/2/GR
+            LDX #$04
+            LDA #$00
+            TAY
+.mod1       STA $400,Y
+.mod2       STA $800,Y
+            DEY
+            BNE .mod1
+            INC .mod1+2
+            INC .mod2+2
+            DEX
+            BNE .mod1
+
+            ; DECOMP HIRES1
+            +set_ptr $1000,lz4_src
+            +set_ptr $2000,lz4_dest
+            STA _RAMRDaux
+            JSR DECOMPLZ4
+            STA _RAMRDmain
+            ; STA $C002           ; back to "read MAIN"
+
+wait2
+    JSR TESTKBD
+           LDA bTime
+            BNE +
+            JMP wait2
++
+; PART III * SCROLL 1 - MIXED * [INT_ROUT1] * TL = [960 - END TEXT1]
+PART3
+    +set_ptr INT_ROUT1,T2SyncCodePTR
+            DEC bTime           ; remise à 0
+            INC IndexTimeLine   ; next TL
+
+wait3    JSR TESTKBD
+       LDA bTime
+            BNE +
+            JMP wait3
++
+; PART IV * PREPARING PART V * [INT_ROUT2] * TL = [END TEXT1 -  xxx]
+PART4
+    LDA #0
+    STA T2SyncCodePTR+1
+
+            DEC bTime
+            ; DECOMP HIRES1
+            +set_ptr hires3,lz4_src
+            +set_ptr $2000,lz4_dest
+            STA $C003           ; read AUX
+            JSR DECOMPLZ4
+            ; DECOMP HIRES2
+            +set_ptr hires2,lz4_src
+            +set_ptr $4000,lz4_dest
+            JSR DECOMPLZ4
+            STA $C002           ; back to "read MAIN"
+
+wait4 
+    JSR TESTKBD
+      LDA bTime
+            BNE +
+            JMP wait4
++
+; PART V * SCROLL 2 - MIXED * [INT_ROUT1] * TL = [2400 - END TEXT2]
+PART5
+    +set_ptr INT_ROUT1,T2SyncCodePTR
+
+            DEC bTime           ; remise à 0
+            INC IndexTimeLine   ; next TL
+            LDA #10
+            STA tick1
+
+wait5    JSR TESTKBD
+       LDA bTime
+            BNE ++
+            LDA tick1 
+            CMP #10
+            BEQ +
+            JMP wait5
+
++           LDX IndexL
+            LDA TableMODPL,X
+            STA dest
+            LDA TableMODPH,X
+            STA dest+1
+            LDY #0
+            LDA #$54
+            STA (dest),Y        ; page1 restoration previous "line"
+            ; next "line"
+            INX
+            CPX #06
+            BNE +
+            LDX #00
++           STX IndexL
+            LDA TableMODPL,X
+            STA dest
+            LDA TableMODPH,X
+            STA dest+1
+            LDA #$55
+            STA (dest),Y        ; set page2 for the "line"
+            LDA #00
+            STA tick1
+            JMP wait5
+
+++
+; PART VI * PREPARING PART VII * [INT_ROUT2] * TL = [END TEXT2 -  xxx]
+PART6
+    LDA #0
+    STA T2SyncCodePTR+1
+
+            DEC bTime           ; remise à 0
+
+            ; DECOMP HIRES1
+            +set_ptr hires1,lz4_src
+            +set_ptr $2000,lz4_dest
+            STA $C003           ; read AUX
+            JSR DECOMPLZ4
+            STA $C002           ; back to "read MAIN"
+
+            ; copy hires 1->2
+            LDX #32
+            LDY #00
+.mod3       LDA $2000,Y
+.mod4       STA $4000,Y
+            DEY
+            BNE .mod3
+            INC .mod3+2
+            INC .mod4+2
+            DEX
+            BNE .mod3
+
+            LDA $C054           ; force Page1 (really needed?!)
+            LDX IndexL
+            LDA TableMODPL,X
+            STA dest
+            LDA TableMODPH,X
+            STA dest+1
+            ;LDY #$00
+            LDA #$54
+            STA (dest),Y        ; page1 restoration last previous "line"
+
+            LDX #$04
+            LDA #$DD
+            ;LDY #00
+.mod5       STA $800,Y
+            DEY
+            BNE .mod5
+            INC .mod5+2
+            DEX
+            BNE .mod5
+
+wait6    JSR TESTKBD
+       LDA bTime
+            BNE +
+            JMP wait6
++
+; PART VII * SCROLL 3 - MIXED * [INT_ROUT1] * TL = [3600 - END TEXT3]
+PART7
+    +set_ptr INT_ROUT1,T2SyncCodePTR
+            DEC bTime           ; remise à 0
+            LDA #00
+            STA tick1           ; init tick counter
+
+wait7    JSR TESTKBD
+      LDA bTime
+            BNE ++
+            LDA tick2
+            CMP #2
+            BEQ .sflash
+            LDA tick1 
+            CMP #20
+            BNE wait7
+            ;
+.flash      LDA #01
+            STA MODPAGEG+1
+            LDA #00
+            STA tick1
+            STA tick2
+            JMP wait7
+
+.sflash     LDA #0
+            STA MODPAGEG+1
+            JMP wait7
+
+++
+; END PART * [INT_ROUT2] * [END TEXT3 - FOREVER]
+ENDPART
+    LDA #0
+    STA T2SyncCodePTR+1
+        
+END         RTS ;JMP END
+
+TESTKBD
+    LDA $C000
+    CMP #27+$80
+    BNE +
+    STA $C010
+    PLA
+    PLA
+    JMP ENDPART
++    RTS
+; =============================================================================
+INT_ROUT2   ; simple routine used while DECOMP/CHANGE GR/HIRES or MUSIC ONLY
+!zone
+
+            LDA $C013           ; RAM READ status
+            BPL +
+            LDA #03             ; read aux
+            BNE ++              ; always
++           LDA #02             ; read main
+++          STA .mod1+1   
+
+            JSR PLAYER_YM       ; music! (one tick)
+
+    ;        BIT $CF04           ; Clears interrupt (T1_1CL) -> not needed, done earlier (twice!)
+		    
+.mod1       STA $C002           ; restore READ type (AUX/MAIN) -> for LZ4DECOMP
+		    RTS					; sortie INT                      
+
+; =============================================================================
+; patch all STAs/STXs to mockinboard registers
+
+MB_PATCH
+!zone
+    LDA MBpatch_end+1
+    STA .modmb1+1
+    LDA MBpatch_end
+    STA .modmb2+1
+.loop
+    LDY #0
+    LDA (MBpatch_start),Y
+    CMP #$8D    ; "STA xxxx"
+    BEQ .yes2
+    CMP #$8C    ; "STY xxxx"
+    BEQ .yes2
+    CMP #$8E    ; "STX xxxx"
+    BNE .not
+.yes2
+    INY
+    LDA (MBpatch_start),Y
+    CMP #$00
+    BEQ .yes
+    CMP #$01
+    BEQ .yes
+    CMP #$02
+    BEQ .yes
+    CMP #$03
+    BEQ .yes
+    CMP #$80
+    BEQ .yes
+    CMP #$81
+    BEQ .yes
+    CMP #$82 
+    BEQ .yes
+    CMP #$83
+    BNE .not
+.yes
+    INY
+    LDA (MBpatch_start),Y
+    CMP #$CF        ; "STA $CFxx" or "STX $CFxx"
+    BNE .not
+    ; patching
+    LDA MB_BASEADDR+1
+    STA (MBpatch_start),Y
+.not
+    INC MBpatch_start
+    BNE +
+    INC MBpatch_start+1
++   LDA MBpatch_start+1
+.modmb1
+    CMP #$00
+    BNE .loop
+    LDA MBpatch_start
+.modmb2
+    CMP #$00
+    BNE .loop
+    RTS
+; =============================================================================       
+!align 255,0
+;!fill 8,0               ; obligatoire pour éviter les problemes de saut de pages (BNE+1cycle)!
+!fill 27,0 ;36,0              ; A CHANGER AUSSI pour REAL A2 (missing 3 NOPS) 
+INT_ROUT1
+!zone   
+    CLI ; nested interrupts allowed because T1 *will* happen just before RTS
+
+    LDA $4000,X
+    LDA $4000,X
+    LDA $44
+    ; LDA $4000,X
+    ; LDA $4000,X
+    ; NOP
+MODPAGEG    LDX #00                                                         ; 2  
+
+;             ; ici AVANT dernière ligne VBL -> cycles passed = [14] + 29 + <18> + 2 = 63
+;             ; on termine la 310/260 ligne (AVANT dernière ligne VBL -> last VBL)                                                 
+;             NOP                                                             ; +2
+                                                                            ; = 65
+; =============================================================================
+; synchronized CODE here - LAST VBL LINE - CYCLE #0
+; [HBL-L = 0-11 / DISPLAY = 12-51 / HBL-R = 52-64]
+            ; calcul décalage SCROLLP (minus[0/3] cycles -> 62/65
+
+            ; here must be in RAM at $xx27
+            LDY #9
+-           DEY
+            BNE -                                                           ; 46
+
+            CLV                                                             ; 2
+            LDA SCROLLP       ; [SCROLLP = 0-3] -> +5/+2 cycles             ; 3
+            LSR                                                             ; 2
+            STA .mod2+1                                                     ; 4
+.mod2       BVC +                                                           ; 3
+
++           NOP
+            BCC +                                                           ; 2 / 5
++                                                                           ; = 62/65                                                                
+            ; == 65 cycles ============
+            LDY #32                                                          ; 2
+            BNE +                                                            ; 3
+-           INC Dummy                                                        ; (5)          
++           
+MODPAGE0    LDA $C054,X                                                      ; 4
+MODLINE0    LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056
+                                                                             ; 44
+            INC Dummy                                                        ; 5
+            DEY                                                              ; 2
+            BEQ +                                                            ; 
+            BNE -                                                            ; (5)
++           NOP                                                              ; +5 
+            ; =========================                                      ; = (5) + 4 + 44 + 5 + 2 + (5) = 65
+            LDY #32                                                          ; 2
+            BNE +                                                            ; 3
+-           INC Dummy                                                        ; (5)          
++           
+MODPAGE1    LDA $C054,X                                                      ; 4
+MODLINE1    LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056
+                                                                             ; 44
+            INC Dummy                                                        ; 5
+            DEY                                                              ; 2
+            BEQ +                                                            ; 
+            BNE -                                                            ; (5)
++           NOP                                                              ; +5 
+            ; =========================                                      ; = (5) + 4 + 44 + 5 + 2 + (5) = 65
+            LDY #32                                                          ; 2
+            BNE +                                                            ; 3
+-           INC Dummy                                                        ; (5)          
++           
+MODPAGE2    LDA $C054,X                                                      ; 4
+MODLINE2    LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056
+                                                                             ; 44
+            INC Dummy                                                        ; 5
+            DEY                                                              ; 2
+            BEQ +                                                            ; 
+            BNE -                                                            ; (5)
++           NOP                                                              ; +5 
+            ; =========================                                      ; = (5) + 4 + 44 + 5 + 2 + (5) = 65          
+            LDY #32                                                          ; 2
+            BNE +                                                            ; 3
+-           INC Dummy                                                        ; (5)          
++           
+MODPAGE3    LDA $C054,X                                                      ; 4
+MODLINE3    LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056
+                                                                             ; 44
+            INC Dummy                                                        ; 5
+            DEY                                                              ; 2
+            BEQ +                                                            ; 
+            BNE -                                                            ; (5)
++           NOP                                                              ; +5 
+            ; =========================                                      ; = (5) + 4 + 44 + 5 + 2 + (5) = 65
+            LDY #32                                                          ; 2
+            BNE +                                                            ; 3
+-           INC Dummy                                                        ; (5)          
++           
+MODPAGE4    LDA $C054,X                                                      ; 4
+MODLINE4    LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056
+                                                                             ; 44
+            INC Dummy                                                        ; 5
+            DEY                                                              ; 2
+            BEQ +                                                            ; 
+            BNE -                                                            ; (5)
++           NOP                                                              ; +5 
+            ; =========================                                      ; = (5) + 4 + 44 + 5 + 2 + (5) = 65
+            LDY #32                                                          ; 2
+            BNE +                                                            ; 3
+-           INC Dummy                                                        ; (5)          
++           
+MODPAGE5    LDA $C054,X                                                         ; 4
+MODLINE5    LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056 : LDA $C056
+                                                                             ; 44
+            INC Dummy                                                        ; 5
+            DEY                                                              ; 2
+            BEQ +                                                            ; 
+            BNE -                                                            ; (5)
++           NOP                                                              ; +5 
+            ; =========================                                      ; = (5) + 4 + 44 + 5 + 2 + (5) = 65
+; ==== VBL =======================================================================
+MOVEDATAFONT
+             INC SCROLLP
+             LDA SCROLLP
+             CMP #04
+             BEQ +
+             JMP NEXT                  
++            LDA #00
+             STA SCROLLP
+
+             LDA DATABIT0+1
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE0+1
+             ;STA DATABIT0+0 (useless)
+
+             LDA DATABIT0+2
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE0+4
+             STA DATABIT0+1
+
+             LDA DATABIT0+3
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE0+7
+             STA DATABIT0+2
+
+             LDA DATABIT0+4
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE0+10
+             STA DATABIT0+3
+
+             LDA DATABIT0+5
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE0+13
+             STA DATABIT0+4
+
+             LDA DATABIT0+6
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE0+16
+             STA DATABIT0+5
+
+             LDA DATABIT0+7
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE0+19
+             STA DATABIT0+6
+
+             LDA DATABIT0+8
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE0+22
+             STA DATABIT0+7
+
+             LDA DATABIT0+9
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE0+25
+             STA DATABIT0+8
+
+             LDA DATABIT0+10
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE0+28
+             STA DATABIT0+9
+
+
+             LDA DATABIT1+1
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE1+1
+             ;STA DATABIT1+0 (useless)
+
+             LDA DATABIT1+2
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE1+4
+             STA DATABIT1+1
+
+             LDA DATABIT1+3
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE1+7
+             STA DATABIT1+2
+
+             LDA DATABIT1+4
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE1+10
+             STA DATABIT1+3
+
+             LDA DATABIT1+5
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE1+13
+             STA DATABIT1+4
+
+             LDA DATABIT1+6
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE1+16
+             STA DATABIT1+5
+
+             LDA DATABIT1+7
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE1+19
+             STA DATABIT1+6
+
+             LDA DATABIT1+8
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE1+22
+             STA DATABIT1+7
+
+             LDA DATABIT1+9
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE1+25
+             STA DATABIT1+8
+
+             LDA DATABIT1+10
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE1+28
+             STA DATABIT1+9
+
+
+             LDA DATABIT2+1
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE2+1
+             ;STA DATABIT2+0 (useless)
+
+             LDA DATABIT2+2
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE2+4
+             STA DATABIT2+1
+
+             LDA DATABIT2+3
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE2+7
+             STA DATABIT2+2
+
+             LDA DATABIT2+4
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE2+10
+             STA DATABIT2+3
+
+             LDA DATABIT2+5
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE2+13
+             STA DATABIT2+4
+
+             LDA DATABIT2+6
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE2+16
+             STA DATABIT2+5
+
+             LDA DATABIT2+7
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE2+19
+             STA DATABIT2+6
+
+             LDA DATABIT2+8
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE2+22
+             STA DATABIT2+7
+
+             LDA DATABIT2+9
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE2+25
+             STA DATABIT2+8
+
+             LDA DATABIT2+10
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE2+28
+             STA DATABIT2+9
+
+
+             LDA DATABIT3+1
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE3+1
+             ;STA DATABIT3+0 (useless)
+
+             LDA DATABIT3+2
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE3+4
+             STA DATABIT3+1
+
+             LDA DATABIT3+3
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE3+7
+             STA DATABIT3+2
+
+             LDA DATABIT3+4
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE3+10
+             STA DATABIT3+3
+
+             LDA DATABIT3+5
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE3+13
+             STA DATABIT3+4
+
+             LDA DATABIT3+6
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE3+16
+             STA DATABIT3+5
+
+             LDA DATABIT3+7
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE3+19
+             STA DATABIT3+6
+
+             LDA DATABIT3+8
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE3+22
+             STA DATABIT3+7
+
+             LDA DATABIT3+9
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE3+25
+             STA DATABIT3+8
+
+             LDA DATABIT3+10
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE3+28
+             STA DATABIT3+9
+
+
+             LDA DATABIT4+1
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE4+1
+             ;STA DATABIT4+0 (useless)
+
+             LDA DATABIT4+2
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE4+4
+             STA DATABIT4+1
+
+             LDA DATABIT4+3
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE4+7
+             STA DATABIT4+2
+
+             LDA DATABIT4+4
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE4+10
+             STA DATABIT4+3
+
+             LDA DATABIT4+5
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE4+13
+             STA DATABIT4+4
+
+             LDA DATABIT4+6
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE4+16
+             STA DATABIT4+5
+
+             LDA DATABIT4+7
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE4+19
+             STA DATABIT4+6
+
+             LDA DATABIT4+8
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE4+22
+             STA DATABIT4+7
+
+             LDA DATABIT4+9
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE4+25
+             STA DATABIT4+8
+
+             LDA DATABIT4+10
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE4+28
+             STA DATABIT4+9
+
+
+             LDA DATABIT5+1
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE5+1
+             ;STA DATABIT5+0 (useless)
+
+             LDA DATABIT5+2
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE5+4
+             STA DATABIT5+1
+
+             LDA DATABIT5+3
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE5+7
+             STA DATABIT5+2
+
+             LDA DATABIT5+4
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE5+10
+             STA DATABIT5+3
+
+             LDA DATABIT5+5
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE5+13
+             STA DATABIT5+4
+
+             LDA DATABIT5+6
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE5+16
+             STA DATABIT5+5
+
+             LDA DATABIT5+7
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE5+19
+             STA DATABIT5+6
+
+             LDA DATABIT5+8
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE5+22
+             STA DATABIT5+7
+
+             LDA DATABIT5+9
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE5+25
+             STA DATABIT5+8
+
+             LDA DATABIT5+10
+             BEQ +
+             LDX #$57
+             BNE ++
++            LDX #$56
+++           STX MODLINE5+28
+             STA DATABIT5+9
+           
+ADDNEWDATA
+            DEC Row
+            BNE suite
+; new letter
+            INC modletter+1
+            BNE modletter
+            INC modletter+2
+modletter   LDX BLABLA                      ; lecture nouvelle lettre
+            BPL +                           ; fin part text si $FF
+             ; fin part TEXT
+            INC bTime
+            INC modletter+1                 ; next letter
+            BNE modletter
+            INC modletter+2
+            JMP NEXT
+            ; ----
++           LDA TNBROW, X
+            STA Row
+            LDA TLINE0, X
+            STA L0
+            LDA TLINE1, X
+            STA L1
+            LDA TLINE2, X
+            STA L2
+            LDA TLINE3, X
+            STA L3
+            LDA TLINE4, X
+            STA L4
+            LDA TLINE5, X
+            STA L5
+; ------
+suite
+            ASL L0
+            BCC +
+            LDA #01
+            LDX #$57
+            BNE ++
++           LDA #00
+            LDX #$56
+++          STA DATABIT0+10
+            STX MODLINE0+31
+
+            ASL L1
+            BCC +
+            LDA #01
+            LDX #$57
+            BNE ++
++           LDA #00
+            LDX #$56
+++          STA DATABIT1+10
+            STX MODLINE1+31
+
+            ASL L2
+            BCC +
+            LDA #01
+            LDX #$57
+            BNE ++
++           LDA #00
+            LDX #$56
+++          STA DATABIT2+10
+            STX MODLINE2+31
+
+            ASL L3
+            BCC +
+            LDA #01
+            LDX #$57
+            BNE ++
++           LDA #00
+            LDX #$56
+++          STA DATABIT3+10
+            STX MODLINE3+31
+
+            ASL L4
+            BCC +
+            LDA #01
+            LDX #$57
+            BNE ++
++           LDA #00
+            LDX #$56
+++          STA DATABIT4+10
+            STX MODLINE4+31
+
+            ASL L5
+            BCC +
+            LDA #01
+            LDX #$57
+            BNE ++
++           LDA #00
+            LDX #$56
+++          STA DATABIT5+10
+            STX MODLINE5+31
+
+NEXT
+  ;          JSR PLAYER_YM
+
+            ; restore registers 
+    ;        LDY save_Y          ; on récup Y
+	;	    LDX save_X          ; on récup X
+	;	    LDA save_A			; on récup A
+            RTS
+            
+; =============================================================================
+!align 255,0
+WAIT65              ; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 8 cycles obligatoire -> LDY #xx / JSR WAIT65)
+WAIT65ZP = * + 1    ; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 9 cycles obligatoire -> LDY ZP / JSR WAIT65Z)
+!zone           
+		    LDA $EA     ; 3 (dummy)  -> on arrive sur NOP si JSR WAIT65Z
+WAIT62      ; = attend 1*62 cycles exactement (JSR/RTS compris -> LDY #01 / JSR WAIT63)
+            DEY			; 2					
+		    BEQ .S1	    ; 3/2			
+                  
+.WL1 	    LDX #$0B				            
+.WL2 	    DEX							
+		    BNE .WL2	; 2 + (2+3)*10 + 2 + 2 = 56															
+                      
+		    NOP			; 2					
+		    NOP			; 2					
+		    DEY			; 2					
+		    BNE .WL1	; (56+2+2+2+3)*(Y-2) + 56 + 2 + 2 + 2 + 2 = 65*Y - 2*65 + 64 = 65*Y - 66				
+
+WAIT59      ; = attend 1*59 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT59)											                      
+		    LDX #$08					
+.WL3 	    DEX							
+		    BNE .WL3	; 2 + (2+3)*7 + 2 + 2 = 41					
+                							
+		    NOP			; 2					
+		    NOP			; 2					
+		    RTS			; 6
+
+                        ; WAIT62 = 2 + 2 + (65-66) + 41 + 2 + 2 + 6 + (8) = 62 
+                        ; WAIT65 = 3 + 2 + 2 + (65*Y-66) + 41 + 2 + 2 + 6 + (8) = 65*Y
+                        ; WAIT59 = 41 + 2 + 2 + 6 + (8) = 59 					
+
+WAIT57      ; = attend 1*57 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT57)											         
+.S1	 	    NOP         ; 2
+WAIT55      ; = attend 1*55 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT55)	
+            LDX #08					
+                      
+.WL4 	    DEX							
+		    BNE .WL4    ; 2 + (2+3)*7 + 2 + 2 = 41					
+		    RTS         ; 6
+                        ; = 49
+
+                        ; WAIT65 = 3 + 2 + 3 + 49 + (8) = 65
+                        ; WAIT62 = 2 + 3 + 49 + (8) = 62
+                        ; WAIT57 = 49 + (8) = 57
+                        ; WAIT55 = 47 + (8) = 55
+
+DECOMPLZ4
+    JMP *
+; =============================================================================
+PLAYER_YM					
+!zone
+		STA $C003			; read AUX Memory
+        INC tick1           ; inc tick counters
+        INC tick2
+
+		LDY #00				; 	
+		
+    ; ----------- AY1 
+
+		; REGISTRE 0
+		LDA #0				; registre 0
+		STA $CF01   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA vREG0
+		STA $CF01   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		; REGISTRE 1
+		LDA #01				; registre 1
+		STA $CF01   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA vREG1		    ; value
+		STA $CF01   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+		
+		; REGISTRE 2
+		LDA #02				; registre 2
+		STA $CF01   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA vREG2			;
+		STA $CF01   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+		
+		; REGISTRE 3
+		LDA #03				; registre 3
+		STA $CF01   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA vREG3
+		STA $CF01   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+		
+		; REGISTRE 4
+		LDA #04				; registre 4
+		STA $CF01   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA vREG4
+		STA $CF01   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+		
+		; REGISTRE 6
+		LDA #06				; registre 6
+		STA $CF01   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA vREG6
+		STA $CF01   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+		
+		; REGISTRE 7
+		LDA #07				; registre 7
+		STA $CF01   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA vREG7
+		AND #%00011011		; AB_NOTC
+		STA $CF01   		; ORA1 (data)
+		LDA vREG7
+		AND #%00110110		; NOTA_BC
+		LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		; REGISTRE 8
+		LDA #08				; registre 8
+		STA $CF01   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA vREG8
+		STA $CF01   		; ORA1 (data)
+		LDA #00             ; 0 à droite pour VOL A
+		LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+		
+		; REGISTRE 9
+		LDA #09				; registre 9
+		STA $CF01   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA vREG9
+		STA $CF01   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+			
+		; REGISTRE 10
+		LDA #10				; registre 10
+		STA $CF01   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA #00				; 0 à gauche pour VOL C 
+		STA $CF01   		; ORA1 (data)
+		LDA vREGA			; 
+		LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+		
+		; REGISTRE 11
+		LDA #11				; registre 11
+		STA $CF01   		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA vREGB			; 
+		STA $CF01   		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+		
+		; REGISTRE 12
+		LDA #12				; registre 12
+		STA $CF01   		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA vREGC
+		STA $CF01   		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+		
+		; REGISTRE 13		; pas oublier de shunter si = $FF
+		LDA vREGD
+		CMP #$FF
+		BEQ +
+		
+		LDA #13				; registre 13
+		STA $CF01   		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA $CF00   		; ORB1 (fct)
+		LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
+
+		LDA vREGD			; on lit la valeur
+		STA $CF01   		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA $CF00   		; ORB1 (fct)
+        LDX #$04			; Set fct "Inactive"
+		STX $CF00   		; ORB1 (fct)
++
+
+        ; ------ AY2
+
+		; REGISTRE 0
+		LDA #0					; registre 0
+		STA $CF81   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA vREG0
+		STA $CF81   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive"
+
+		; REGISTRE 1
+		LDA #01				; registre 1
+		STA $CF81   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA vREG1		    ; value
+		STA $CF81   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive"
+		
+		; REGISTRE 2
+		LDA #02				; registre 2
+		STA $CF81   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA vREG2			;
+		STA $CF81   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive"
+		
+		; REGISTRE 3
+		LDA #03				; registre 3
+		STA $CF81   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA vREG3
+		STA $CF81   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive"
+
+		; REGISTRE 4
+		LDA #04				; registre 4
+		STA $CF81   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA vREG4
+		STA $CF81   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive
+		
+		; REGISTRE 6
+		LDA #06				; registre 6
+		STA $CF81   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA vREG6
+		STA $CF81   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive"
+		
+		; REGISTRE 7
+		LDA #07				; registre 7
+		STA $CF81   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA vREG7
+		AND #%00011011		; AB_NOTC
+		LDA vREG7
+		AND #%00110110		; NOTA_BC
+		STA $CF81   		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive"
+
+		; REGISTRE 8
+		LDA #08				; registre 8
+		STA $CF81   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA vREG8
+		LDA #00             ; 0 à droite pour VOL A
+		STA $CF81   		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive"
+		
+		; REGISTRE 9
+		LDA #09				; registre 9
+		STA $CF81   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA vREG9
+		STA $CF81   		; ORA1 (data)
+        LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive"
+			
+		; REGISTRE 10
+		LDA #10				; registre 10
+		STA $CF81   		; ORA1 (data)
+        LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA #00				; 0 à gauche pour VOL C 
+		LDA vREGA			; 
+		STA $CF81   		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive"
+		
+		; REGISTRE 11
+		LDA #11				; registre 11
+		STA $CF81   		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA vREGB			; 
+		STA $CF81   		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive"
+		
+		; REGISTRE 12
+		LDA #12				; registre 12
+		STA $CF81   		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA vREGC
+		STA $CF81   		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive"
+		
+		; REGISTRE 13		; pas oublier de shunter si = $FF
+		LDA vREGD
+		CMP #$FF
+		BEQ +
+		
+		LDA #13				; registre 13
+		STA $CF81   		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		LDX #$04			; Set fct "Inactive"
+		STA $CF80   		; Set fct "Set PSG Reg #"
+        STX $CF80   		; Set fct "Inactive"
+
+		LDA vREGD			; on lit la valeur
+		STA $CF81   		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+        LDX #$04			; Set fct "Inactive"
+        STA $CF80   		; Set fct "Write DATA"
+        STX $CF80   		; Set fct "Inactive"
+		
++
+		DEC nREG0
+		BNE +
+		LDA (dREG0),Y
+		STA nREG0
+		INY
+		LDA (dREG0),Y
+		STA vREG0
+		DEY
+		INC dREG0
+		INC dREG0
+		BNE +
+		INC dREG0+1
+
++		DEC nREG1
+		BNE +
+		LDA (dREG1),Y
+		STA nREG1
+		INY
+		LDA (dREG1),Y
+		STA vREG1
+		DEY
+		INC dREG1
+		INC dREG1
+		BNE +
+		INC dREG1+1
+        
++		DEC nREG2
+		BNE +
+		LDA (dREG2),Y
+		STA nREG2
+		INY
+		LDA (dREG2),Y
+		STA vREG2
+		DEY
+		INC dREG2
+		INC dREG2
+		BNE +
+		INC dREG2+1
+        
++		DEC nREG3
+		BNE +
+		LDA (dREG3),Y
+		STA nREG3
+		INY
+		LDA (dREG3),Y
+		STA vREG3
+		DEY
+		INC dREG3
+		INC dREG3
+		BNE +
+		INC dREG3+1
+        
++		DEC nREG4
+		BNE +
+		LDA (dREG4),Y
+		STA nREG4
+		INY
+		LDA (dREG4),Y
+		STA vREG4
+		DEY
+		INC dREG4
+		INC dREG4
+		BNE +
+		INC dREG4+1
+        
++		DEC nREG6
+		BNE +
+		LDA (dREG6),Y
+		STA nREG6
+		INY
+		LDA (dREG6),Y
+		STA vREG6
+		DEY
+		INC dREG6
+		INC dREG6
+		BNE +
+		INC dREG6+1
+        
++		DEC nREG7
+		BNE +
+		LDA (dREG7),Y
+		STA nREG7
+		INY
+		LDA (dREG7),Y
+		STA vREG7
+		DEY
+		INC dREG7
+		INC dREG7
+		BNE +
+		INC dREG7+1
+        
++		DEC nREG8
+		BNE +
+		LDA (dREG8),Y
+		STA nREG8
+		INY
+		LDA (dREG8),Y
+		STA vREG8
+		DEY
+		INC dREG8
+		INC dREG8
+		BNE +
+		INC dREG8+1
+
++		DEC nREG9
+		BNE +
+		LDA (dREG9),Y
+		STA nREG9
+		INY
+		LDA (dREG9),Y
+		STA vREG9
+		DEY
+		INC dREG9
+		INC dREG9
+		BNE +
+		INC dREG9+1
+
++		DEC nREGA
+		BNE +
+		LDA (dREGA),Y
+		STA nREGA
+		INY
+		LDA (dREGA),Y
+		STA vREGA
+		DEY
+		INC dREGA
+		INC dREGA
+		BNE +
+		INC dREGA+1
+
++		DEC nREGB
+		BNE +
+		LDA (dREGB),Y
+		STA nREGB
+		INY
+		LDA (dREGB),Y
+		STA vREGB
+		DEY
+		INC dREGB
+		INC dREGB
+		BNE +
+		INC dREGB+1
+
++		DEC nREGC
+		BNE +
+		LDA (dREGC),Y
+		STA nREGC
+		INY
+		LDA (dREGC),Y
+		STA vREGC
+		DEY
+		INC dREGC
+		INC dREGC
+		BNE +
+		INC dREGC+1
+
++		DEC nREGD
+		BNE +
+		LDA (dREGD),Y
+		STA nREGD
+		INY
+		LDA (dREGD),Y
+		STA vREGD
+		INC dREGD
+		INC dREGD
+		BNE +
+		INC dREGD+1
++		
+		
+.decVBL
+		LDX IndexTimeLine
+        LDA CounterL
+        CMP TimeLineL,X
+        BNE +
+        LDA CounterH
+        CMP TimeLineH,X
+        BNE +
+
+        INC bTime
+
++       DEC CounterL
+		BNE .fin
+		DEC CounterH
+		BNE .fin
+
+		; reload values
+		LDX #(13*4-1)
+.b1		LDA TableREG,X
+		STA nREG0,X
+		DEX
+		BPL .b1
+		
+		LDA #<NBVBL
+		STA CounterL
+		LDA #((>NBVBL)+1)
+		STA CounterH
+		; ------------
+.fin
+		STA $C002			; read MAIN Memory
+        RTS
+
+EO_PLAYER_YM
+
+; ============== TIMER HANDLER ===============
+; slightly different from the one provided by MENU
+
+; Default number of cycles to wait before Timer 2 is executed
+; this makes it call the user sync code on exactly the last line of VBLANK, cycle 0
+; (65 cycles before display)
+; change it +/- n*65 to move the sync code call up or down on screen
+; and write your value to SYNC_COUNTERL and SYNC_COUNTERH (located in tools_irqhandler.a)
+; ===> NOTE: for NTSC you should substract 3250 cycles.
+
+;DEFAULT_SYNC_TIMER = 4247 ; Old AppleWin (FT) NTSC
+DEFAULT_SYNC_TIMER = 7479 ; 7512-20-4-7-2 ; IRL machines PAL / newer AppleWin PAL
+
+
+; =============================================================================
+;                   0123456789012345678901234567890123456789
+; SCROLL TEXT DATA
+!ct "custom.bin" {
+BLABLA  !TEXT      " EVERYONE SHOULD ENJOY A FULLSCREEN SCROLLING & STEREO MUSIC   "
+        !BYTE $FF
+        !TEXT      "GREETS TO COSINE*FENARINARSA*NINJAFORCE*VMW@   "
+        !BYTE $FF
+        !TEXT      "MAD EFFECT Z * CODE+GFX:GROUiK * MUSIC:NQ * NOW LET'S PLAY THE MUSIC CAUSE IT ROCKS!             "
+        !BYTE $FF
+}
+
+; FONT DATA
+TLINE0 !byte 0, 248, 248, 248, 248, 248, 248, 248, 216, 192, 48, 216, 192, 238, 232, 248, 248, 248, 248, 248, 252, 216, 216, 198, 216, 216, 248, 240, 192, 0, 0, 0, 192, 128, 0, 24
+TLINE1 !byte 0, 200, 200, 192, 200, 192, 192, 192, 216, 192, 48, 216, 192, 238, 232, 216, 200, 200, 200, 192, 48, 216, 216, 198, 216, 216, 24, 144, 208, 0, 192, 40, 192, 128, 0, 32
+TLINE2 !byte 0, 200, 200, 192, 200, 240, 240, 216, 248, 192, 48, 248, 192, 254, 232, 216, 248, 200, 248, 248, 48, 216, 216, 214, 248, 216, 248, 144, 248, 0, 0, 112, 192, 0, 64, 248
+TLINE3 !byte 0, 248, 248, 192, 200, 192, 192, 200, 248, 192, 48, 224, 192, 214, 216, 216, 248, 200, 240, 24, 48, 216, 216, 254, 112, 216, 248, 240, 208, 128, 192, 56, 192, 0, 224, 240
+TLINE4 !byte 0, 248, 200, 248, 248, 248, 192, 248, 216, 192, 240, 216, 240, 198, 216, 248, 192, 216, 216, 248, 48, 248, 112, 238, 216, 56, 192, 144, 208, 0, 192, 80, 0, 0, 64, 240
+TLINE5 !byte 0, 200, 248, 248, 248, 248, 192, 248, 216, 192, 240, 216, 240, 198, 216, 248, 192, 248, 216, 248, 48, 248, 112, 238, 216, 248, 248, 240, 240, 128, 192, 0, 192, 0, 0, 120
+TNBROW !byte 3, 6, 6, 6, 6, 6, 6, 6, 6, 3, 5, 6, 5, 8, 6, 6, 6, 6, 6, 6, 7, 6, 6, 8, 6, 6, 6, 5, 6, 3, 3, 7, 3, 2, 4, 6
+; ------------------------------------------
+TableREG 	!byte $01,$56,$02,$60		; 00
+			!byte $FF,$00,$4A,$70		; 01
+			!byte $14,$CD,$06,$75		; 02
+			!byte $FF,$00,$C2,$80		; 03
+			!byte $32,$33,$72,$82		; 04
+			!byte $FF,$00,$48,$8C		; 06
+			!byte $FF,$38,$5E,$8F		; 07
+			!byte $01,$0F,$42,$96		; 08
+			!byte $01,$0B,$70,$9C		; 09
+			!byte $02,$0D,$98,$AA		; 0A
+			!byte $FF,$00,$1C,$B5		; 0B
+			!byte $FF,$00,$7E,$B6		; 0C
+			!byte $FF,$FF,$A0,$B6		; 0D
+; ------------------------------------------
+NBVBL = 4080
+
+TimeLineL   !byte <(NBVBL-320),<(NBVBL-960),<(NBVBL-2400),<(NBVBL-3600)
+TimeLineH   !byte (>(NBVBL-320))+1,(>(NBVBL-960))+1,(>(NBVBL-2400))+1,(>(NBVBL-3600))+1
+
+TableMODPL  !byte <(MODPAGE4+1),<(MODPAGE1+1),<(MODPAGE5+1),<(MODPAGE2+1),<(MODPAGE0+1),<(MODPAGE3+1)
+TableMODPH  !byte >(MODPAGE4+1),>(MODPAGE1+1),>(MODPAGE5+1),>(MODPAGE2+1),>(MODPAGE0+1),>(MODPAGE3+1)
+; ------------------------------------------
+DATABIT0    ;!fill 66,00
+
+DATABIT1 = DATABIT0+11
+DATABIT2 = DATABIT1+11
+DATABIT3=  DATABIT2+11
+DATABIT4 = DATABIT3+11
+DATABIT5 = DATABIT4+11
+
+ENDADD

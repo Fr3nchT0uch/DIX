@@ -1,0 +1,638 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; Crazy Cycles
+; Routines Fast Load/Hyper Boot (c) 1986 - SAM/EA
+; adapt�e pour ACME 0.90 - 2014
+; version 0.6
+
+!convtab "a2txt.bin" ; 
+!sl "mainlabel.a"
+!source "../../macros.a"
+!source "../../sysconst.a"
+
+	*= $F100 ; ORG = $F100 (RAM Langage Card)
+
+; PSEUDO CATALOG Track/SectorDebut-Track/SectorFin (inclus)
+; T00/S00 			: BOOT0
+; T00/S01-S09 		: MAIN
+; T00/S0A-S0F		: FLOAD
+
+; T01/S00 - T02/S0F	: ROUTINES TRANSITION PART ($9000) - 25 secteurs r�els
+; T03/S00 - T06/S0F : 2 HGRs PART I (PAGES1/2 - $2000/$4000) - 64 (32*2) secteurs r�els
+; T07/S00 - T07/S07	: PART I ($6000) - 8 secteurs r�els
+; T08/S00 - T09/S0F	: HGR PART II (PAGE 1 - $2000) - 32 secteurs r�els
+; T0A/S00 - T0C/S0F	: PART II ($2000) - 38 secteurs r�els
+; T0D/S00 - T0E/S0F	: HGR END (PAGE 2 - $4000) - 32 secteurs r�els
+; T0F/S00 - T0F/S0A	: PART III ($6000) - 11 secteurs r�els
+
+; CONSTANTES SYSTEME ===================
+VERTBLANK	 	= $C019	;
+DEBUG = 0
+
+; SOUS-ROUTINES BOOT0
+EXECFROMBOOT2  =	$857 	; sous routine de d�tection type APPLE II (utilise ROM)
+
+bCPU = $01
+bSLOT       = $02
+SP_DEVICE = $43
+SP_DEST = $44
+SP_BLOCK = $46
+
+; SOUS-ROUTINES PROGRAMMES
+HYPLOD			=	$FA00	; routine Fast Load
+TRANSITION1		= 	$9000	; routine transition text page 1 (scroll DvG)
+TRANSITION2		= 	$A100	; routine transition text/hires
+WAIT			=	$A700	; routine WAIT (y*65 cycles d'attente = 1 ligne)
+PARTI			= 	$6000	; routine anime PART I
+PARTII			=	$4000	; routine anime PART II
+PARTIII			= 	$6000	; routine anime PART III
+; =====================================
+
+
+;======PARAMETRES DU FAST LOAD
+                          
+                        ;-PARAMETRES D'ENTREE
+PISDEP   =   $300       ;PISTE DE DEPART
+SECDEP   =   $301       ;SECTEUR DE DEPART
+BUFFER   =   $302       ;ADRESSE OU L'ON CHARGE
+TOTSEC   =   $304       ;TOTAL DES SECTEURS A CHARGER
+DRVNUM   =   $305       ;1 OU 2
+ERRMAX   =   $306       ;MAXIMUM D'ERREURS TOLEREES SUR UN SECTEUR AVANT DE RENDRE LA MAIN
+DLFLAG   =   $307       ;1=DELAI AVANT DE LIRE ;0=NON
+                        
+                        ;-PARAMETRES ENTREE/SORTIE
+ICURTRK1 =   $310       ;2*PISTE INITIALE DU DRIVE1 A GARNIR POUR LE 1ER APPEL
+ICURTRK2 =   $311       ;2*PISTE INITIALE DU DRIVE2    "
+
+
+; PAGE ZERO ===========================
+bIIc		= $03	; byte IIc	(00 = //c | other = pas //c !)
+bMachine 	= $0A	; byte MACHINE ($7F/IIE | $FF/GS)
+bRefresh	= $0B	; byte type NTSC/60Hz - PAL/50Hz (00 = 50HZ | 01 = 60 HZ)
+; ***
+Temp		= $FF
+;	======== DEBUT PROGRAMME =========
+START	
+!zone
+ 		;JMP EXECFROMBOOT2
+	JMP SETUPSP
+VBLANK	JMP VBLANK_GSE
+; ------------------------------------ 		
+
+; ------------------------------------
+SETUPSP	+print_debug '2'
+	LDA bSLOT		; setup SP device
+	LSR
+	LSR
+	LSR
+	LSR
+	ORA #$C0
+	STA modread+2
+	STA _HIRESon
+
+DEBUT2	; on revient ici apr�s la routine de d�tection A2			
+	LDA #$7f		; force IIe
+	STA bMachine
+ 		LDA bIIc
+ 		BNE DETECTREFRESH_GSE	; si c'est pas un IIc, on passe directement � la d�tection du taux de rafraichissement
+		+print_debug '3'
+		; si c'est un IIc  mise en place de l'interruption !
+		LDA #<VBLANKIIc			; on fixe la routine d'appel au VBLANK
+ 		STA VBLANK+1			; sur la routine
+ 		LDA #>VBLANKIIc			; //c
+ 		STA VBLANK+2
+		
+ 		sei 					; disable interrupts
+ 		
+ 		lda #<VBLI 				; on fixe le vecteur de l'interruption 
+ 		STA $FFFE				; du IIc (VBL)
+ 		lda #>VBLI				; pour pointer
+ 		STA $FFFF				; sur notre routine VBLI
+ 		
+ 		; on active la premi�re interruption pour VBL
+ 		sta $c079 				; enable IOU access
+ 		sta $c05b 				; enable VBL int
+ 		sta $c078 				; disable IOU access
+
+; ============== DETECT REFRESH //c =============
+			JSR VBLANK		; on attend le d�but du VBL
+
+			cli 			; enable interrupts			
+			; ici d�but VBL - depuis quelques cycles d�j�
+
+.BP			INC COUNTREF	; 6 ; on incr�mente le compteur
+
+			LDX #$09		; 							
+.WL1 		DEX				; 					
+			BNE .WL1 		; = 46 cycles
+							; + 6 + 6 + 4 + 3 = 65 !
+			NOP
+			NOP
+			NOP				; 3*2
+			; on attend le d�but d'un autre VBL (interruption)
+	 		bit vblflag		; 4
+			bpl .BP 		; 3 	wait for vblflag = 1
+			lsr vblflag 	;...&  set vblflag = 0
+ 			sei				; interruption off
+
+			LDA COUNTREF	; contient un VBL complet + un display et on sort au d�but du prochain VBL soit = 192+70+(50) = $138 ou ($106) donc $38 ou $06
+			CMP #$10		; >= 16 alors 50 HZ 
+			BCS .GO1
+		
+			LDA #01			; 60HZ 
+			JMP .GO2
+
+.GO1		LDA #00			; 50HZ
+.GO2		STA bRefresh	
+		+print_debug '4'
+		JMP SUITE0
+	
+; ========= DETECT REFRESH IIG/IIE ===========
+DETECTREFRESH_GSE
+!zone
+		; detection refresh rate (PAL/NTSC)
+		LDA	 bMachine 	;
+.lp1	CMP VERTBLANK 
+		Bpl   .lp1		; on attend la fin du VBL courant
+
+		LDA  bMachine	; 3
+.lp2	CMP VERTBLANK	; 4
+		Bmi   .lp2	 	; 2 => on attend la fin du display courant/d�but du VBL
+		
+		; d�but VBL
+
+.BP		INC COUNTREF	; 6 ; on incr�mente le compteur
+
+		LDX #$09		; 							
+.WL1 	DEX				; 					
+		BNE .WL1 		; = 46 cycles
+						; + 6 + 3 + 3 + 4 + 3 = 65 !
+		
+		LDA bMachine	; 3
+
+		LDA bMachine	; 3
+		CMP VERTBLANK	; 4
+		Bpl   .BP	 	; 3 => on boucle tant qu'on est en VBL
+		
+		LDA COUNTREF
+		CMP #72			; >= 72 alors 50 HZ (120*65 cycles de VBL)
+		BCS .GO3
+		
+		LDA #01		; 60HZ (VBL = 70x65 cycles)	
+		JMP .GO4
+
+.GO3	LDA #00			; 50HZ (VBL = 120x65 cycles)
+.GO4	STA bRefresh	
+
+; -------------------------------------
+SUITE0
+ 		; initialisation HyperLoad
+ 	;	LDX #00
+ 	;	STX ICURTRK1
+ 	;	INX	; 1
+ 	;	STX DRVNUM
+ 	;	STX DLFLAG
+ 				
+ 		; affichage texte pr�sentation + logo ascii
+		JSR VBLANK
+		
+		; VBL
+ 		LDX #39
+.bd		LDA TextIntro0,x
+		STA $400,x
+		STA $750,x
+		LDA TextIntro1,x
+		STA $480,x
+		LDA TextIntro2,x                                    
+		STA $7D0,x
+		LDA TextIntro3,x                                    
+		STA $780,x
+		LDA TextIntro4,x                                    
+		STA $428,x
+		LDA TextIntro5,x                                    
+		STA $4a8,x
+		LDA TextIntro6,x                                    
+		STA $528,x
+		LDA TextIntro7,x                                    
+		STA $728,x
+		LDA TextIntro8,x                                    
+		STA $7a8,x
+		LDA TextIntro9,x                                    
+		STA $450,x
+		LDA TextIntroA,x                                    
+		STA $4d0,x
+		DEX
+		BPL .bd
+; chargement routines transtions en $9000
+ 	;	LDA #00			; secteur 0
+ 	;	STA SECDEP
+ 	;	STA BUFFER		; buffer low
+ 	;	LDA #01			; track 1
+ 	;	STA PISDEP		;
+ 	;	LDA #$90		; buffer high
+	;	STA BUFFER+1
+	;	LDA #25			; nb Sectors
+	;	STA TOTSEC		
+	;	JSR HYPLOD		; chargement !
+
+		LDX #30			; environ 3s 
+		JSR WAITIIE
+
+; affichage Presentation Text PART I
+		LDY #00			; numero de la PART � afficher (-1)
+		JSR TRANSITION1	; appel sous routine
+
+; chargement 2 HGRs PART I + routine
+; 		LDA #00			; secteur 0
+;		STA SECDEP
+; 		STA BUFFER		; buffer low
+ ;		LDA #03			; track 3
+; 		STA PISDEP		;
+; 		LDA #$20		; buffer high
+;		STA BUFFER+1
+;		LDA #(32+32+8)	; nb Sectors (2 HGRs + routine)
+;		STA TOTSEC		
+;		JSR HYPLOD		; chargement !
+
+	+print_debug 'L'
+	LDA #222
+	STA SP_BLOCK
+	LDA #$20
+	STA SP_DEST+1
+	LDA #36
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+print_debug 'T'
+
+
+		STA $C010		; strobe
+		LDX #20			; environ 2s 
+		JSR WAITIIE
+		
+; Transition TEXT/HIRES
+		JSR TRANSITION2	; appel sous routine
+; ATTENTION, ON REVIENT SYNCHRONISE
+		JSR PARTI		; appel sous routine PART I
+; on revient desynchro
+		LDA $C051		; mode texte / page 1
+		STA $C010		; strobe
+; affichage Presentation Text PART II
+		LDY #01			; numero de la PART � afficher (-1)
+		JSR TRANSITION1	; appel sous routine
+
+; TEXT2TO1	; ; on copie la page vers $800 (sauvegarde avant �crasement par PART II)
+		LDX #$04
+		LDY #00
+.B1		
+.off1	LDA $400,Y
+.off2	STA $800,Y
+		INY
+		BNE .B1
+		INC .off1+2
+		INC .off2+2
+		DEX
+		BNE .B1		
+
+; chargement HGR PART II + routine PART II
+ ;		LDA #00			; secteur 0
+ ;		STA SECDEP
+ ;		STA BUFFER		; buffer low
+ ;		LDA #08			; track 8
+ ;		STA PISDEP		;
+ ;		LDA #$20		; buffer high
+;		STA BUFFER+1
+;		LDA #32+39		; nb Sectors (1 HGR + routine)
+;		STA TOTSEC		
+;		JSR HYPLOD		; chargement !
+	+print_debug 'U'
+	; load HGR
+	LDA #<258
+	STA SP_BLOCK
+	LDA #>258
+	STA SP_BLOCK+1
+	LDA #$20
+	STA SP_DEST+1
+	LDA #16
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	LDA bCPU
+	BEQ +
+	;65C02
+	LDA #<294
+	STA SP_BLOCK
+	LDA #>294
+	STA SP_BLOCK+1
++	LDA #$40
+	STA SP_DEST+1
+	LDA #20
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+print_debug 'V'
+
+
+; d�tection 6502 		
+;		LDA bMachine
+;		BMI .suiteGS 		; on a un GS donc on s'occupe pas du 6502
+;		LDA bIIc
+;		BEQ .suiteIIc		; on a un IIc on s'occupe pas du 6502
+
+;		!byte $80,$03		; BRA +3 si 65C02 ou DOP si 6502
+;		JMP .suite6502		; si le BRA passe par dessus, on a un 65C02, sinon le DOP nous am�ne au JMP
+;		JMP .suite65C02		; on passe au dessus
+		; si on est ici, on a un 6502
+;.suite6502
+;		LDX #39
+;.boucleText
+;		LDA Text65C021,X
+;		STA $650,X
+;		LDA Text65C022,X
+;		STA $6D0,X
+;		DEX
+;		BPL .boucleText
+		
+;		LDX #20				; on rajoute 2 secondes d'attente environ 
+;		JSR WAITIIE
+		
+;.suiteIIc
+;.suiteGS
+;.suite65C02
+
+		LDX #20			; environ 2s 
+		JSR WAITIIE
+
+; Transition TEXT/HIRES
+		JSR TRANSITION2	; appel sous routine
+; ATTENTION, ON REVIENT SYNCHRONISE
+		JSR PARTII
+; retour desynchro
+		STA $C010
+		LDA $C050 		; on reste en mode graphique le temps de r�afficher l'ecran TEXT (qui aura �t� effacer pendant la partie II)
+		LDA $C057		; hires
+; TEXT2TO1	; on recopie la page qui avait �t� sauv�e en $800
+		LDX #$04
+		LDY #00
+.B2		
+.off3	LDA $800,Y
+.off4	STA $400,Y
+		INY
+		BNE .B2
+		INC .off3+2
+		INC .off4+2
+		DEX
+		BNE .B2		
+		
+		LDA $C051		; on repasse en mode text
+; affichage Presentation Text PART III
+		LDY #02			; numero de la PART � afficher (-1)
+		JSR TRANSITION1	; appel sous routine
+
+; chargement routine HGR END + PART III
+; 		LDA #00			; secteur 0
+ ;		STA SECDEP
+ ;		STA BUFFER		; buffer low
+ ;		LDA #$0D		; track 
+ ;		STA PISDEP		;
+ ;		LDA #$40		; buffer high
+;		STA BUFFER+1
+;		LDA #32+11		; nb Sectors (routine)
+;		STA TOTSEC		
+;		JSR HYPLOD		; chargement !
+
+	+print_debug 'W'
+	LDA #<314
+	STA SP_BLOCK
+	LDA #>314
+	STA SP_BLOCK+1
+	LDA #$40
+	STA SP_DEST+1
+	LDA #22
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+	+print_debug 'X'
+
+; effacement HIRES 1
+		LDX #$20
+		LDA #$00
+		TAY
+.B3		
+.off5	STA $2000,Y
+		INY
+		BNE .B3
+		INC .off5+2
+		DEX
+		BNE .B3
+; ------------------
+; pr�paration TEXT
+
+		LDX #39
+		
+.boucle1
+		LDA Title1,X
+		STA $800,X
+		LDA Title2,X
+		STA $880,X
+		LDA Title3,X
+		STA $900,X
+		LDA Title4,X
+		STA $980,X
+		LDA Title5,X
+		STA $A00,X
+		LDA Title6,X
+		STA $A80,X
+		LDA Title7,X
+		STA $B00,X
+		LDA Title8,X
+		STA $B80,X
+		DEX
+		BPL .boucle1
+; ---------------------------------------------
+; Remplissage lignes Text 1 pour anim cycling
+		LDX #39
+		LDA #$AA
+.boucle2		
+		STA $928,X
+		STA $9A8,X
+		STA $A28,X
+		STA $AA8,X
+		STA $B28,X
+		STA $BA8,X
+		STA $850,X
+		STA $8D0,X
+		STA $950,X
+		STA $9D0,X
+		STA $A50,X
+		STA $AD0,X
+		DEX 
+		BPL .boucle2
+; + effacement des autres lignes
+		
+		LDX #39
+		LDA #$A0		
+.boucle3
+		STA $828,X
+		STA $8A8,X
+		STA $B50,X
+		DEX
+		BPL .boucle3
+; pr�paration derni�re ligne
+		LDX #39
+.boucle4
+		LDA Text1,X
+		STA $BD0,X
+		DEX
+		BPL .boucle4		
+; ----------------------------------------------
+
+		LDX #10			; environ 1s 
+		JSR WAITIIE
+		
+		JSR TRANSITION2	; appel sous routine
+; on perd la synchro (tant pis)
+		
+; TEXT2TO1	; on recopie la page qui avait �t� �crite en $800
+		LDX #$04
+		LDY #00
+.B4		
+.off6	LDA $800,Y
+.off7	STA $400,Y
+		INY
+		BNE .B4
+		INC .off6+2
+		INC .off7+2
+		DEX
+		BNE .B4		
+		
+		LDA $C051 	; affichage text
+		
+		JSR PARTIII ; non synchro ici (on chopera la synchro dans la PART III)
+		STA $C010
+		
+		LDA $C057
+		LDA $C050
+		LDA $C055
+		
+		LDX #20			; environ 2s 
+		JSR WAITIIE
+		
+
+	RTS ; end
+;		LDA #$8D
+;		STA $300
+;		LDA #$82
+;		STA $301
+;		LDA #$C0
+;		STA $302
+;		LDA #$4C
+;		STA $303
+;		LDA #00
+;		STA $304
+;		LDA #$C6
+;		STA $305		
+;		JMP $300		; reboot !
+
+
+; =============================================================================
+WAITIIE	; d'apr�s la routine ROM Apple IIe (6502) - X * 0.1seconde environ
+!zone
+			
+.s3
+		LDA #198
+		SEC
+.s2		PHA
+.s1		SBC #$01
+		BNE .s1
+		PLA
+		SBC #$01
+		BNE .s2
+		DEX
+		BNE .s3
+		RTS
+; =====================================================================================================================
+VBLI		; routine execut� lors de l'interruption VBL de la Mouse Rom d'un IIc
+!zone
+ 		; on r�active l'interruption
+ 		sta $c079 		; enable IOU access
+ 		sta $c05b 		; enable VBL int
+ 		sta $c078 		; disable IOU access
+		; on fixe le flag
+ 		LDA #$80
+ 		STA vblflag 	; set hibit
+		RTI
+; =============================================================================
+VBLANKIIc				; code from Prince Of Persia Source (Jordan Mechner - 1989)
+ !zone		
+ 		cli 			; enable interrupts
+
+.l1 	bit vblflag
+		bpl .l1 		; wait for vblflag = 1
+		lsr vblflag 	;...&  set vblflag = 0
+ 		
+ 		sei
+ 		rts
+; =============================================================================
+VBLANK_GSE
+ 		LDA bMachine                                                                   
+.LVBL1	CMP VERTBLANK         
+		BPL .LVBL1 			; attend fin vbl
+                                          
+		LDA bMachine      
+.LVBL2 	CMP VERTBLANK        
+		BMI .LVBL2 			; attend fin display
+		RTS			
+; =============================================================================
+
+; =============================================================================
+READ_FILE
+	LDX bSLOT
+modread	JSR $C50A      ; read 1 block
+	INC SP_BLOCK         ; next block
+	BNE +
+	INC SP_BLOCK+1  
++	INC SP_DEST+1         ; RAM +512 bytes
+	INC SP_DEST+1
+	DEC SP_BLOCKS2READ
+	BNE READ_FILE
+	RTS
+SP_BLOCKS2READ
+	!byte 16        ; nb of 512 bytes blocks to read
+; =============================================================================
+COUNTREF !byte 0
+vblflag	 !byte 0
+; =============================================================================
+TextIntro0	!fill 40,$DF ;"_' inverse
+!convtab "a2txti.bin" {
+; .................0000000000111111111122222222223333333333
+; .................0123456789012345678901234567890123456789
+TextIntro1	!Text "         FRENCH TOUCH  PRESENTS         "
+TextIntro2	!Text "c            MINI  DEMO  IV            c"
+}
+; .................0000000000111111111122222222223333333333
+; .................0123456789012345678901234567890123456789
+TextIntro3	!Text "    .---. .----.   .--.  .---..-.  .-.  "
+TextIntro4	!Text "   /  ___)| ()  ) / () \(_   / \ \/ /   "   
+TextIntro5	!Text "   \     )| .-. \/  /\  \/    ) )  (    "
+TextIntro6	!Text "    `---' `-' `-'`-'  `-'`---'  `--'    "
+TextIntro7	!Text " .---..-.  .-..---. .-.   .----. .----. "
+TextIntro8	!Text "/  ___)\ \/ //  ___)| |   | (_  ( (___  "
+TextIntro9	!Text "\     ) )  ( \     )| `--.| (__ .-._) ) "
+TextIntroA	!Text " `---'  `--'  `---' `----'`----'`----'  "
+
+;.............0000000000111111111122222222223333333333
+;.............0123456789012345678901234567890123456789
+Title1 !text " _____ _____ _____ _____ __ __          "    
+Title2 !text "|     | __  |  _  |__   |  |  |         "   
+Title3 !text "|   --|    -|     |   __|_   _|         "   
+Title4 !text "|_____|__|__|__|__|_____| |_|           "     
+Title5 !text "    _____ __ __ _____ __    _____ _____ " 
+Title6 !text "   |     |  |  |     |  |  |   __|   __|"
+!align 255,0
+Title7 !text "   |   --|_   _|   --|  |__|   __|__   |"
+Title8 !text "   |_____| |_| |_____|_____|_____|_____|"
+
+;.............0000000000111111111122222222223333333333
+;.............0123456789012345678901234567890123456789 		
+Text1 !text  "JUST A RANDOM SCROLL TEXT (HEY, HAVE YOU"
+
+;................0123456789012345678901234567890123456789 	
+Text65C021 !text"         WARNING: 6502 DETECTED         "
+Text65C022 !text" Display won't be correct for this PART "

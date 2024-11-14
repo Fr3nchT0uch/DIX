@@ -1,0 +1,9 @@
+	CLIP5A	= $65ef	; unused
+	CLIP7A	= $9396	; unused
+	CLIP1A	= $1000	; unused
+	CLIP3A	= $43c5	; unused
+	CLIP9A	= $a1ec	; unused
+	CLIPBA	= $a950	; unused
+	CLIP4A	= $5c67	; unused
+	CLIP6A	= $854e	; unused
+	CLIP2A	= $258e	; unused

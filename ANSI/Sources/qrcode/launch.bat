@@ -1,0 +1,1 @@
+start dw.py test2.dsk QRCODE.IMG 21 0 + d

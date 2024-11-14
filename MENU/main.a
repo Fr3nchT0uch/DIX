@@ -1,0 +1,805 @@
+; ACME 0.96.4
+; 10 YEARS ANNIVERSARY MENU
+; by fenarinarsa/French Touch 
+
+!convtab "../a2txt.bin"
+!sl "lbl_main.txt"
+!cpu 6502
+
+!source "../macros.a"
+!source "../sysconst.a"
+
+	* = $E000
+
+DEBUG = 1
+
+ExpoMode   = $04
+FSrc       = $05 ;16b
+FSrc_old   = $07 ;16b
+FSrc2      = $09 ;16b
+MB_BASEADDR = $10 
+CurrentChoice = $DFFF
+
+Raster1Index = $20 ;16b
+RasterTiming = $22
+ptr_tmp1	   = $23 ;16b
+ptr_scrolltext = $25 ;16b
+ScrollerWorkingPage = $27
+;ScrollerCurrentChar = $28
+
+; F4~FE MUTUAL INTs
+DISPLAYSYNC	= $F4
+VSYNC		= $F5
+T2Timing		= $F6
+WaitSyncPTR	= $F8 ;16b
+WaitDisplayPTR	= $FA ;16b
+T1RoutPTR		= $FC ;16b
+T2SyncCodePTR 	= $FE ;16b
+
+PLAYER = $F100
+DIXPRINT = $B000
+;BigFont		= $6000
+
+
+
+;--------------------------------------------
+
+	
+
+	LDA #' '
+	JSR FILLTEXT1
+	STA _80STOREon
+	LDX _PAGE2on
+	JSR FILLTEXT1
+	LDX _PAGE2off
+	STA _80STOREoff
+	; LDA #4
+	; STA RasterTiming
+	+set_ptr ScrollTextText, ptr_scrolltext
+	+set_ptr FONT,FSrc_old
+	+set_ptr FONT,FSrc
+	LDA #$FF
+	STA ScrollerWorkingPage
+
+	JSR $6000  ;init starfield
+
+	LDA CurrentChoice
+	BEQ +
+	LDX #1       ; starts at loop point
+	JSR PLAYER+3 ; Init
+	JMP .skipintro
+
+; -------------------- Intro --------------------
++	LDX #0  ; starts at pattern 0
+	JSR PLAYER+3 ; Init
+	+set_ptr T1Routb, T1RoutPTR  ; start music
+	CLI
+
+	JSR WAITSYNC
+
+	STA _80COLon
+
+	JSR DIXPRINT
+
+	LDX #250
+-	JSR WAITSYNC
+	DEX
+	BNE -
+
+	LDX #60
+-	JSR WAITSYNC
+	DEX
+	BNE -
+
+	; image appears
+	+set_ptr T2intro,T2SyncCodePTR
+
+-	JSR WAITSYNC
+	LDX Intromod+1
+	INX
+	CPX #192
+	BCS +
+	STX Intromod+1
+	JMP -
+
++	LDY #0		
+	STY T2SyncCodePTR+1 ; disable T2 rout
+
+	; DLO
+	STA _TEXToff
+	STA _AN3off
+	STA _80COLon
+	STA _PAGE2on
+
+	; prepare HGR + clear GR1
+	JSR RefreshChoice
+	LDA #0
+	JSR FILLTEXT1
+
+	LDX #240
+-	JSR WAITSYNC
+	DEX
+	BNE -
+	
+	; image disappears
+	+set_ptr T2intro2,T2SyncCodePTR
+
+	LDA #64
+	STA Intromod2+1
+
+	LDX #8
+.waitA	JSR WAITSYNC
+	JSR $6003  ;starfield
+	DEC .waitA-1
+	BPL .waitA
+
+	LDA #128
+	STA Intromod2+1
+
+	LDX #8
+.waitB	JSR WAITSYNC
+	JSR $6003  ;starfield
+	DEC .waitB-1
+	BPL .waitB
+
+
++	LDY #0		
+	STY T2SyncCodePTR+1 ; disable T2 rout
+
+	SEI
+; -------------------- Demo --------------------
+.skipintro
+	STA _80COLoff
+	STA _AN3on
+	STA _TEXToff
+	STA _HIRESon
+	STA _PAGE2off
+
+	JSR RefreshChoice
+
+	+set_ptr T1Rout, T1RoutPTR
+	+set_ptr T2First,T2SyncCodePTR
+	CLI
+
+MAINLOOP
+	+stop_monitoring
+	JSR WAITSYNC
+	+start_monitoring
+	STA _PAGE2off
+	LDA ScrollerWorkingPage
+	EOR #$FF
+	STA ScrollerWorkingPage
+
+	JSR MovingRaster2
+	JSR Scroller
+	JSR $6003  ;starfield
+	;JSR RefreshChoice_transparent
+
+	LDA $C000
+	BPL MAINLOOP
+	STA $C010
+	CMP #8+$80
+	BEQ .LeftArrow
+	CMP #21+$80
+	BEQ .RightArrow
+	CMP #13+$80
+	BEQ .return
+	CMP #$A0
+	BEQ .return
+	BNE MAINLOOP
+
+.LeftArrow
+	LDX CurrentChoice
+	CPX #2
+	BCS +
+	LDA #17
+	STA CurrentChoice
++	DEC CurrentChoice
+	JSR RefreshChoice
+	JMP MAINLOOP
+
+.RightArrow
+	LDX CurrentChoice
+	CPX #16
+	BNE +
+	LDA #0
+	STA CurrentChoice
++	INC CurrentChoice
+	JSR RefreshChoice
+	JMP MAINLOOP
+
+
+.return
+.end	LDA CurrentChoice
+	; CMP #16
+	; BNE +
+	; LDA #1
+	; STA ExpoMode
++	LDA #0
+	STA T1RoutPTR+1
+	SEI
+	JSR PLAYER+6
+	RTS
+
+RefreshChoice
+	LDY CurrentChoice
+	LDA DemoNameH,Y
+	TAX
+	LDA DemoNameL,Y
+	JSR SetMsgHGR
+	RTS
+
+; RefreshChoice_transparent
+; 	LDY CurrentChoice
+; 	LDA DemoNameH,Y
+; 	TAX
+; 	LDA DemoNameL,Y
+; 	JSR SetMsgHGR_transparent
+; 	RTS
+
+WAITSYNC  JMP (WaitSyncPTR)
+
+; MovingRaster
+; 	DEC RasterTiming
+; 	BEQ +
+; 	RTS
+; +	LDA #3
+; 	STA RasterTiming
+; 	LDY Raster1Index
+; 	LDA ColorRasters,Y
+; 	BNE +
+; 	LDY #$FF
+; +	INY
+; 	STY Raster1Index
+; 	LDA ColorRasters,Y
+; 	LDY #39
+; -	STA $528,Y
+; 	STA $628,Y
+; 	DEY
+; 	BPL -
+; 	RTS
+
+MovingRaster2
+	LDY Raster1Index
+	CPY #225
+	BNE +
+	LDY #$FF
++	INY
+	STY Raster1Index
+	LDX #39
+-	LDA ColorRasters,Y
+	STA $7A8,X
+	INY
+	DEX
+	BPL -
+	LDY Raster1Index
+	LDX #0
+-	LDA ColorRasters,Y
+	STA $728,X
+	INY
+	INX
+	CPX #40
+	BNE -
+	RTS
+
+Scroller
+	LDA ScrollerWorkingPage
+	BEQ ScrollerPage1	; $00
+	JMP ScrollerPage2	; $FF
+
+ScrollerPage1
+	; move text to the left, 1 byte
+	LDX #0
+-	LDA $27D1,X
+	STA $27D0,X
+	LDA $2BD1,X
+	STA $2BD0,X
+	LDA $2FD1,X
+	STA $2FD0,X
+	LDA $33D1,X
+	STA $33D0,X
+	LDA $37D1,X
+	STA $37D0,X
+	LDA $3BD1,X
+	STA $3BD0,X
+	LDA $3FD1,X
+	STA $3FD0,X
+	INX
+	CPX #39
+	BNE -
+
+	; gets new character
+	LDY #0
+	LDA (ptr_scrolltext),Y
+	CMP #$FF
+	BNE +
+	; wrap text
+	+set_ptr ScrollTextText,ptr_scrolltext
+	LDA (ptr_scrolltext),Y
++	INC ptr_scrolltext     ; next character
+	BNE +
+	INC ptr_scrolltext+1
++
+	TAY
+	; saves previous character pointer
+	LDA FSrc
+	STA FSrc_old
+	LDA FSrc+1
+	STA FSrc_old+1
+	; gets new char in font
+	LDA FTableLo,Y	
+	STA FSrc
+	LDA FTableHi,Y	
+	STA FSrc+1
+
+	LDY #0
+
+	; second half of old char
+	LDA (FSrc_old),Y
+	LSR
+	LSR
+	LSR
+	LSR
+	STA $27D0+39
+	INY
+	LDA (FSrc_old),Y
+	LSR
+	LSR
+	LSR
+	LSR
+	STA $2BD0+39
+	INY
+	LDA (FSrc_old),Y
+	LSR
+	LSR
+	LSR
+	LSR
+	STA $2FD0+39
+	INY
+	LDA (FSrc_old),Y
+	LSR
+	LSR
+	LSR
+	LSR
+	STA $33D0+39
+	INY
+	LDA (FSrc_old),Y
+	LSR
+	LSR
+	LSR
+	LSR
+	STA $37D0+39
+	INY
+	LDA (FSrc_old),Y
+	LSR
+	LSR
+	LSR
+	LSR
+	STA $3BD0+39
+	INY
+	LDA (FSrc_old),Y
+	LSR
+	LSR
+	LSR
+	LSR
+	STA $3FD0+39
+
+	; first half of new char
+
+	LDY #0
+
+	LDA (FSrc),Y
+	ASL
+	ASL
+	ASL
+	AND #$7F
+	ORA $27D0+39
+	STA $27D0+39
+	INY
+	LDA (FSrc),Y
+	ASL
+	ASL
+	ASL
+	AND #$7F
+	ORA $2BD0+39
+	STA $2BD0+39
+	INY
+	LDA (FSrc),Y
+	ASL
+	ASL
+	ASL
+	AND #$7F
+	ORA $2FD0+39
+	STA $2FD0+39
+	INY
+	LDA (FSrc),Y
+	ASL
+	ASL
+	ASL
+	AND #$7F
+	ORA $33D0+39
+	STA $33D0+39
+	INY
+	LDA (FSrc),Y
+	ASL
+	ASL
+	ASL
+	AND #$7F
+	ORA $37D0+39
+	STA $37D0+39
+	INY
+	LDA (FSrc),Y
+	ASL
+	ASL
+	ASL
+	AND #$7F
+	ORA $3BD0+39
+	STA $3BD0+39
+	INY
+	LDA (FSrc),Y
+	ASL
+	ASL
+	ASL
+	AND #$7F
+	ORA $3FD0+39
+	STA $3FD0+39
+
+	RTS
+
+ScrollerPage2
+	LDX #0
+-	LDA $47D1,X
+	STA $47D0,X
+	LDA $4BD1,X
+	STA $4BD0,X
+	LDA $4FD1,X
+	STA $4FD0,X
+	LDA $53D1,X
+	STA $53D0,X
+	LDA $57D1,X
+	STA $57D0,X
+	LDA $5BD1,X
+	STA $5BD0,X
+	LDA $5FD1,X
+	STA $5FD0,X
+	INX
+	CPX #39
+	BNE -
+
+;	LDY #0
+;	LDA (ptr_scrolltext),Y
+
+;	TAY
+;	LDA FTableLo,Y	
+;	STA FSrc
+	;STA FSrc_old
+;	LDA FTableHi,Y	
+;	STA FSrc+1
+	;STA FSrc_old+1
+
+	; new char (complete)
+
+	LDY #0
+
+	LDA (FSrc),Y
+	STA $47D0+39
+	INY
+	LDA (FSrc),Y
+	STA $4BD0+39
+	INY
+	LDA (FSrc),Y
+	STA $4FD0+39
+	INY
+	LDA (FSrc),Y
+	STA $53D0+39
+	INY
+	LDA (FSrc),Y
+	STA $57D0+39
+	INY
+	LDA (FSrc),Y
+	STA $5BD0+39
+	INY
+	LDA (FSrc),Y
+	STA $5FD0+39
+
+
+	RTS
+
+
+ScrollTextText
+!ct "custom.bin" {
+	!text "                                                                                                          "
+	!text " WELCOME TO THE 10 YEARS ANNIVERSARY PARTY OF FRENCH TOUCH!"
+	!text "        USE THE LEFT AND RIGHT ARROWS TO CHOOSE A DEMO AND SPACE OR RETURN TO RUN IT.      "
+	!text " ALL DEMOS ARE NOW        IIE AND IIC COMPATIBLE        AND ARE BEST WATCHED ON A CRT OF COURSE!"
+	!text "                                       MUSIC: DMA SC (SECTOR ONE)"
+	!text "                                       GFX: MADE (BOMB)"
+	!text "                                       CODE: FENARINARSA"
+	!text "                                       ADDITIONAL CODE AND GFX: GROUIK"
+	!text "                                        "
+	!text " THIS DEMO IS EXPECTED TO WORK ON        800KB FLOPPY DISKS        FOR THE UNIDISK DRIVE."
+	!text "        IT WAS ABOUT TIME SOMETHING FUN WAS MADE FOR THOSE FLOPPY DRIVES!"
+	!text "        YOU CAN ALSO SELECT THE AUTOMATIC RUN MODE THAT WILL PLAY ALL DEMOS IN LOOP. WOW AMAZING!"
+	!text "                                        "
+	!text " THIS ANTHOLOGY CONTAINS MOST MAJOR RELEASES FROM FRENCH TOUCH AND HOPEFULLY WORKING ON EVERY PAL 128K SETUP."
+	!text "        SORRY NO NTSC RELEASE PLANNED BECAUSE MOST RELEASES NEED A 50HZ VSYNC!"
+	!text "        IT ACTUALLY TOOK 3 MONTHS TO CONVERT ALL"
+	!text " DEMOS TO MAKE THEM WORK ON IIC. BUT HERE WE ARE NOW WITH ALL THOSE GREAT DEMOS NOW ALSO COMPATIBLE WITH BLOCK DEVICES!"
+	!text "       YOU CAN NOW SEE HOW FRENCH TOUCH PROGRESSED THROUGH THE LAST DECADE."
+	!text "       A HUGEMEGA THANKS TO DMA SC FOR THIS EXCLUSIVE 6 CHANNELS TUNE AND ALSO TO MADE FOR THE AMAZING GFX!"
+	!text "       NOW YOU ONLY HAVE ONE THING TO DO... WAITING FOR OUR NEXT RELEASE! BYEEEEEEEEEEEEEEEEE"
+	}
+	!byte $FF
+
+T1Rout	+set_ptr T2First,T2SyncCodePTR
+T1Routb	JSR PLAYER
+	RTS
+
+T2intro	JSR WAIT55
+	STA _TEXToff
+	STA _AN3off
+	STA _80COLon
+	STA _PAGE2on
+Intromod	LDY #1
+	JSR WAIT65
+	STA _80COLon
+	STA _AN3on
+	STA _TEXTon
+	STA _PAGE2off
+	RTS
+
+T2intro2	JSR WAIT55
+	STA _80COLoff
+	STA _AN3on
+	STA _TEXToff
+	STA _PAGE2off
+	STA _HIRESon
+Intromod2	LDY #1
+	JSR WAIT65
+	STA _HIRESoff
+	STA _TEXToff
+	STA _AN3off
+	STA _80COLon
+	STA _PAGE2on
+	RTS
+
+T2First	LDY #$08
+	LDA #<(65*(84+24+4))
+	STA (MB_BASEADDR),Y
+	INY
+	LDA #>(65*(84+24+4))
+	STA (MB_BASEADDR),Y		; start Timer 2
+	+set_ptr RASTER1,T2SyncCodePTR
+	RTS
+
+	; first moving GR line
+RASTER1	STA _HIRESoff
+	STA _PAGE2off
+	JSR WAIT55
+	STA _HIRESon
+	LDY #$08
+	LDA #<(65*9)-8
+	STA (MB_BASEADDR),Y
+	INY
+	LDA #>(65*9)-8
+	STA (MB_BASEADDR),Y		; start Timer 2
+	+set_ptr RASTER2,T2SyncCodePTR
+	RTS
+
+	; second moving GR line
+RASTER2	STA _HIRESoff
+	JSR WAIT55
+	STA _HIRESon
+	LDY #$08
+	LDA #<(65*56)
+	STA (MB_BASEADDR),Y
+	INY
+	LDA #>(65*56)
+	STA (MB_BASEADDR),Y		; start Timer 2
+	+set_ptr RASTER3,T2SyncCodePTR
+	RTS
+
+	; swap pages just before scrolltext
+RASTER3	LDA ScrollerWorkingPage
+	BEQ +
+	STA _PAGE2off
+	RTS
++	STA _PAGE2on
+	RTS
+
+ColorRasters
+	!fill 50,$00   ; yellow/orange
+	!fill 5,$99
+	!fill 5,$DD
+	!fill 5,$FF
+	!fill 5,$DD
+	!fill 5,$99
+	; !fill 50,$00  ; red
+	; !fill 5,$11
+	; !fill 5,$33
+	; !fill 5,$BB
+	; !fill 5,$33
+	; !fill 5,$11
+	!fill 50,$00   ; green
+	!fill 5,$44
+	!fill 5,$CC
+	!fill 5,$EE
+	!fill 5,$CC
+	!fill 5,$44
+	!fill 50,$00   ; blue
+	!fill 5,$22
+	!fill 5,$66
+	!fill 5,$77
+	!fill 5,$66
+	!fill 5,$22
+	!fill 50,$00
+
+
+!ct "custom.bin" {
+DEMOX	!text "       USE ARROWS TO SELECT DEMO        "
+;	!text "0123456789ABCDE          EDCBA9876543210"
+DEMO0	!text "         UNLIMITED BOBS (2014)          "
+DEMO1	!text "      SCROLL SCROLL SCROLL (2015)       "
+DEMO2	!text "          CRAZY CYCLES (2015)           "
+DEMO3	!text "      A QUESTION OF FRAMES (2015)       "
+DEMO4	!text "           PLASMAGORIA (2015)           "
+DEMO5	!text "           RASTER BARS (2015)           "
+DEMO6	!text "         CRAZY CYCLES 2 (2016)          "
+;	!text "0123456789ABCDE          EDCBA9876543210"
+DEMO7     !text "         ONE MORE THING (2019)          "
+DEMO8     !text "           MAD EFFECT (2019)            "
+DEMO9     !text "          MAD EFFECT 2 (2019)           "
+DEMOA     !text "  UNREEEAL SUPERHERO 3 TRIBUTE (2020)   "
+DEMOB     !text "          MAD EFFECT 3 (2020)           "
+DEMOC     !text "            DIGIDREAM (2020)            "
+DEMOD     !text "      OLDSKOOL FORT ET VERT (2021)      "
+DEMOE     !text "   DIGIDREAM SID VOICE EDITION (2024)   "
+DEMOALL   !text "      ALL DEMOS IN AUTOMATIC MODE       "
+;	!text "0123456789ABCDE          EDCBA9876543210"
+}
+
+
+; =============================================================================
+
+TEXT_HGR_LINE1 = $2328
+TEXT_HGR_LINE2 = $23A8
+
+SetMsgHGR  ; IN: A/X (lo/hi) Text address to display
+!zone
+            STA .mod1+1
+            STX .mod1+2
+
+;            STA $C004           ; Write MAIN Memory ALWAYS
+;            LDA #00
+;            STA sWrite
+
+            LDX #39             ; boucle 40 lettres du message
+.BP            
+.mod1       LDY DEMOX,X         ; retrieve directly letter number (becoze use of custom.bin)
+
+            LDA FTableLo, Y     ; source for data in font.bin for current letter
+            STA FSrc2
+            LDA FTableHi, Y
+            STA FSrc2+1
+
+            LDY #00
+
+            LDA (FSrc2),Y
+            STA TEXT_HGR_LINE1+$1000,X ;+$00,X
+            INY
+            LDA (FSrc2),Y
+            STA TEXT_HGR_LINE1+$1400,X ;$400,X
+            INY
+            LDA (FSrc2),Y
+            STA TEXT_HGR_LINE1+$1800,X ;+$800,X
+            INY
+            LDA (FSrc2),Y
+            STA TEXT_HGR_LINE1+$1C00,X ;+$C00,X
+            INY
+            LDA (FSrc2),Y
+            STA TEXT_HGR_LINE2+$00,X ;+$1000,X
+            INY
+            LDA (FSrc2),Y
+            STA TEXT_HGR_LINE2+$400,X ;+$1400,X
+            INY
+            LDA (FSrc2),Y
+            STA TEXT_HGR_LINE2+$800,X ;+$1800,X
+
+            DEX
+            BPL .BP
+            RTS
+
+            DEX
+            BPL .BP
+            RTS
+
+FONT        !binary "font.bin"
+FTableLo    !byte <(FONT+00*7),<(FONT+01*7),<(FONT+02*7),<(FONT+03*7),<(FONT+04*7),<(FONT+05*7),<(FONT+06*7),<(FONT+07*7)
+            !byte <(FONT+08*7),<(FONT+09*7),<(FONT+10*7),<(FONT+11*7),<(FONT+12*7),<(FONT+13*7),<(FONT+14*7),<(FONT+15*7)
+            !byte <(FONT+16*7),<(FONT+17*7),<(FONT+18*7),<(FONT+19*7),<(FONT+20*7),<(FONT+21*7),<(FONT+22*7),<(FONT+23*7)
+            !byte <(FONT+24*7),<(FONT+25*7),<(FONT+26*7),<(FONT+27*7),<(FONT+28*7),<(FONT+29*7),<(FONT+30*7),<(FONT+31*7)
+            !byte <(FONT+32*7),<(FONT+33*7),<(FONT+34*7),<(FONT+35*7),<(FONT+36*7),<(FONT+37*7),<(FONT+38*7),<(FONT+39*7)
+            !byte <(FONT+40*7),<(FONT+41*7),<(FONT+42*7),<(FONT+43*7)
+FTableHi    !byte >(FONT+00*7),>(FONT+01*7),>(FONT+02*7),>(FONT+03*7),>(FONT+04*7),>(FONT+05*7),>(FONT+06*7),>(FONT+07*7)
+            !byte >(FONT+08*7),>(FONT+09*7),>(FONT+10*7),>(FONT+11*7),>(FONT+12*7),>(FONT+13*7),>(FONT+14*7),>(FONT+15*7)
+            !byte >(FONT+16*7),>(FONT+17*7),>(FONT+18*7),>(FONT+19*7),>(FONT+20*7),>(FONT+21*7),>(FONT+22*7),>(FONT+23*7)
+            !byte >(FONT+24*7),>(FONT+25*7),>(FONT+26*7),>(FONT+27*7),>(FONT+28*7),>(FONT+29*7),>(FONT+30*7),>(FONT+31*7)
+            !byte >(FONT+32*7),>(FONT+33*7),>(FONT+34*7),>(FONT+35*7),>(FONT+36*7),>(FONT+37*7),>(FONT+38*7),>(FONT+39*7)
+            !byte >(FONT+40*7),>(FONT+41*7),>(FONT+42*7),>(FONT+43*7)
+
+DemoNameL	!byte <DEMOX,<DEMO0,<DEMO1,<DEMO2,<DEMO3,<DEMO4,<DEMO5,<DEMO6,<DEMO7,<DEMO8,<DEMO9,<DEMOA,<DEMOB,<DEMOC,<DEMOD,<DEMOE,<DEMOALL
+DemoNameH !byte >DEMOX,>DEMO0,>DEMO1,>DEMO2,>DEMO3,>DEMO4,>DEMO5,>DEMO6,>DEMO7,>DEMO8,>DEMO9,>DEMOA,>DEMOB,>DEMOC,>DEMOD,>DEMOE,>DEMOALL
+
+
+
+FILLTEXT1	!zone
+	LDX #$0
+.fill	STA $400,X
+	STA $500,X
+	STA $600,X
+	STA $700,X
+	DEX
+	BNE .fill
+	RTS
+
+FILLTEXT2	!zone
+	LDX #$0
+.fill	STA $800,X
+	STA $900,X
+	STA $A00,X
+	STA $B00,X
+	DEX
+	BNE .fill
+	RTS
+
+;	!fill 30,$EA
+
+WAIT65              ; = wait for Y * 65 cycles exactly (JSR/RTS included -> CALL IN 8 cycles mandatory -> LDY #xx / JSR WAIT65)
+WAIT65ZP = * + 1    ; = wait for Y * 65 cycles exactly (JSR/RTS included -> CALL IN 9 cycles mandatory -> LDY ZP / JSR WAIT65Z)
+!zone           
+	LDA $EA     ; 3 (dummy)  -> we land on NOP if JSR WAIT65Z
+WAIT62    ; = wait for 1*62 cycles exactly (JSR/RTS included -> LDY #01 / JSR WAIT63)
+          DEY			; 2					
+	BEQ .S1	    ; 3/2			
+                  
+.WL1 	LDX #$0B				            
+.WL2 	DEX							
+	BNE .WL2	; 2 + (2+3)*10 + 2 + 2 = 56															
+                      
+	NOP			; 2					
+	NOP			; 2					
+	DEY			; 2					
+	BNE .WL1	; (56+2+2+2+3)*(Y-2) + 56 + 2 + 2 + 2 + 2 = 65*Y - 2*65 + 64 = 65*Y - 66				
+
+WAIT59    ; = wait for 1*59 cycles exactly (JSR/RTS included -> LDY #xx / JSR WAIT59)											                      
+	LDX #$08					
+.WL3 	DEX							
+	BNE .WL3	; 2 + (2+3)*7 + 2 + 2 = 41					
+
+	NOP			; 2					
+	NOP			; 2					
+	RTS			; 6
+
+          ; WAIT62 = 2 + 2 + (65-66) + 41 + 2 + 2 + 6 + (8) = 62 
+          ; WAIT65 = 3 + 2 + 2 + (65*Y-66) + 41 + 2 + 2 + 6 + (8) = 65*Y
+           ; WAIT59 = 41 + 2 + 2 + 6 + (8) = 59 					
+
+WAIT57    ; = wait for 1*57 cycles exactly (JSR/RTS included -> LDY #xx / JSR WAIT57)											         
+.S1	NOP         ; 2
+WAIT55    ; = wait for 1*55 cycles exactly (JSR/RTS included -> LDY #xx / JSR WAIT55)	
+          LDX #08					
+                      
+.WL4 	DEX							
+	BNE .WL4    ; 2 + (2+3)*7 + 2 + 2 = 41					
+	RTS         ; 6
+	; = 49
+
+          ; WAIT65 = 3 + 2 + 3 + 49 + (8) = 65
+          ; WAIT62 = 2 + 3 + 49 + (8) = 62
+          ; WAIT57 = 49 + (8) = 57
+          ; WAIT55 = 47 + (8) = 55
+	+build_check_crosspage WAIT65 ; compilation check
+
+
+
+

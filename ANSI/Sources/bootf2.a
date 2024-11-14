@@ -1,0 +1,49 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; ANSI STORY I
+; boot0 - Face 2(T0/S0)
+; version 0.1
+
+!convtab "a2txt.bin" 
+
+		*= $800 ; ORG = $800
+
+!byte 01 					; premier octet réservé : nb de secteur à charger lors du boot 0
+
+START
+!zone
+
+		BIT $C051
+		BIT $C054
+		JSR $FC58			; HOME
+
+		BIT $C0E8			; arrêt du drive
+		STA $C010			; kb strobe
+
+		LDX #39				; index texte
+		
+.bp		LDA Message,X
+		STA $528,X			; $528 = milieu vertical page 1
+		dex
+		bpl .bp
+
+.wk2	ldx #3
+.wk1	LDA $C000
+		Bmi	.reboot
+		lda #130
+		JSR $FCA8
+		lda Roulette,X
+		sta $53C			; $53C position du -
+		dex
+		bpl .wk1
+		bmi .wk2
+			
+.reboot	JSR $C600			; reboot
+
+Message
+!text 	"ANSI STORY VOLUME I - TURN THE DISK OVER",0
+Roulette
+!text	"-/|\",0
+
+
+

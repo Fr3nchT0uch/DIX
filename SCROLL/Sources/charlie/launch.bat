@@ -1,0 +1,1 @@
+start dw.py ..\dsk\test.dsk hgr 7 0 + d

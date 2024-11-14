@@ -1,0 +1,6 @@
+
+ * = $2000
+
+	!bin "GFX/PI.1"
+!align 255,0
+	!bin "GFX/PI.2"

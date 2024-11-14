@@ -1,0 +1,527 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; display Ansi (simulé) DLORES + mixe avec page text + scroll text B->H style générique de fin
+; version 0.25
+
+!convtab "a2txt.bin" 	; conversion vers Apple Text (bit 7 high)
+!sl "endlabel.a"		; sauvegarde des labels
+
+		*= $1380		; $C00+1920
+
+; variables Page zéro
+	
+	bRefresh	= $0A	; byte type NTSC/60Hz - PAL/50Hz (00 = 50HZ | 01 = 60 HZ)
+	bMachine 	= $0B	; byte MACHINE ($7F/IIE | $FF/GS)
+	
+	bScroll		= $D0
+	indexPage	= $D1
+	countPage 	= $D2
+	
+; CONSTANTES SYSTEM ============	
+	VERTBLANK	 = $C019
+	
+	WTAUX 		= $C055 ; switch mémoire aux
+	WTPRINC 	= $C054 ; switch mémoire princ
+	
+; ===
+!fill $80,$EA		
+STARTOUTRO
+!zone
+				
+		LDA #00
+		STA indexPage	; index du texte scrollé en cours (pointe sur la ligne à afficher en bas)
+		STA bScroll		; boléen mis à zero (scroll en cours)
+		STA countPage	; compteur de page à zero
+
+		STA $C001   ; PAGE2 comm aux/princ
+
+		; boucle d'attente pour choper la synchro avec la première ligne d'affichage de la dernière ligne de texte (7D0-7F7)
+.LS1	LDA $C070		; lecture $7D2  ** important
+		CMP #$66		; 
+		BNE .LS1
+		NOP
+		NOP
+		NOP
+		NOP
+		NOP				;
+		LDA $C070		; lecture $7E4 ** important
+		CMP #$AA			
+		BNE .LS1
+		NOP
+		NOP
+		NOP
+		NOP
+		NOP	
+		
+		LDA $C070		; 4 ;lecture $7F6 ** important
+ 		CMP	#$66		; 2
+		BNE .LS1    	; 2
+		
+		; début synchro 
+		LDA bMachine 	; + 3 ; pour compenser le JMP .LS2
+		; on attend 65 cycles - 11 déjà effectuer = 54 pour retrouver le $66 en $7F6 (nouvelle ligne sur les 8)
+.LS2
+		LDX #$0A
+.WL1	DEX	
+		BNE .WL1		; 51 cycles  
+		LDA bMachine	; + 3 = 54 		
+		
+				
+		LDA $C070		; lecture des 7 "autres lignes" en $7F6
+		CMP #$66		
+		BNE .S2			; 2
+		JMP .LS2		; 3  ; on boucle tant qu'on trouve $66 à cette position
+		
+		; si on ne trouve plus $66, nous sommes alors déjà à la première ligne du VBL !
+.S2		; on a commencé le 'HBL' de la première ligne de VBL depuis (4+2+3)-2 = 7 cycles, 
+		; il faut donc compléter à 25-7 = 18 cycles
+						
+		
+		LDX #$03
+.WL2	DEX
+		BNE .WL2 		; 2 + (2+3)*2 + (2+2)*1 = 16
+		
+		;NOP				; + 2 = 18 !!! ATTENTION POUR QUE CELA MARCHE LE NOP NE DOIT PAS ETRE ACTIF. -2 CYCLES DONC !
+	 
+		; fin première ligne de VBL 
+
+		; *******************************************
+		; 118 * 65 lignes de VBL si 50HZ ou 68 * 65 lignes de VBL si 60 HZ
+		; 
+		LDA bRefresh		; 3
+		BNE .SW2			; 3/2
+
+		; 50 * 65 + 1 (appel en 12 cycles)
+		NOP
+		NOP
+		LDY #50
+		JSR WAITROUTINE ;	50 * 65
+
+.SW2	LDX #$0B
+.WL9	DEX
+		BNE .WL9		; 56
+		LDA bMachine	; +3
+						; + 6 = 65 !
+ 
+		LDA bMachine	;
+		LDY #67			; 
+		JSR WAITROUTINE ; 67 * 65 cycles de VBL !
+
+		; *******************************************
+		
+		; + 1 ligne de VBL (65 cycles) = 120 lignes / ou 70 lignes si 60HZ
+		
+ 		LDY #192		; 2   
+		NOP				; 2
+
+		LDX #$0C	
+.WL3	DEX
+		BNE .WL3 		; 2 + (2+3)*11 + (2+2)*1 = 61
+						; 2+2 + 61 = 65 !		
+		
+.BP		; boucle principale affichage page entière
+		; début DISPLAY synchronisé !
+.BLignes
+		LDA $C050		; 4
+
+		LDX #$05
+.WL4	DEX
+		BNE .WL4		; 2 + (2+3)*4 + (2+2)*1 = 26
+ 
+						;= 30 cycles de $C050 (gfx Lores)
+
+		LDA $C051		; 4
+		NOP				; 2
+		NOP				; 2
+						; = 8 cycles de TXT
+
+		LDA $C050		; 4		
+						; = 4 cycles de $C050 (lores)
+
+		; = 30 + 8 + 4 = 42
+
+		; HBL (25 cycles) - 2 = 23 cycles
+			
+		LDX #$03
+.WL5	DEX
+		BNE .WL5		; 2 + (2+3)*2 + (2+2)*1 = 16
+		NOP				; 2
+		
+		DEY				; 2
+		BNE	.BLignes	; 3 
+						; = 23 cycles HBL 
+						
+						; 22 cycles ici si BNE non pris donc -1 cycle sur la fin de HBL
+
+; début VBL	 => 120 x 65 cycles = 7800 cycles (PAL/50HZ) / 70 x 65 = 4550 cycles (NTSC/60HZ) + 1 (BNE non pris)
+; = 7801 cycles à remplir / 4551
+
+; scroll BAS vers Haut
+	LDA bScroll				; 3		scroll en cours ?
+	BEQ debutcodescroll		; 3/2	si scroll en cours
+	JMP .SHUNTESCROLL		; 3
+							; = 3 + 3 = 6   *** (1)
+							; = 3 + 2 + 3  = 8 si non *** (2)
+
+; génération code LDA Ligne+1 - STA Ligne (mem PRINC et AUX) pour chaque octet de la ligne DTEXT/DLORES
+; cas (1)
+debutcodescroll
+		!for HiOff1,3 {
+			!for HiOff2,7 {
+				sta WTAUX
+				!for Offset, 8 {
+				lda (HiOff2-1)*$80+$480+(HiOff1-1)*$28+Offset-1+30
+				sta (HiOff2-1)*$80+$400+(HiOff1-1)*$28+Offset-1+30
+				}
+				sta WTPRINC
+				!for Offset, 8 {
+				lda (HiOff2-1)*$80+$480+(HiOff1-1)*$28+Offset-1+30
+				sta (HiOff2-1)*$80+$400+(HiOff1-1)*$28+Offset-1+30
+				}
+			}
+			!if (HiOff1 < 3) {	
+				sta WTAUX
+				!for Offset, 8 {
+					lda $428+(HiOff1-1)*$28 +Offset-1+30
+					sta $780+(HiOff1-1)*$28 +Offset-1+30
+					}
+				sta WTPRINC
+				!for Offset, 8 {
+					lda $428+(HiOff1-1)*$28 +Offset-1+30
+					sta $780+(HiOff1-1)*$28 +Offset-1+30
+					}
+			}
+		}
+		; = 2346 / 3 = 782 instructions * 4 = 3128 cycles
+fincodescroll
+		JMP .SUITE	; +3 = 3131 cycles ! *** (1)
+ 
+!align 255,0	; on élimine le CROSS PAGE eventuel pour .PTR1,X et PTR2,X
+.SUITE		
+		LDX #00				;2
+		LDY #00				;2
+.BLL
+.PTR1	LDA TEXTSCROLL,Y	;4	; on ajoute une ligne du scroll 
+		STA WTAUX			;4
+		STA $7D0+30,X		;5	; sur la dernière ligne de texte
+		INY					;2
+.PTR2	LDA TEXTSCROLL,Y	;4
+		STA WTPRINC			;4
+		STA $7D0+30,X		;5
+		INY					;2
+		INX					;2
+		CPX #08				;2
+		BNE .BLL			;3/2
+							; = 2+2 + (4x2 + 5 +2 + 4x2 + 5 +2 +2 + 2 +3)*7 + (4x2 + 5 + 2 + 4x2 + 5 + 2 + 2 + 2 + 2) = 299 *** (1)
+							
+
+		LDY indexPage	;3		; on checke l'index de Scroll
+		INY				;2
+		STY indexPage	;3		; on sauve
+		CPY #24			;2		; on a tout affiché (une page = 24x16)
+		BNE .SI1		;2		; si non on continue
+		INC bScroll		;5 		; si oui on positionne le boléen sur PLUS DE SCROLL
+		
+		; 17 cycles ici
+		JMP .SI2 		; + 3 = 20 cycles
+
+		
+.SI1	; 13 cycles ici
+		LDA bMachine
+		NOP
+		NOP				; + 7 cycles
+
+		; = 20 cycles
+		
+.SI2	CLC			;2
+		LDA #16		;2			
+		ADC .PTR1+1	;4 
+		STA .PTR1+1	;4
+		LDA #00		;2
+		ADC .PTR1+2	;4
+		STA .PTR1+2	;4
+		CLC			;2
+		LDA #16		;2
+		ADC .PTR2+1	;4
+		STA .PTR2+1	;4
+		LDA #00		;2
+		ADC .PTR2+2	;4
+		STA .PTR2+2	;4
+					; = 44 cycles 
+					; + 20 = 64 cycles *** (1)
+
+; attente sup pour arriver à la totalité du VBL :
+; 6 + 3131 + 299 + 64 = 3500 cycles 
+
+
+; ***********************************************
+; 66 * 65 cycles si PAL/50HZ ou 16 cycles (66-50) si NTSC/60HZ
+; ===============================================
+		LDA bRefresh		; 3
+		BNE .SW1			; 2/3  
+							; 3+3 = 6 si 60HZ
+							; 3+2 = 5 si 50HZ
+; 50 * 65
+		NOP				; appel en 12 cycles au lieu de 11
+		NOP				; pour compenser le BNE non pris (5 cycles au lieu de 6)
+		LDY #50
+		JSR WAITROUTINE	; 50 * 65
+
+; 1 * 65
+.SW1	LDX #$0B
+.WL8	DEX
+		BNE .WL8		; 2 + (2+3)*10 + (2+2)*1 = 56
+	
+		LDA bMachine	; 3
+						; = 6 + 56 + 3 = 65 !
+; 15 * 65
+		LDA bMachine
+		LDY #15
+		JSR WAITROUTINE ;	15 * 65 = 4290 cycles
+
+; ***********************************************		
+
+; 3500 + 4290 = 7790 - 7801 = 11 cycles
+
+		NOP			;2
+		NOP 		;2 
+		NOP			;2 
+		LDY #192	;+ 2
+		JMP .BP 	;+ 3  
+					; = 11 
+		
+; cas (2)	
+.SHUNTESCROLL
+		; on arrive ici avec 8 cycles exécutés !
+
+; compenser le timing de tout le scroll non executé
+; 119 * 65 si 50 HZ / 69 * 65 si 60 HZ
+; **************************************************
+		LDA bRefresh		; 3
+		BNE .SW3			; 3/2
+
+		; 50 * 65 + 1 (appel en 12 cycles)
+		NOP
+		NOP
+		LDY #50
+		JSR WAITROUTINE ;	50 * 65
+
+.SW3	LDX #$0B
+.WLA	DEX
+		BNE .WLA		; 56
+		LDA bMachine	; +3
+						; + 6 = 65 !
+ 
+		LDA bMachine	;
+		LDY #68			; 
+		JSR WAITROUTINE ; 68 * 65 cycles de VBL !
+; **************************************************
+
+		; 22 cycles
+
+		LDX #$03
+.WL6	DEX
+		BNE .WL6		; 2 + (2+3)*2 + (2+2)*1 = 16
+		NOP				; +2
+		NOP				; +2
+		NOP				; +2 = 22 cycles
+		
+		; 8 + 22 + 36 = 66 cycles 
+		; + 65x119 = 7801 cycles ! OK POUR (2)
+
+		rol $c061		; 6
+		bcs .NEXTPAGE	; 3/2
+		
+		; 23 cycles
+		LDX #$04
+.WL7	DEX
+		BNE .WL7		; 2 + (2+3)*3 + (2+2)*1 = 21
+		NOP				; 2 = 23 cycles
+		
+		LDY #192		; 2
+		JMP .BP			; 3			
+						; = 6 + 2 + 2 + 3 = 13 cycles
+						; + 23 = 36 
+.NEXTPAGE
+		INC countPage	; 5		; on augmente d'un le compteur de page
+		LDA countPage	; 3
+		CMP #5			; 2		; toutes les pages lues ?
+		BEQ .FIN		; 2		; si oui fin
+								; sinon on continue
+
+		DEC bScroll		; 5 	; on remet le boléen scroll sur SCROLL EN COURS
+		LDY #0			; 2
+		STY indexPage	; 3		; on remet l'index Page à zéro
+		LDY #192		; 2		
+		JMP .BP			; 3		; on boucle
+						; = 27 cycles + 6 + 3 = 36 *** (1)
+
+.FIN	sta $C000
+		rts
+; =============================================================================
+WAITROUTINE		; time = Y * 65 cycles (y compris  appel/retour)
+				; appel de la routine en 11 cycles obligatoire : NOP/LDY ZP (5cycles) ou LDA zp/LDY# + JSR = 11 cycles !
+!zone
+		DEY				; 2					
+		BEQ .S1			; 3/2
+						; = 4 (si BEQ non pris) ou = 5 (si BEQ pris)
+.WL1 	LDX #$0B							
+.WL2 	DEX									
+		BNE .WL2		; WL6 = 56							
+
+		NOP				; 2					
+		NOP				; 2				
+		DEY				; 2					
+		BNE .WL1		; (56+6+3)*(Y-2) + (56+6+2) = 65 *(Y-2) + 64				
+						; 65Y - 66					
+		LDX #$08							
+.WL3 	DEX									
+		BNE .WL3		; WL3 = 41						
+ 
+		NOP				; 2						
+		NOP				; 2											
+		RTS				; 6
+						; = 51 + (11) = 62
+						
+						; = 4 + 65 Y - 66 + 62 
+  						; = 65 Y !
+; ***
+.S1	 	LDX #08			; 					
+
+.WL4 	DEX				; 				
+		BNE .WL4		; 
+						; = WL4 = 41					
+											
+		NOP				; 2								
+		RTS				; 6
+						; = 5 + 41 + 2 + 6 + (11) = 65 !
+; =============================================================================
+!align 255,0
+TEXTSCROLL                ;
+	!text "                "
+	!text "                "
+	!text "                "
+	!text "                "
+	!text "                "
+	!text "                "
+	!text "  FRENCH TOUCH  "
+	!text "                "
+	!text "  presented to  "
+	!text "      you       "
+	!text "                "
+	!text "   ANSI         "
+	!text "        STORY   " 
+	!text "                "
+	!text "       a        "
+	!text "    TRIBUTE     "
+	!text "    to  the     "
+	!text " ANSI ART SCENE "
+	!text "                "
+	!text "                "
+	!text "                "
+	!text "                "
+	!text "                "
+	!text "                "
+	
+	!text "                "
+	!text " CODE  AND  GFX "
+	!text "    .GROUIK.    "
+	!text "                "
+	!text " FAST BOOT (86) "
+	!text "     .SAM.      "
+	!text "                "
+	!text "----------------"
+	!text "                "
+	!text " ANSI ART FROM  "
+	!text " (in order of   "
+	!text "  appearence)   "
+	!text "                "
+	!text "  THE CARNAGE   " 
+	!text "    [MiRAGE]    "
+	!text "                "
+	!text " G. WASHINGTON  "
+	!text "    [MiRAGE]    "
+	!text "                "
+	!text "      JNK       "
+	!text "                "
+	!text "    CEREBRUS    "
+	!text "     [ACiD]     "
+	!text "                "
+	
+	
+	!text "  VINDICATION   "
+	!text "     [ACiD]     "
+	!text "                "
+	!text "       K!       "
+	!text "                "
+	!text "    COOL  T     "
+	!text "    [MiRAGE]    "
+	!text "                "
+	!text "    Mr. MAN     "
+	!text "     [ACiD]     "
+	!text "                "
+	!text "     RAISER     " 
+	!text "                "
+	!text "     AMROTH     "
+	!text "     [ACiD]     "
+	!text "                "
+	!text " TEMPUS THALES  "
+	!text "     [iCE]      "
+	!text "                "   
+	!text "    CYBER  X    "
+	!text "    [MiRAGE]    "
+	!text "                "
+	!text "      SWAT      "
+	!text "     [ACiD]     " 
+	
+	!text "    DREAMEVIL   "
+	!text "    [MiRAGE]    "
+	!text "                "	
+	!text "   ZEROVISION   "
+	!text "                "
+	!text "  QUICK SILVER  "
+	!text "     [iCE]      "
+	!text "                "
+	!text "   MANSLAYER    "
+	!text "     [iCE]      "
+	!text "                "
+	!text "THE NECROMANCER "
+	!text "     [iCE]      "
+	!text "                "
+	!text "  BLADE RUNNER  " 
+	!text "     [ACiD]     "
+	!text "                "
+	!text "     LOGAN      "
+	!text "    [MiRAGE]    "
+	!text "                "
+	!text "    BLINDMAN    "
+	!text "     [MTN]      "
+	!text "                "
+	!text "   TMT/[ACiD]   "
+
+	!text "  S. KALLIZAD   "
+	!text "     [iCE]      "  
+	!text "                "
+	!text "   NIGHTBLADE   "
+	!text "    [MiRAGE]    "
+	!text "----------------"
+	!text "  FINAL NOTE:   "
+	!text "                "
+	!text "   Ok guys...   "
+	!text "  This was not  "
+	!text " TRUE ANSI ART. "
+	!text " Gfx have to be "
+	!text " simplified to  "
+	!text "be displayed on "
+	!text "  an Apple II!  "
+	!text "Colors also had "
+	!text " to pass to the "
+	!text "washing machine." 
+	!text " And obviously  "
+	!text "  most of the   "
+	!text " graphics were  "
+	!text "  truncated...  "
+	!text "                "
+	!text "Sorry for that! "
+	
+FINTEXTSCROLL	   

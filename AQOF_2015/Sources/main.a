@@ -1,0 +1,793 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; A QUESTION OF FRAME
+; Routines Fast Load/Hyper Boot (c) 1986 - SAM/EA
+; adapt�e pour ACME 0.90 - 2014
+; version 0.04
+
+!convtab "a2txt.bin" ; 
+!sl "mainlabel.a"
+
+; INCLUDE
+!source "tloadlabel.a"
+!source "frameA\frameAlabel.a"
+!source "frameM\frameMlabel.a"
+
+	*= $F100 ; ORG = $F100 (RAM Langage Card)
+
+; PSEUDO CATALOG Track/SectorDebut-Track/SectorFin (inclus)
+
+; T00/S00 			: BOOT0	($800) x1
+; T00/S01-S09 		: MAIN	($F100) x8
+; T00/S0A-S0F		: FLOAD ($FA00) x6
+
+; T01/S00 - T01/S02 : TABLE LOAD TITLE ($800) x3 
+; T02/S00 - T03/S07	: ROUTINE AUX ($A800) x24 - (-> $D900 AUX)
+; T03/S08 - T04/S0F : ROUTINE MAIN ($D900) x24 - MAIN
+; T05/S00 - T0F/S0F	: FRAMES AUX ($1000) x176 - (-> $1000 AUX)
+; T10/S00 - T1A/S0F	: FRAMES MAIN ($1000) x - MAIN
+
+!source "../../macros.a"
+!source "../../sysconst.a"
+
+DEBUG = 0
+
+bSLOT       = $02
+MB_BASEADDR = $10
+SAVE_A = $13
+SAVE_Y = $14
+SP_DEVICE = $43
+SP_DEST = $44
+SP_BLOCK = $46
+VSYNC = $F0
+
+; CONSTANTES SYSTEME ===================
+;VERTBLANK	 		= $C019	;
+
+
+
+AUXMOVE				= $C311
+XFER				= $C314
+
+; SOUS-ROUTINES BOOT0
+EXECFROMBOOT2  		= $857 	; sous routine de d�tection type APPLE II (utilise ROM)
+
+
+; SOUS-ROUTINES PROGRAMMES EXTERNES
+HYPLOD				= $FA00	; routine Fast Load
+SOUND				= $E900 ; routine SOUND Karateka (MUSIC+GO)
+TRANSAUX			= $B900 ; 
+LOADFRAMEAUX		= $E931 ;
+
+; DATA PROGRAMMES EXTERNES
+; =====================================
+
+
+;======PARAMETRES DU FAST LOAD
+                          
+                        ;-PARAMETRES D'ENTREE
+PISDEP   =   $300       ;PISTE DE DEPART
+SECDEP   =   $301       ;SECTEUR DE DEPART
+BUFFER   =   $302       ;ADRESSE OU L'ON CHARGE
+TOTSEC   =   $304       ;TOTAL DES SECTEURS A CHARGER
+
+DRVNUM   =   $305       ;1 OU 2
+ERRMAX   =   $306       ;MAXIMUM D'ERREURS TOLEREES SUR UN SECTEUR AVANT DE RENDRE LA MAIN
+DLFLAG   =   $307       ;1=DELAI AVANT DE LIRE ;0=NON
+                        
+                        ;-PARAMETRES ENTREE/SORTIE
+ICURTRK1 =   $310       ;2*PISTE INITIALE DU DRIVE1 A GARNIR POUR LE 1ER APPEL
+ICURTRK2 =   $311       ;2*PISTE INITIALE DU DRIVE2    "
+
+bAFFICHE = 	 $312
+BUFFERAFFH=	 $313         ; adresse du buffer d'affichage
+BUFFERAFFL=	 $314		  ; haut et bas
+CARAFF	 =	 $315		  ; caract�re � afficher
+
+; PAGE ZERO ===========================
+bIIc		= $03	; byte IIc	(00 = //c | other = pas //c !)
+bMachine 	= $0A	; byte MACHINE ($7F/IIE | $FF/GS)
+bRefresh	= $0B	; byte type NTSC/60Hz - PAL/50Hz (00 = 50HZ | 01 = 60 HZ)
+bitsixset	= $0C	; utiliser pour un SLV (set overflow) = $60
+vblflag		= $0D	; utilis�e par interruption VBL sur //c
+ExpoMode		= $0E
+ADR			=  $08        ; + $09
+; ***
+
+IndexClip	= $F7
+nbFRA		= $F8
+ITER		= $F9
+REPET		= $FA
+Speed		= $FB
+SOURCEA 	= $FC	; + FD
+SOURCEM		= $FE 	; + $FF
+;	======== DEBUT PROGRAMME =========
+START	
+!zone
+; 	JMP DEBUT2
+; ------------------------------------ 		
+;VBLANK	JMP VBLANK_GSE
+; ------------------------------------
+DEBUT2	; on revient ici apr�s la routine de d�tection A2			
+	STA ExpoMode
+	SEI
+	LDA _LCBANK1rw	; to preserve menu
+	LDA _LCBANK1rw
+	; LDA #$7F
+	; STA bMachine
+
+ 	; 	LDA bIIc
+ 	; 	BNE SUITE	; si c'est pas un IIc, on passe � la suite
+	; 	; si c'est un IIc  mise en place de l'interruption !
+	; 	LDA #00
+	; 	STA vblflag				; initialisation vblflag pour l'interruption
+	; 	LDA #<VBLANKIIc			; on fixe la routine d'appel au VBLANK
+ 	; 	STA VBLANK+1			; sur la routine
+ 	; 	LDA #>VBLANKIIc			; //c
+ 	; 	STA VBLANK+2
+	; ;	VBLANK
+ 	; ;	sei 					; disable interrupts
+ 		
+ 	; 	lda #<VBLI 				; on fixe le vecteur de l'interruption 
+ 	; 	STA $FFFE				; du IIc (VBL)
+ 	; 	lda #>VBLI				; pour pointer
+ 	; 	STA $FFFF				; sur notre routine VBLI
+ 		
+ 	; 	;on active la premi�re interruption pour VBL
+ 	; 	sta $c079 				; enable IOU access
+ 	; 	sta $c05b 				; enable VBL int
+ 	; 	sta $c078 				; disable IOU access
+
+
+SUITE 				
+ 		 ; initialisation HyperLoad
+ 	;	LDX #00
+ 	;	STX ICURTRK1
+ 	;	STX bAFFICHE	; on d�sactive l'affichage lors du chargement (pour l'instant)
+ 	;	INX	; 1
+ 	;	STX DRVNUM
+ 	;	STX DLFLAG
+
+	SEI
+	LDA #<TIMER_HANDLER
+	STA $FFFE
+	LDA #>TIMER_HANDLER
+	STA $FFFF
+	LDA MB_BASEADDR+1
+	STA MODMBCLEAR+2
+
+	LDA #%11000000		; Enable Timer 1
+	LDA #%00100000      	; Disable Timer 2
+	LDY #$0E
+	STA (MB_BASEADDR),Y           ; Interrupt Enable Register
+	LDY #$04
+	LDA (MB_BASEADDR),Y 	; clear T1 IFR
+	LDY #$08
+	LDA (MB_BASEADDR),Y 	; clear T2 IFR
+
+ 		; initialisation
+ 		LDA #$60
+ 		STA bitsixset		; utiliser pour un SLV (set overflow) = $60
+ 		
+ 		; affichage texte pr�sentation
+ 		LDX #39
+.bd		LDA TextIntro0,x
+		STA $400,x
+		STA $6D0,x
+		LDA TextIntro1,x
+		STA $480,x
+		LDA TextIntro2,x                                    
+		STA $750,x
+		DEX
+		BPL .bd
+; =============================================================================
+; DEPLACEMENT routine principale VERS AUX $F100
+; =============================================================================
+; $F100-$F9FF -> $B100 AUX (avant d�placement)
+		lda #$00
+		sta $3C
+		sta $42
+		lda #$F1
+		sta $3D
+		lda #$B1
+		sta $43
+		lda #$FF
+		sta $3e
+		lda #$F9
+		sta $3f
+		sec  			; main vers aux
+		jsr AUXMOVE		;
+
+		LDA #<TRANSFERTAUX1
+		STA $3ED
+		LDA #>(TRANSFERTAUX1-$4000)
+		STA $3EE
+		sec					; main to aux
+		BIT bitsixset		; aux page 0/stack ET aux $D000-$FFFF (pour pouvoir y �crire)
+		JMP XFER			; transfert vers TRANSAUX en m�moire auxiliaire
+
+BACKMAIN1
+
+; =============================================================================
+; CHARGEMENTS
+; =============================================================================	
+; chargement TABLE LOAD en $800
+
+	+print_debug 'A'
+	LDA #<339
+	STA SP_BLOCK
+	LDA #>339
+	STA SP_BLOCK+1
+	LDA #$08
+	STA SP_DEST+1
+	LDA #2
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+
+;		LDA #00			; secteur 
+ ;		STA SECDEP
+ ;		STA BUFFER		; buffer low
+ ;		LDA #01			; track 
+ ;		STA PISDEP		;
+ ;		LDA #$08		; buffer high
+;		STA BUFFER+1
+;		LDA #3			; nb Sectors
+;		STA TOTSEC		
+;		JSR HYPLOD		; chargement !
+			
+; chargement ROUTINEA en $A800
+	+print_debug 'B'
+	LDA #$A8
+	STA SP_DEST+1
+	LDA #12
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+
+ 	;	LDA #00			; secteur 
+ 	;	STA SECDEP
+ 	;	STA BUFFER		; buffer low
+ 	;	LDA #02			; track 
+ 	;	STA PISDEP		;
+ 	;	LDA #$A8		; buffer high
+	;	STA BUFFER+1
+	;	LDA #24			; nb Sectors
+	;	STA TOTSEC		
+	;	JSR HYPLOD		; chargement !
+		
+; AUXMOVE ROUTINEA vers AUX $A800 (avant d�placement)
+		lda #$00
+		sta $3C
+		sta $42
+		lda #$A8
+		sta $3D
+		lda #$A8
+		sta $43
+		lda #$FF
+		sta $3e
+		lda #$BF
+		sta $3f
+		sec  			; main vers aux
+		jsr AUXMOVE		;
+
+; DEPLACEMENT ROUTINEA de $A800 vers $D900 (AUX)
+		LDA #<TRANSFERTAUX2
+		STA $3ED
+		LDA #>TRANSFERTAUX2
+		STA $3EE
+		sec					; main to aux
+		BIT bitsixset		; aux page 0/stack ET aux $D000-$FFFF (pour pouvoir y �crire)
+		JMP XFER			; transfert vers TRANSAUX en m�moire auxiliaire
+
+BACKMAIN2
+
+; CHARGEMENT ROUTINEM vers $D900 (MAIN)
+	+print_debug 'C'
+	LDA #$D9
+	STA SP_DEST+1
+	LDA #12
+	STA SP_BLOCKS2READ
+	JSR READ_FILE	
+;		LDA #08			; secteur 
+ ;		STA SECDEP
+ ;		LDA #00
+ ;		STA BUFFER		; buffer low
+ ;		LDA #03			; track 
+ ;		STA PISDEP		;
+ ;		LDA #$D9		; buffer high
+;		STA BUFFER+1
+;		LDA #24			; nb Sectors
+;		STA TOTSEC		
+;		JSR HYPLOD		; chargement !
+
+; CHARGEMENT FRAMES AUX
+; + AFFICHAGE LOADING PART I
+
+		LDA #01			; partie affichage
+		STA bAFFICHE
+		LDA #<AFFPARTI
+		STA BUFFERAFFL
+		LDA #>AFFPARTI
+		STA BUFFERAFFH
+		LDA #$AE		; '.'
+		STA CARAFF
+
+	+print_debug 'D'
+	LDA #$10
+	STA SP_DEST+1
+	LDA #80
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+-	JSR GOAFFICHE 
+	DEC .oups+1
+.oups	LDA #7
+	BPL -
+
+;		LDA #00			; secteur 
+ ;		STA SECDEP
+ ;		STA BUFFER		; buffer low
+ ;		LDA #$05		; track 
+ ;		STA PISDEP		;
+ ;		LDA #$10		; buffer high
+;		STA BUFFER+1
+;		LDA #176		; nb Sectors
+;		STA TOTSEC		
+;		JSR HYPLOD		; chargement !
+				
+; AUXMOVE FRAMES A vers AUX $1000
+		lda #$00
+		sta $3C
+		sta $42
+		lda #$10
+		sta $3D
+		lda #$10
+		sta $43
+		lda #$FF
+		sta $3e
+		lda #$BF
+		sta $3f
+		sec  			; main vers aux
+		jsr AUXMOVE		;
+
+; chargement FRAMES MAIN
+; + AFFICHAGE LOADING PART II
+
+		LDA #01			; partie affichage
+		STA bAFFICHE
+		LDA #<AFFPARTII
+		STA BUFFERAFFL
+		LDA #>AFFPARTII
+		STA BUFFERAFFH
+		LDA #$A0		; " "
+		STA CARAFF
+
+	+print_debug 'E'
+	LDA #$10
+	STA SP_DEST+1
+	LDA #85
+	STA SP_BLOCKS2READ
+	JSR READ_FILE
+
+-	JSR GOAFFICHE 
+	DEC .oups2+1
+.oups2	LDA #7
+	BPL -
+;		LDA #00			; secteur 
+ ;		STA SECDEP
+ ;		STA BUFFER		; buffer low
+ ;		LDA #$10		; track 
+ ;		STA PISDEP		;
+ ;		LDA #$10		; buffer high
+;		STA BUFFER+1
+;		LDA #176		; nb Sectors
+;		STA TOTSEC		
+;		JSR HYPLOD		; chargement !
+; =============================================================================
+; initialisations diverses
+	+print_debug 'F'
+	CLI
+		LDA #80				; speed par d�faut - 80
+		STA Speed
+		STA $C010			; strobe Keyboard
+
+		LDA #00
+		STA IndexClip		; on commence... au d�but!
+
+; --------------------------------------
+; pr�paration affichage
+!zone
+		JSR VBLANK		; attente VBL
+	+print_debug 'G'
+; effacement texte pr�sentation
+ 		LDX #39
+ 		LDA #$A0
+.bd		STA $400,x
+		STA $6D0,x
+		STA $480,x                                   
+		STA $750,x
+		DEX
+		BPL .bd
+
+		LDA $C056		; LORES
+		LDA $C050		; gfx
+		STA $C00D		; 80 colonnes
+		STA $C05E		; SETAN3 / DHGR
+		
+; -------------------------------------
+MAIN
+!zone
+; =============================================================================
+; -------------------------------------
+; PART 0 - INITIALISATION
+; -------------------------------------
+		LDX IndexClip		; index du clip en cours
+BP2		LDA TableIter,X		; nb d'it�ration du clip
+		STA ITER
+BP1		LDA TableOffMB,X
+		STA SOURCEM			; adresse MAIN Buffer m�moire du clip
+		LDA TableOffMH,X
+		STA SOURCEM+1
+		LDA TableOffAB,X
+		STA SOURCEA			; et AUX
+		LDA TableOffAH,X
+		STA SOURCEA+1
+		LDA TablenbFRA,X	; nb de frames du clip
+		STA nbFRA
+			
+; -------------------------------------
+; PART I - d�compression RLE
+; -------------------------------------
+BP
+; routine m�moire MAIN
+
+		LDY #00				; premier byte
+		STY .PTR1+1			; on fixe la valeur du buffer
+		LDA #$08
+		STA .PTR1+2			; chaque nouvelle frame ($800)
+.BP1	LDY #00
+		LDA (SOURCEM),Y		; lecture "nombre de r�p�tition"
+		BEQ	.s2				; sortie fin de frame
+		STA REPET			; on le sauve
+		TAX					; on le transfert dans X
+		DEX					; on soustrait 1 (car on va de 0 � x-1)
+		INY					; octet suivant
+		LDA (SOURCEM),Y		; lecture "octet r�p�t�"
+
+.br1
+.PTR1	STA BUFFER,X		; on sauve vers le buffer de d�compression
+		DEX					; boucle x "nombre de r�p�tition"
+		CPX #$FF			; 0 inclus
+		BNE .br1			
+
+		CLC					; calcul prochaine adresse pour l'octet � d�compresser suivant
+		LDA .PTR1+1
+		ADC REPET			; on y ajoute le nb de r�p�tition effectu�e
+		STA .PTR1+1
+		BCC .s1				; addition
+		INC .PTR1+2			; sur 16 bits
+
+.s1		CLC
+		LDA SOURCEM
+		ADC #02
+		STA SOURCEM
+		BCC .s1b
+		INC SOURCEM+1
+.s1b	JMP .BP1	
+.s2		
+		STA $C005
+     	STA $C003			; passage routine AUX
+
+; routine m�moire AUX
+		LDY #00
+		STY .PTR2+1			; on fixe la valeur du buffer
+		LDA #$08
+		STA .PTR2+2			; chaque nouvelle frame ($800)
+
+.BP2	LDY #00
+		LDA (SOURCEA),Y		; lecture "nombre de r�p�tition"
+		BEQ	.s4				; sortie fin de frame
+		STA REPET			; on le sauve
+		TAX					; on le transfert dans X
+		DEX
+		INY					; octet suivant
+		LDA (SOURCEA),Y		; lecture "octet r�p�t�"
+
+.br2
+.PTR2	STA BUFFER,X		; on sauve vers le buffer de d�compression
+		DEX					; boucle x "nombre de r�p�tition"
+		CPX #$FF
+		BNE .br2			
+
+		CLC					; calcul prochaine adresse pour l'octet � d�compresser suivant
+		LDA .PTR2+1
+		ADC REPET			; on y ajoute le nb de r�p�tition effectu�e
+		STA .PTR2+1
+		BCC .s3				; addition
+		INC .PTR2+2			; sur 16 bits
+
+.s3		CLC
+		LDA SOURCEA
+		ADC #02
+		STA SOURCEA
+		BCC .s3b
+		INC SOURCEA+1
+.s3b	JMP .BP2		
+
+.s4		
+
+		STA $C004
+     	STA $C002			; passage routine MAIN
+
+; -------------------------------------
+; PART II - Affichage RLE
+; ------------------------------------- 
+		JSR VBLANK			; attente du VBL
+		JMP $D900			; MAIN/AUX en alternance ligne apr�s ligne
+
+SUITEMAIN					; retour ici
+
+; -------------------------------------
+; PART III - FIN DE BOUCLE PRINCIPALE
+; -------------------------------------
+; gestion clavier / boucle d'attente
+; -------------------------------------
+		LDA $C000
+		BPL .s0
+		STA $C010
+		CMP #27+$80   ;ESC
+		BEQ END ; END DEMO
+		CMP #$88		; ->
+		BNE .k1
+		INC Speed
+		BNE .s0
+.gmi	LDA #255
+		STA Speed
+		JMP .s0
+.k1		CMP #$95		; <-
+		BNE .k2
+		DEC Speed
+		BNE .s0
+.gmx	LDA #01
+		STA Speed
+		JMP .s0
+.k2		CMP #$C6		; F (Faster)
+		BEQ .gmx
+		CMP #$D3		; S (Slower)
+		BEQ .gmi
+		CMP #$CE		; N (Normal)
+		BNE .s0
+		LDA #80
+		STA Speed
+		; WAIT (from ROM //e - 6502) 		
+.s0		LDA Speed
+		SEC
+.bw2	PHA
+.bw1	SBC #$01
+		BNE .bw1
+		PLA
+		SBC #$01
+		BNE .bw2
+; -------------------------------------
+!zone
+		DEC nbFRA			; on d�cr�mente le compteur de frames
+		BEQ .g3				; on a fini les frames du clip
+		INC SOURCEM
+		BNE .g1
+		INC SOURCEM+1
+.g1		INC SOURCEA
+		BNE .g2
+		INC SOURCEA+1
+.g2		JMP BP
+
+.g3		DEC ITER			; on d�cr�mente le nb d'it�ration
+		BEQ .g4				; on a fini le nb d'it�ration
+
+		; on r�initialise les adresses BUFFER pour le clip en cours
+		LDX IndexClip		; index du clip en cours
+		JMP BP1
+		 
+.g4		LDX IndexClip
+		INX
+		CPX #NBCLIP			; nb de clips � "jouer"
+		BNE .g5				; max atteint ?
+		LDX ExpoMode
+		BEQ + 
+		INX
+		STX ExpoMode
+		CPX #3
+		BEQ END
++		LDX #00				; si oui on revient � zero
+.g5		STX IndexClip		; on sauve
+		JMP BP2				; boucle principale 2
+ ; =============================================================================
+
+END	LDA _LCBANK2rw	; remap menu loader in RAM
+	LDA _LCBANK2rw
+	RTS	; END DEMO
+
+VBLANK	;JMP VBLANK_GSE
+	LDA #$FF
+	STA VSYNC
+-	LDA VSYNC
+	BNE -
+	RTS
+
+TIMER_HANDLER
+	STA SAVE_A
+	STY SAVE_Y
+	LDA #0
+	STA VSYNC
+MODMBCLEAR
+	LDA $C504
+	LDY #$04
+	LDA (MB_BASEADDR),Y 	; clear T1 IFR
+	LDA SAVE_A
+	LDY SAVE_Y
+	RTI
+
+; ==============================================================================
+; VBLI		; routine execut� lors de l'interruption VBL de la Mouse Rom d'un IIc
+; !zone
+;  		;on r�active l'interruption
+; 		sta $c079 		; enable IOU access
+;  		sta $c05b 		; enable VBL int
+;  		sta $c078 		; disable IOU access
+; 		; on fixe le flag
+;  		LDA #$80
+;  		STA vblflag 	; set hibit
+; 		RTI
+; ; =============================================================================
+; VBLANKIIc				; code from Prince Of Persia Source (Jordan Mechner - 1989)
+;  !zone		
+;  		cli 			; enable interrupts
+
+; .l1 	bit vblflag
+; 		bpl .l1 		; wait for vblflag = 1
+; 		lsr vblflag 	;...&  set vblflag = 0
+ 		
+;  		sei
+;  		rts
+; ; =============================================================================
+; VBLANK_GSE
+;  		LDA bMachine                                                                   
+; .LVBL1	CMP VERTBLANK         
+; 		BPL .LVBL1 			; attend fin vbl
+                                         
+; 		LDA bMachine      
+; .LVBL2 	CMP VERTBLANK        
+; 		BMI .LVBL2 			; attend fin display
+; 		RTS			
+
+; =============================================================================
+
+READ_FILE
+!zone
+	LDA bAFFICHE
+	BEQ +
+      	LDA BUFFERAFFL
+	STA ADR
+	LDA BUFFERAFFH
+	STA ADR+1			; on fixe le buffer
++	
+.loop	LDA #$01
+	STA $42
+	LDA #0
+	STA SP_DEST
+	LDX bSLOT
+	STX SP_DEVICE
+	TXA
+	LSR
+	LSR
+	LSR
+	LSR
+	ORA #$C0
+	STA modread+2
+modread	JSR $C50A      ; read 1 block
+	INC SP_BLOCK         ; next block
+	BNE +
+	INC SP_BLOCK+1  
++	INC SP_DEST+1         ; RAM +512 bytes
+	INC SP_DEST+1
+	LDA bAFFICHE
+	BEQ +
+	JSR GOAFFICHE 
+	JSR GOAFFICHE
++	DEC SP_BLOCKS2READ
+	; routine affichage / FT 2015
+	BNE .loop
+	RTS
+
+SP_BLOCKS2READ
+	!byte 16        ; nb of 512 bytes blocks to read
+
+GOAFFICHE	
+			LDY #00
+			LDA (ADR),Y
+			BEQ FINAFFICHE
+			STA OFFAFF+2	 	; partie haute
+			INY
+			LDA (ADR),Y
+			STA OFFAFF+1		; partie basse
+			INY
+			LDA CARAFF			; caract�re � afficher
+OFFAFF		STA $0000			; affichage !
+			CLC					; on pr�pare pour le prochain
+			LDA ADR				; secteur
+			ADC #02				; � "afficher"
+			STA ADR
+			BCC SORTIEAFF
+			INC ADR+1
+SORTIEAFF	RTS
+FINAFFICHE  STA bAFFICHE	; on remet � zero le bol�en
+            RTS  
+
+
+; =============================================================================
+TextIntro0	!fill 40,$DF ;"_' inverse
+!convtab "a2txti.bin" {
+; .................0000000000111111111122222222223333333333
+; .................0123456789012345678901234567890123456789
+TextIntro1	!Text "   FRENCH TOUCH PRESENTS MINI DEMO VI   "
+TextIntro2	!Text "          A QUESTION OF FRAMES          "
+}
+; .................0123456789012345678901234567890123456789
+; =============================================================================
+TRANSFERTAUX1
+!zone
+!pseudopc (TRANSFERTAUX1-$4000) {				; partie qui sera execut�e en m�moire AUX - BASE $B100
+		LDX #9
+		LDY #00
+.s1		
+.OFF1	LDA $B100,Y
+.OFF2	STA $F100,Y
+		INY
+		BNE .s1
+		INC .OFF1+2
+		INC .OFF2+2
+		DEX
+		BNE .s1
+}
+		; retour programme en MAIN
+		LDA #<BACKMAIN1
+		STA $3ED
+		LDA #>BACKMAIN1
+		STA $3EE
+		clc				; aux to main
+		clv				; use main stack and page 0
+		JMP XFER		; retour vers BACKMAIN1
+; -----------------------------------------------------------------------------
+TRANSFERTAUX2
+!zone
+		LDX #24
+		LDY #00
+.s1		
+.OFF1	LDA $A800,Y
+.OFF2	STA $D900,Y
+		INY
+		BNE .s1
+		INC .OFF1+2
+		INC .OFF2+2
+		DEX
+		BNE .s1
+
+		; retour programme en MAIN
+		LDA #<BACKMAIN2
+		STA $3ED
+		LDA #>BACKMAIN2
+		STA $3EE
+		clc				; aux to main
+		clv				; use main stack and page 0
+		JMP XFER		; retour vers BACKMAIN1
+; =============================================================================	
+		
+TableOffMB	!byte <CLIP1M,<CLIP2M,<CLIP6M,<CLIP3M,<CLIP7M,<CLIP5M,<CLIP4M,<CLIPBM,<CLIP9M
+TableOffMH	!byte >CLIP1M,>CLIP2M,>CLIP6M,>CLIP3M,>CLIP7M,>CLIP5M,>CLIP4M,>CLIPBM,>CLIP9M
+		
+TableOffAB	!byte <CLIP1A,<CLIP2A,<CLIP6A,<CLIP3A,<CLIP7A,<CLIP5A,<CLIP4A,<CLIPBA,<CLIP9A
+TableOffAH	!byte >CLIP1A,>CLIP2A,>CLIP6A,>CLIP3A,>CLIP7A,>CLIP5A,>CLIP4A,>CLIPBA,>CLIP9A
+		
+TablenbFRA	!byte 16,15,12,16,10,21,10,7,6
+TableIter	!byte 4,5,1,5,1,3,5,10,1
+NBCLIP = 9

@@ -1,0 +1,2218 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; CRAZY CYCLES
+; PART II - Split Screen (sinus) LORES ou Text / Hires
+; version 0.03
+
+!sl "part2label.a"		; sauvegarde labels (debug)
+
+		*= $4000 		; ORG = $4000
+
+; CONSTANTES SYSTEME ===================
+VERTBLANK	 = $C019	; 
+
+; Page ZERO
+bMachine 		= $0A	; byte MACHINE ($7F/IIE | $FF/GS)
+bRefresh		= $0B	; refresh rate : type NTSC/60Hz - PAL/50Hz (00 = 50HZ | 01 = 60 HZ)
+; ---------------------------------------
+ADR1			= $18   ; +$19
+ADR3			= $1C	; +$1D
+
+NextJMP			= $EB	; +$EC
+TableEffectLo	= $ED	; +$EE
+
+TableEffectHi	= $F9	; +$FA
+
+PosEffet		= $FC
+IndexEffet		= $FD
+
+COUNT			= $FE
+Temp			= $FF
+; =============================================================================
+
+PARTII	; init sur le premier EFFET + divers
+!zone		
+; quand on arrive ici depuis MAIN, on est au début de la première ligne de VBL !
+
+; initialisation pendant premiere ligne de VBL
+		LDA #$C0				; 2	
+		STA ADR1+1				; 3
+		STA ADR3+1				; 3
+
+		LDA #00					; 2
+		STA COUNT				; 3
+		STA IndexEffet			; 3
+		STA PosEffet			; 3
+		TAX						; 2
+
+		LDA AddrEffetLoL,X		; 4
+ 		STA TableEffectLo		; 3
+	 	LDA AddrEffetLoH,X		; 4
+ 		STA TableEffectLo+1		; 3
+		LDA AddrEffetHiL,X		; 4
+ 		STA TableEffectHi		; 3
+		LDA AddrEffetHiH,X		; 4
+ 		STA TableEffectHi+1		; 3
+ 		
+		LDA TableMode1,X		; 4
+ 		STA ADR1				; 3		
+		LDA TableMode3,X		; 4
+ 		STA ADR3				; 3
+		
+		NOP						; 2
+								; = 65 
+; seconde ligne VBL
+		LDX #11
+.bw0	DEX
+		BNE .bw0				; 56
+		NOP						; 2
+								; = 58 cycles au lieu de 65 pour resynchroniser bord gauche (bug ?!)
+		
+; on arrive début 3eme ligne de VBL
+; --------------------------------------------
+; suivant PAL OU NTSC
+; 1 ligne VBL (NTSC) ou 1 + 50 ligne VBL (PAL)
+		LDA bRefresh	; 3
+		BNE .NTSC		; 3 / (2)
+		
+		NOP
+		NOP			; 3 (appel routine WAIT) + 1 (compensé BNE non pris)
+		LDY #50
+		JSR WAIT 	; 50 * 65 (PAL)
+
+.NTSC	; 65 - 6 cycles = 59
+		LDX #11
+.BW0	DEX
+		BNE .BW0 ; 56
+		LDA Temp ; 3 
+; --------------------------------------------
+; début 4ème ligne de VBL
+		LDA Temp
+		LDY #66 		; 70 - 4 ; [ 3 lignes de VBL déjà effectuées + 1 ligne de VBL à ne pas faire]
+		JSR WAIT
+; on est maintenant début dernière ligne de VBL
+; =======================================================
+; debut synchronisation - premier octet dernière ligne de VBL
+; =======================================================
+BP
+!zone
+; affichage
+		LDY PosEffet				; 3
+		LDA (TableEffectLo),Y		; 5
+		STA NextJMP					; 3
+		LDA (TableEffectHi),Y		; 5
+		STA NextJMP+1				; 3
+		INY							; 2 = 21
+
+		LDX #6						; important aussi pour la remise à 0 de X
+.BW1	DEX
+		BNE .BW1
+									; 31
+
+
+		INC Temp					; 5
+		LDA Temp					; 3
+
+		JMP (NextJMP)				; 5 	
+									; 21 + 31 + 8 + 5 = 65
+
+									; => 65 
+
+; -------------------------------------
+; display... (192 lignes)
+; -------------------------------------
+BACK			; début VBL
+!zone	
+		
+		; ===>
+		; **>
+		; ->
+		INC PosEffet	; 5
+		INC PosEffet	; 5
+		INC PosEffet	; 5    
+		LDA #00			; 2
+		STA COUNT		; 3
+
+		LDA $C000		; 4		clavier
+		EOR $C061		; 4		bouton 1
+		BPL .suite		; 3
+		RTS				; sortie !
+		; <-			= 31
+
+.suite	; ->
+		; compteur + 1
+		INC CompLo			; 6
+		BNE .s1				; 2/3
+		INC CompHi			; 6
+		JMP .s1b			; 3
+.s1		LDA Temp			; 3
+		INC Temp			; 5
+ 		; <- 			= 17
+		
+		; <**				; 31 + 17 = 48 !!!
+		
+		; **>
+		; ->
+.s1b	LDA CompLo			; 4
+		CMP MaxLo			; 4
+		BEQ .s2				; 2/3
+		; 40 - 10 - 3 = 27
+		SBC (Temp,X)		; 6
+		SBC (Temp,X)		; 6
+		SBC (Temp,X)		; 6
+		SBC (Temp,X)		; 6
+		LDA Temp			; 3			
+		JMP .s5				; 3
+
+		; =>
+.s2		LDA CompHi			; 4
+		CMP MaxHi			; 4
+		BEQ .s3				; 2/3
+		; 18+1
+		SBC (Temp,X)		; 6
+		SBC (Temp,X)		; 6
+		NOP					; 2
+		NOP					; 2
+		JMP .s5				; 3
+.s3		
+		; index Effet + 1
+		; -> 
+		LDA #00				; 2
+		STA CompLo			; 4
+ 		STA CompHi			; 4
+		INC IndexEffet		; 5
+		JMP .s5				; 3
+		; <- 				; = 18
+		; <= 18 + 11 = 29
+		; <**				; 40 !!!
+
+ 		; lecture indexEffet
+		; **>
+.s5		LDX IndexEffet					; 3 <=
+		CPX #(FinTableMode1-TableMode1)	; 2
+		BNE .s6							; 3 
+		; ---
+		RTS
+		; ---
+.s6		
+		LDA TableColor,X		; 4
+ 		JSR FillGR				; 6
+		LDA AddrEffetLoL,X		; 4
+ 		STA TableEffectLo		; 3
+	 	LDA AddrEffetLoH,X		; 4
+ 		STA TableEffectLo+1		; 3
+		LDA AddrEffetHiL,X		; 4
+ 		STA TableEffectHi		; 3
+		LDA AddrEffetHiH,X		; 4
+ 		STA TableEffectHi+1		; 3
+ 		
+		LDA TableMode1,X		; 4
+ 		STA ADR1				; 3
+		LDA TableMode3,X		; 4
+ 		STA ADR3				; 3
+
+		LDA TableXMode,X		; 4
+		STA .offmod+1			; 4
+.offmod LDA $C050				; 4		; changement de mode
+ 		
+		LDA TableCompteurLo,X	; 4
+ 		STA MaxLo				; 4
+		LDA TableCompteurHi,X	; 4
+ 		STA MaxHi				; 4 => 88
+								
+								; + 3846
+
+		; <**					; = 3934
+
+		; <===== 48 + 40 + 3934 = 4022
+		; 65 * 69 = 4485 (on doit revenir à la dernière ligne du VBL donc 69 "lignes")
+		; - 4022 = 463
+
+		; 
+		; 463/65 = 7 + (8) 
+
+; --------------------------------------------
+; suivant PAL OU NTSC => 65*1 ou 65*50 + 65*1
+; 1 ligne VBL (NTSC) ou 1 + 50 ligne VBL (PAL)
+		LDA bRefresh	; 3
+		BNE .NTSC		; 4 / (2) - attention alignement fucked ici BNE = 4 cycles si pris !
+		
+		NOP				; + 2 pour compenser le BNE non pris (4-2)
+		LDA Temp		; appel routine WAIT (11 cycles)
+		LDY #50
+		JSR WAIT 	; 50 * 65 (PAL)
+
+.NTSC	; 65 - 7 cycles = 58
+		LDX #11
+.BW0	DEX
+		BNE .BW0 ; 56
+		NOP		 ; 2
+; --------------------------------------------
+; 6 lignes VBL
+		LDA Temp
+		LDY #6			; 6*65
+		JSR WAIT
+; + 8 cycles		
+		INC Temp		; 5
+		JMP BP			; 3 
+						; = 8 cycles
+
+; =============================================================================
+SPLIT2X06	; 6+34		
+!zone	
+		LDA (ADR1,X) 	; 6
+
+		LDA (ADR3,X)	; 6
+		
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		JMP WAITBACK2	; (3)
+						; = 13c
+
+.s1		JMP WAITHBL		; 3 	
+						; = 40
+; --------------------------------------
+SPLIT2X07	; 7+33
+!zone	
+		LDA $C050		; 4
+		LDA Temp		; 3
+
+		LDA (ADR3,X)	; 6
+		LDA Temp		; 3
+		
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		INC Temp		; 5
+		LDA Temp		; 3
+		JMP WAITBACK2	; 3
+						; = 
+
+.s1		INC Temp		; 5
+		LDA Temp		; 3
+
+		JMP WAITHBL		; 3 	
+						; = 40
+; --------------------------------------
+SPLIT2X07B	; 7+33		
+!zone	
+		LDA $C056		; 4
+		LDA Temp		; 3
+
+		LDA (ADR3,X)	; 6
+		LDA Temp		; 3
+		
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		INC Temp		; 5
+		LDA Temp		; 3
+		JMP WAITBACK2	; 3
+						; = 
+
+.s1		INC Temp		; 5
+		LDA Temp		; 3
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X08	; 8+32		
+!zone
+		LDA (ADR1,X) 	; 6
+		NOP				; 2
+
+		LDA (ADR3,X)	; 6
+		
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		JMP WAITBACK	; 3
+						; 
+
+.s1		SBC (Temp,X)	; 6
+		NOP
+		NOP				; 4
+
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X09	; 9+31		
+!zone
+		LDA (ADR1,X) 	; 6
+		LDA Temp		; 3
+
+		LDA (ADR3,X)	; 6
+		SBC (Temp,X)	; 6
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		LDA Temp
+		JMP WAITBACK2	; (3)
+						; = 13c		
+
+.s1		LDA Temp		; 3
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X10	; 10+30		
+!zone
+		LDA (ADR1,X) 	; 6
+		NOP				; 2
+		NOP				; 2
+
+		LDA (ADR3,X)	; 6
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		INC Temp		; 5
+		LDA Temp		; 3
+		JMP WAITBACK2	; (3)
+
+.s1		INC Temp		; 5
+		LDA Temp		; 3
+
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X11	; 11+29		
+!zone
+		LDA (ADR1,X) 	; 6
+		INC Temp		; 5
+
+		LDA (ADR3,X)	; 6
+		NOP				; 2
+		
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		INC Temp		; 5
+		JMP WAITBACK2	; (3)
+
+.s1		INC Temp		; 5
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+!align 255,0
+SPLIT2X12	; 12+28	
+!zone
+		LDA (ADR1,X) 	; 6
+		SBC (Temp,X)	; 6
+
+		LDA (ADR3,X)	; 6
+		LDA Temp		; 3
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		LDA Temp		; 3
+		JMP WAITBACK2	; (3)
+
+.s1		LDA Temp		; 3
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X13	; 13+27	
+!zone
+		LDA (ADR1,X) 	; 6
+		INC Temp		; 5
+		NOP				; 2
+
+		LDA (ADR3,X)	; 6
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		INC Temp		; 5
+		JMP WAITBACK2	; (3)
+
+.s1		INC Temp
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X14	; 14+26		
+!zone
+		LDA (ADR1,X) 	; 6
+		NOP				; 2
+		SBC (Temp,X)	; 6
+
+		LDA (ADR3,X)	; 6
+		NOP
+		NOP				; 4
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		JMP WAITBACK2	; (3)						
+
+.s1		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X15	; 15+25
+!zone
+		LDA (ADR1,X) 	; 6
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+
+		LDA (ADR3,X)	; 6
+		
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		LDA Temp		; 5
+		JMP WAITBACK2	; (3)
+
+.s1		LDA Temp		; 3
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X16	; 16+24	
+!zone
+		LDA (ADR1,X) 	; 6
+		INC Temp		; 5
+		INC Temp		; 5
+
+		LDA (ADR3,X)	; 6
+		NOP				; 2
+		
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		JMP WAITBACK2	; (3)
+
+.s1		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X17	; 17+23
+!zone
+		LDA (ADR1,X) 	; 6
+		INC COUNT		; 5
+		SBC (Temp,X)	; 6
+
+		LDA (ADR3,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		JMP WAITBACK2	; (3)
+						; = 14c
+
+.s1		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X18	; 18+22
+!zone
+		LDA (ADR1,X) 	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+
+		LDA (ADR3,X)	; 6
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		JMP WAITBACK2	; (3)
+						; = 13c
+
+.s1		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X19	; 19+21		
+!zone
+		LDA (ADR1,X) 	; 6
+
+		INC COUNT		; 5
+		INC Temp		; 5
+		LDA Temp		; 3		
+
+		LDA (ADR3,X)	; 6
+		
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		NOP				; 2
+		NOP				; 2
+		JMP WAITBACK2	; (3)
+						
+.s1		NOP				; 2
+		NOP				; 2
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X20	; 20+20
+!zone
+		LDA (ADR1,X) 	; 6
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+
+		INC COUNT		; 5
+
+		LDA (ADR3,X)	; 6
+		LDA Temp		; 3
+
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		JMP WAITBACK2	; (3)
+
+.s1		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X21	; 21+19		
+!zone
+		LDA (ADR1,X) 	; 6
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BEQ .s2			; 2 / (3)
+		BNE	.s1			; 3 / (2)
+.s2		NOP				; (2)
+		LDA (ADR3,X)	; 6
+		INC Temp		; 5
+		INC Temp		; 5
+		JMP WAITBACK	; 3
+		
+.s1		LDA (ADR3,X)	; 6
+		INC Temp		; 5
+		INC Temp		; 5
+
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X22	; 22+18
+!zone
+		LDA (ADR1,X) 	; 6
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		NOP				; 2
+		NOP				; 2
+		LDA (ADR3,X)	; 6
+		NOP				; 2
+		NOP				; 2
+		INC Temp		; 5
+		JMP WAITBACK	; 3
+						; = 13c
+
+.s1		LDA Temp		; 3
+		LDA (ADR3,X)	; 6
+		NOP				; 2
+		NOP				; 2
+		INC Temp		; 3
+
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X23	; 23+17
+!zone
+		LDA (ADR1,X) 	; 6
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		BEQ	.s2			; 3
+.s2		NOP				; 2
+		LDA (ADR3,X)	; 6
+		NOP				; 2
+		SBC (Temp,X)	; 6
+		JMP WAITBACK	; 3
+						; = 13c
+
+.s1		NOP				; 2
+		NOP				; 2
+		LDA (ADR3,X)	; 6
+		NOP				; 2
+		SBC (Temp,X)	; 6
+
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X24	; 24+16
+!zone
+		LDA (ADR1,X) 	; 6
+		
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		BEQ	.s2			; 3
+.s2		LDA Temp		; 3
+		LDA (ADR3,X)	; 6
+		NOP				; 2
+		INC Temp		; 5
+		JMP WAITBACK	; 3
+						; = 13c
+
+.s1		INC Temp		; 5
+		LDA (ADR3,X)	; 6
+		NOP				; 2
+		INC Temp		; 5
+
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X25	; 25+15		
+!zone
+		LDA (ADR1,X) 	; 6
+		NOP				; 2
+		NOP				; 2
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 
+		BEQ	.s2			; 3 => 15c
+.s2		
+		LDA (ADR3,X)	; 6
+		NOP				; 2
+		NOP				; 2
+		NOP				; 2
+		JMP WAITBACK	; 3
+
+.s1		NOP				; 2
+		LDA (ADR3,X)	; 6
+		NOP				; 2
+		NOP				; 2
+		NOP				; 2
+
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X26	; 26+14
+!zone
+		LDA (ADR1,X) 	; 6
+		NOP				; 2
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		BEQ	.s2			; 3
+.s2		LDA Temp		; 3
+		LDA (ADR3,X)	; 6
+		INC Temp		; 5
+		JMP WAITBACK	; 3
+
+.s1		NOP				; 2
+		LDA Temp		; 3
+		LDA (ADR3,X)	; 6
+		INC Temp		; 5
+
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+!align 255, 0
+SPLIT2X27	; 27+13	
+!zone
+		LDA (ADR1,X) 	; 6
+		SBC (Temp,X)	; 6
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3/2
+		BEQ	.s2			; 3 => 15c
+.s2		
+		LDA (ADR3,X)	; 6
+		NOP
+		NOP				; 4
+		JMP WAITBACK	; 3
+
+.s1		NOP				; 2
+		LDA (ADR3,X)	; 6
+		NOP
+		NOP				; 4
+
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X28	; 28+12
+!zone
+		LDA (ADR1,X) 	; 6
+		INC Temp		; 5
+		NOP				; 2
+		
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 => 13c / (2)
+		BEQ	.s2			; 3 => 15c
+.s2		
+		LDA (ADR3,X)	; 6
+		LDA Temp		; 3
+		JMP WAITBACK	; 3
+
+.s1		NOP				; 2
+		LDA (ADR3,X)	; 6
+		LDA Temp		; 3
+
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X29	; 29+11
+!zone
+		LDA (ADR1,X) 	; 6
+		INC Temp		; 5
+		LDA Temp		; 3
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 => 13c / (2)
+		BEQ	.s2			; 3 => 15c
+.s2		
+		LDA (ADR3,X)	; 6
+		NOP				; 2
+		JMP WAITBACK	; 3
+
+.s1		NOP				; 2
+		LDA (ADR3,X)	; 6
+		NOP				; 2
+
+		JMP WAITHBL		; 3 	
+						; = 40
+; -------------------------------------
+SPLIT2X30	; 30
+!zone
+		LDA (ADR1,X) 	; 6
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 /2
+		BEQ	.s2			; 3 
+.s2		
+		LDA (ADR3,X)	; 6
+		SBC (Temp,X)
+		SBC (Temp,X)
+		SBC (Temp,X)
+		SBC (Temp,X)
+		NOP				; 26
+		JMP BACK		; 3
+
+.s1		NOP				; 2
+		LDA (ADR3,X)	; 6
+		SBC (Temp,X)	; 6
+
+		LDA (TableEffectLo),Y		; 5
+		STA NextJMP					; 3
+		LDA (TableEffectHi),Y		; 5
+		STA NextJMP+1				; 3
+		INY							; 2
+		JMP (NextJMP)				; 5
+							; = 65 !
+; -------------------------------------
+SPLIT2X31	; 31
+!zone
+		LDA (ADR1,X) 	; 6
+		INC Temp		; 5
+		INC Temp		; 5
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 => 13c / (2)
+		BEQ	.s2			; 3 => 15c
+.s2		
+		LDA (ADR3,X)	; 6
+		SBC (Temp,X)
+		SBC (Temp,X)
+		SBC (Temp,X)
+		INC Temp
+		NOP				; 25
+		JMP BACK		; 3
+
+.s1		NOP				; 2
+		LDA (ADR3,X)	; 6
+		INC Temp		; 5
+		
+		LDA (TableEffectLo),Y		; 5
+		STA NextJMP					; 3
+		LDA (TableEffectHi),Y		; 5
+		STA NextJMP+1				; 3
+		INY							; 2
+		JMP (NextJMP)				; 5
+						; = 65
+; -------------------------------------
+SPLIT2X32	; 32 
+!zone
+		LDA (ADR1,X) 	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 => 13c / (2)
+		BEQ	.s2			; 3 => 15c
+.s2		
+		LDA (ADR3,X)	; 6
+		SBC (Temp,X)
+		SBC (Temp,X)
+		SBC (Temp,X)
+		SBC (Temp,X)	; 24
+		JMP BACK		; 3
+
+.s1		NOP				; 2
+		LDA (ADR3,X)	; 6
+		NOP
+		NOP				; 4
+
+		LDA (TableEffectLo),Y		; 5
+		STA NextJMP					; 3
+		LDA (TableEffectHi),Y		; 5
+		STA NextJMP+1				; 3
+		INY							; 2
+		JMP (NextJMP)				; 5
+									; = 65 !
+; -------------------------------------
+!align 255,0
+SPLIT2X33	; 33
+!zone
+		LDA (ADR1,X) 	; 6
+		INC Temp		; 5
+		NOP				; 2
+		INC Temp		; 5
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 => 13c / (2)
+		BEQ	.s2			; 3 => 15c
+.s2		
+		LDA (ADR3,X)	; 6 (= 39)
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		INC Temp		; 5
+		JMP BACK		; 3
+
+.s1		NOP				; 2
+		LDA (ADR3,X)	; 6
+		LDA Temp		; 3
+
+		LDA (TableEffectLo),Y		; 5
+		STA NextJMP					; 3
+		LDA (TableEffectHi),Y		; 5
+		STA NextJMP+1		; 3
+		INY					; 2
+		JMP (NextJMP)		; 5
+							; = 65 !
+; -------------------------------------
+SPLIT2X34	; 34
+!zone
+		LDA (ADR1,X) 				; 6
+		INC Temp					; 5
+		LDA (TableEffectLo),Y		; 5
+		STA NextJMP					; 3
+
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 => 13c / (2)
+		BEQ	.s2			; 3 => 15c
+.s2		
+		LDA (ADR3,X)	; (6)
+		; 25
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		NOP
+		NOP				; 4
+		JMP BACK		; 3
+
+.s1		NOP				; 2
+		LDA (ADR3,X)	; 6
+
+		INC Temp					; 5
+		INC Temp					; 5
+		LDA (TableEffectHi),Y		; 5
+		STA NextJMP+1				; 3
+		INY							; 2
+		JMP (NextJMP)				; 5
+									; = 65 !
+; --------------------------------------
+SPLIT2X07C	; 7+33		
+!zone	
+		LDA $C051		; 4
+		LDA Temp		; 3
+
+		LDA (ADR3,X)	; 6
+		LDA Temp		; 3
+		
+		INC COUNT		; 5
+		LDA COUNT		; 3
+		CMP #192		; 2
+		BNE	.s1			; 3 / (2)
+		INC Temp		; 5
+		LDA Temp		; 3
+		JMP WAITBACK2	; 3
+						; = 
+
+.s1		INC Temp		; 5
+		LDA Temp		; 3
+		JMP WAITHBL		; 3 	
+						; = 40
+; =============================================================================
+ECRANFIXEGR		; pendant 192 lignes
+!zone
+		LDA $C056		; 4 affichage GR
+
+		LDX #11
+.BW		DEX
+ 		BNE	.BW			; 56
+ 						; 
+
+		LDA Temp		;   3
+		LDY #191		;	2
+		JSR WAIT		; 	6
+						; 191 * 65
+		
+		NOP				; 2
+		JMP BACK		; 3
+						; 191*65 + 4 + 56 + 2 + 3 = 192 * 65
+; =============================================================================
+WAITHBL  ; 25 cycles
+!zone
+		LDA (TableEffectLo),Y		; 5
+		STA NextJMP					; 3
+		LDA (TableEffectHi),Y		; 5
+		STA NextJMP+1				; 3
+		INY							; 2
+		NOP							; 2
+		JMP (NextJMP)				; 5
+									; = 25 !
+; -----------------------------------------------
+WAITBACK2	; 26 cycles
+!zone
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		LDA Temp		; 3
+		NOP				; 2
+
+		JMP BACK		; 3
+; -----------------------------------------------
+WAITBACK	; 25 cycles
+!zone
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		SBC (Temp,X)	; 6
+		NOP
+		NOP				; 4
+
+		JMP BACK		; 3
+; =============================================================================
+
+; =============================================================================
+FillGR ; dans A : couleur GR ($00,$FF,etc)
+!zone
+				; 40x24 = 960 * 4 cycles = 3840c + 6
+	 sta $400
+     sta $401
+     sta $402
+     sta $403
+     sta $404
+     sta $405
+     sta $406
+     sta $407
+     sta $408
+     sta $409
+     sta $40a
+     sta $40b
+     sta $40c
+     sta $40d
+     sta $40e
+     sta $40f
+     sta $410
+     sta $411
+     sta $412
+     sta $413
+     sta $414
+     sta $415
+     sta $416
+     sta $417
+     sta $418
+     sta $419
+     sta $41a
+     sta $41b
+     sta $41c
+     sta $41d
+     sta $41e
+     sta $41f
+     sta $420
+     sta $421
+     sta $422
+     sta $423
+     sta $424
+     sta $425
+     sta $426
+     sta $427
+     sta $480
+     sta $481
+     sta $482
+     sta $483
+     sta $484
+     sta $485
+     sta $486
+     sta $487
+     sta $488
+     sta $489
+     sta $48a
+     sta $48b
+     sta $48c
+     sta $48d
+     sta $48e
+     sta $48f
+     sta $490
+     sta $491
+     sta $492
+     sta $493
+     sta $494
+     sta $495
+     sta $496
+     sta $497
+     sta $498
+     sta $499
+     sta $49a
+     sta $49b
+     sta $49c
+     sta $49d
+     sta $49e
+     sta $49f
+     sta $4a0
+     sta $4a1
+     sta $4a2
+     sta $4a3
+     sta $4a4
+     sta $4a5
+     sta $4a6
+     sta $4a7
+     sta $500
+     sta $501
+     sta $502
+     sta $503
+     sta $504
+     sta $505
+     sta $506
+     sta $507
+     sta $508
+     sta $509
+     sta $50a
+     sta $50b
+     sta $50c
+     sta $50d
+     sta $50e
+     sta $50f
+     sta $510
+     sta $511
+     sta $512
+     sta $513
+     sta $514
+     sta $515
+     sta $516
+     sta $517
+     sta $518
+     sta $519
+     sta $51a
+     sta $51b
+     sta $51c
+     sta $51d
+     sta $51e
+     sta $51f
+     sta $520
+     sta $521
+     sta $522
+     sta $523
+     sta $524
+     sta $525
+     sta $526
+     sta $527
+     sta $580
+     sta $581
+     sta $582
+     sta $583
+     sta $584
+     sta $585
+     sta $586
+     sta $587
+     sta $588
+     sta $589
+     sta $58a
+     sta $58b
+     sta $58c
+     sta $58d
+     sta $58e
+     sta $58f
+     sta $590
+     sta $591
+     sta $592
+     sta $593
+     sta $594
+     sta $595
+     sta $596
+     sta $597
+     sta $598
+     sta $599
+     sta $59a
+     sta $59b
+     sta $59c
+     sta $59d
+     sta $59e
+     sta $59f
+     sta $5a0
+     sta $5a1
+     sta $5a2
+     sta $5a3
+     sta $5a4
+     sta $5a5
+     sta $5a6
+     sta $5a7
+     sta $600
+     sta $601
+     sta $602
+     sta $603
+     sta $604
+     sta $605
+     sta $606
+     sta $607
+     sta $608
+     sta $609
+     sta $60a
+     sta $60b
+     sta $60c
+     sta $60d
+     sta $60e
+     sta $60f
+     sta $610
+     sta $611
+     sta $612
+     sta $613
+     sta $614
+     sta $615
+     sta $616
+     sta $617
+     sta $618
+     sta $619
+     sta $61a
+     sta $61b
+     sta $61c
+     sta $61d
+     sta $61e
+     sta $61f
+     sta $620
+     sta $621
+     sta $622
+     sta $623
+     sta $624
+     sta $625
+     sta $626
+     sta $627
+     sta $680
+     sta $681
+     sta $682
+     sta $683
+     sta $684
+     sta $685
+     sta $686
+     sta $687
+     sta $688
+     sta $689
+     sta $68a
+     sta $68b
+     sta $68c
+     sta $68d
+     sta $68e
+     sta $68f
+     sta $690
+     sta $691
+     sta $692
+     sta $693
+     sta $694
+     sta $695
+     sta $696
+     sta $697
+     sta $698
+     sta $699
+     sta $69a
+     sta $69b
+     sta $69c
+     sta $69d
+     sta $69e
+     sta $69f
+     sta $6a0
+     sta $6a1
+     sta $6a2
+     sta $6a3
+     sta $6a4
+     sta $6a5
+     sta $6a6
+     sta $6a7
+     sta $700
+     sta $701
+     sta $702
+     sta $703
+     sta $704
+     sta $705
+     sta $706
+     sta $707
+     sta $708
+     sta $709
+     sta $70a
+     sta $70b
+     sta $70c
+     sta $70d
+     sta $70e
+     sta $70f
+     sta $710
+     sta $711
+     sta $712
+     sta $713
+     sta $714
+     sta $715
+     sta $716
+     sta $717
+     sta $718
+     sta $719
+     sta $71a
+     sta $71b
+     sta $71c
+     sta $71d
+     sta $71e
+     sta $71f
+     sta $720
+     sta $721
+     sta $722
+     sta $723
+     sta $724
+     sta $725
+     sta $726
+     sta $727
+     sta $780
+     sta $781
+     sta $782
+     sta $783
+     sta $784
+     sta $785
+     sta $786
+     sta $787
+     sta $788
+     sta $789
+     sta $78a
+     sta $78b
+     sta $78c
+     sta $78d
+     sta $78e
+     sta $78f
+     sta $790
+     sta $791
+     sta $792
+     sta $793
+     sta $794
+     sta $795
+     sta $796
+     sta $797
+     sta $798
+     sta $799
+     sta $79a
+     sta $79b
+     sta $79c
+     sta $79d
+     sta $79e
+     sta $79f
+     sta $7a0
+     sta $7a1
+     sta $7a2
+     sta $7a3
+     sta $7a4
+     sta $7a5
+     sta $7a6
+     sta $7a7
+     sta $428
+     sta $429
+     sta $42a
+     sta $42b
+     sta $42c
+     sta $42d
+     sta $42e
+     sta $42f
+     sta $430
+     sta $431
+     sta $432
+     sta $433
+     sta $434
+     sta $435
+     sta $436
+     sta $437
+     sta $438
+     sta $439
+     sta $43a
+     sta $43b
+     sta $43c
+     sta $43d
+     sta $43e
+     sta $43f
+     sta $440
+     sta $441
+     sta $442
+     sta $443
+     sta $444
+     sta $445
+     sta $446
+     sta $447
+     sta $448
+     sta $449
+     sta $44a
+     sta $44b
+     sta $44c
+     sta $44d
+     sta $44e
+     sta $44f
+     sta $4a8
+     sta $4a9
+     sta $4aa
+     sta $4ab
+     sta $4ac
+     sta $4ad
+     sta $4ae
+     sta $4af
+     sta $4b0
+     sta $4b1
+     sta $4b2
+     sta $4b3
+     sta $4b4
+     sta $4b5
+     sta $4b6
+     sta $4b7
+     sta $4b8
+     sta $4b9
+     sta $4ba
+     sta $4bb
+     sta $4bc
+     sta $4bd
+     sta $4be
+     sta $4bf
+     sta $4c0
+     sta $4c1
+     sta $4c2
+     sta $4c3
+     sta $4c4
+     sta $4c5
+     sta $4c6
+     sta $4c7
+     sta $4c8
+     sta $4c9
+     sta $4ca
+     sta $4cb
+     sta $4cc
+     sta $4cd
+     sta $4ce
+     sta $4cf
+     sta $528
+     sta $529
+     sta $52a
+     sta $52b
+     sta $52c
+     sta $52d
+     sta $52e
+     sta $52f
+     sta $530
+     sta $531
+     sta $532
+     sta $533
+     sta $534
+     sta $535
+     sta $536
+     sta $537
+     sta $538
+     sta $539
+     sta $53a
+     sta $53b
+     sta $53c
+     sta $53d
+     sta $53e
+     sta $53f
+     sta $540
+     sta $541
+     sta $542
+     sta $543
+     sta $544
+     sta $545
+     sta $546
+     sta $547
+     sta $548
+     sta $549
+     sta $54a
+     sta $54b
+     sta $54c
+     sta $54d
+     sta $54e
+     sta $54f
+     sta $5a8
+     sta $5a9
+     sta $5aa
+     sta $5ab
+     sta $5ac
+     sta $5ad
+     sta $5ae
+     sta $5af
+     sta $5b0
+     sta $5b1
+     sta $5b2
+     sta $5b3
+     sta $5b4
+     sta $5b5
+     sta $5b6
+     sta $5b7
+     sta $5b8
+     sta $5b9
+     sta $5ba
+     sta $5bb
+     sta $5bc
+     sta $5bd
+     sta $5be
+     sta $5bf
+     sta $5c0
+     sta $5c1
+     sta $5c2
+     sta $5c3
+     sta $5c4
+     sta $5c5
+     sta $5c6
+     sta $5c7
+     sta $5c8
+     sta $5c9
+     sta $5ca
+     sta $5cb
+     sta $5cc
+     sta $5cd
+     sta $5ce
+     sta $5cf
+     sta $628
+     sta $629
+     sta $62a
+     sta $62b
+     sta $62c
+     sta $62d
+     sta $62e
+     sta $62f
+     sta $630
+     sta $631
+     sta $632
+     sta $633
+     sta $634
+     sta $635
+     sta $636
+     sta $637
+     sta $638
+     sta $639
+     sta $63a
+     sta $63b
+     sta $63c
+     sta $63d
+     sta $63e
+     sta $63f
+     sta $640
+     sta $641
+     sta $642
+     sta $643
+     sta $644
+     sta $645
+     sta $646
+     sta $647
+     sta $648
+     sta $649
+     sta $64a
+     sta $64b
+     sta $64c
+     sta $64d
+     sta $64e
+     sta $64f
+     sta $6a8
+     sta $6a9
+     sta $6aa
+     sta $6ab
+     sta $6ac
+     sta $6ad
+     sta $6ae
+     sta $6af
+     sta $6b0
+     sta $6b1
+     sta $6b2
+     sta $6b3
+     sta $6b4
+     sta $6b5
+     sta $6b6
+     sta $6b7
+     sta $6b8
+     sta $6b9
+     sta $6ba
+     sta $6bb
+     sta $6bc
+     sta $6bd
+     sta $6be
+     sta $6bf
+     sta $6c0
+     sta $6c1
+     sta $6c2
+     sta $6c3
+     sta $6c4
+     sta $6c5
+     sta $6c6
+     sta $6c7
+     sta $6c8
+     sta $6c9
+     sta $6ca
+     sta $6cb
+     sta $6cc
+     sta $6cd
+     sta $6ce
+     sta $6cf
+     sta $728
+     sta $729
+     sta $72a
+     sta $72b
+     sta $72c
+     sta $72d
+     sta $72e
+     sta $72f
+     sta $730
+     sta $731
+     sta $732
+     sta $733
+     sta $734
+     sta $735
+     sta $736
+     sta $737
+     sta $738
+     sta $739
+     sta $73a
+     sta $73b
+     sta $73c
+     sta $73d
+     sta $73e
+     sta $73f
+     sta $740
+     sta $741
+     sta $742
+     sta $743
+     sta $744
+     sta $745
+     sta $746
+     sta $747
+     sta $748
+     sta $749
+     sta $74a
+     sta $74b
+     sta $74c
+     sta $74d
+     sta $74e
+     sta $74f
+     sta $7a8
+     sta $7a9
+     sta $7aa
+     sta $7ab
+     sta $7ac
+     sta $7ad
+     sta $7ae
+     sta $7af
+     sta $7b0
+     sta $7b1
+     sta $7b2
+     sta $7b3
+     sta $7b4
+     sta $7b5
+     sta $7b6
+     sta $7b7
+     sta $7b8
+     sta $7b9
+     sta $7ba
+     sta $7bb
+     sta $7bc
+     sta $7bd
+     sta $7be
+     sta $7bf
+     sta $7c0
+     sta $7c1
+     sta $7c2
+     sta $7c3
+     sta $7c4
+     sta $7c5
+     sta $7c6
+     sta $7c7
+     sta $7c8
+     sta $7c9
+     sta $7ca
+     sta $7cb
+     sta $7cc
+     sta $7cd
+     sta $7ce
+     sta $7cf
+     sta $450
+     sta $451
+     sta $452
+     sta $453
+     sta $454
+     sta $455
+     sta $456
+     sta $457
+     sta $458
+     sta $459
+     sta $45a
+     sta $45b
+     sta $45c
+     sta $45d
+     sta $45e
+     sta $45f
+     sta $460
+     sta $461
+     sta $462
+     sta $463
+     sta $464
+     sta $465
+     sta $466
+     sta $467
+     sta $468
+     sta $469
+     sta $46a
+     sta $46b
+     sta $46c
+     sta $46d
+     sta $46e
+     sta $46f
+     sta $470
+     sta $471
+     sta $472
+     sta $473
+     sta $474
+     sta $475
+     sta $476
+     sta $477
+     sta $4d0
+     sta $4d1
+     sta $4d2
+     sta $4d3
+     sta $4d4
+     sta $4d5
+     sta $4d6
+     sta $4d7
+     sta $4d8
+     sta $4d9
+     sta $4da
+     sta $4db
+     sta $4dc
+     sta $4dd
+     sta $4de
+     sta $4df
+     sta $4e0
+     sta $4e1
+     sta $4e2
+     sta $4e3
+     sta $4e4
+     sta $4e5
+     sta $4e6
+     sta $4e7
+     sta $4e8
+     sta $4e9
+     sta $4ea
+     sta $4eb
+     sta $4ec
+     sta $4ed
+     sta $4ee
+     sta $4ef
+     sta $4f0
+     sta $4f1
+     sta $4f2
+     sta $4f3
+     sta $4f4
+     sta $4f5
+     sta $4f6
+     sta $4f7
+     sta $550
+     sta $551
+     sta $552
+     sta $553
+     sta $554
+     sta $555
+     sta $556
+     sta $557
+     sta $558
+     sta $559
+     sta $55a
+     sta $55b
+     sta $55c
+     sta $55d
+     sta $55e
+     sta $55f
+     sta $560
+     sta $561
+     sta $562
+     sta $563
+     sta $564
+     sta $565
+     sta $566
+     sta $567
+     sta $568
+     sta $569
+     sta $56a
+     sta $56b
+     sta $56c
+     sta $56d
+     sta $56e
+     sta $56f
+     sta $570
+     sta $571
+     sta $572
+     sta $573
+     sta $574
+     sta $575
+     sta $576
+     sta $577
+     sta $5d0
+     sta $5d1
+     sta $5d2
+     sta $5d3
+     sta $5d4
+     sta $5d5
+     sta $5d6
+     sta $5d7
+     sta $5d8
+     sta $5d9
+     sta $5da
+     sta $5db
+     sta $5dc
+     sta $5dd
+     sta $5de
+     sta $5df
+     sta $5e0
+     sta $5e1
+     sta $5e2
+     sta $5e3
+     sta $5e4
+     sta $5e5
+     sta $5e6
+     sta $5e7
+     sta $5e8
+     sta $5e9
+     sta $5ea
+     sta $5eb
+     sta $5ec
+     sta $5ed
+     sta $5ee
+     sta $5ef
+     sta $5f0
+     sta $5f1
+     sta $5f2
+     sta $5f3
+     sta $5f4
+     sta $5f5
+     sta $5f6
+     sta $5f7
+     sta $650
+     sta $651
+     sta $652
+     sta $653
+     sta $654
+     sta $655
+     sta $656
+     sta $657
+     sta $658
+     sta $659
+     sta $65a
+     sta $65b
+     sta $65c
+     sta $65d
+     sta $65e
+     sta $65f
+     sta $660
+     sta $661
+     sta $662
+     sta $663
+     sta $664
+     sta $665
+     sta $666
+     sta $667
+     sta $668
+     sta $669
+     sta $66a
+     sta $66b
+     sta $66c
+     sta $66d
+     sta $66e
+     sta $66f
+     sta $670
+     sta $671
+     sta $672
+     sta $673
+     sta $674
+     sta $675
+     sta $676
+     sta $677
+     sta $6d0
+     sta $6d1
+     sta $6d2
+     sta $6d3
+     sta $6d4
+     sta $6d5
+     sta $6d6
+     sta $6d7
+     sta $6d8
+     sta $6d9
+     sta $6da
+     sta $6db
+     sta $6dc
+     sta $6dd
+     sta $6de
+     sta $6df
+     sta $6e0
+     sta $6e1
+     sta $6e2
+     sta $6e3
+     sta $6e4
+     sta $6e5
+     sta $6e6
+     sta $6e7
+     sta $6e8
+     sta $6e9
+     sta $6ea
+     sta $6eb
+     sta $6ec
+     sta $6ed
+     sta $6ee
+     sta $6ef
+     sta $6f0
+     sta $6f1
+     sta $6f2
+     sta $6f3
+     sta $6f4
+     sta $6f5
+     sta $6f6
+     sta $6f7
+     sta $750
+     sta $751
+     sta $752
+     sta $753
+     sta $754
+     sta $755
+     sta $756
+     sta $757
+     sta $758
+     sta $759
+     sta $75a
+     sta $75b
+     sta $75c
+     sta $75d
+     sta $75e
+     sta $75f
+     sta $760
+     sta $761
+     sta $762
+     sta $763
+     sta $764
+     sta $765
+     sta $766
+     sta $767
+     sta $768
+     sta $769
+     sta $76a
+     sta $76b
+     sta $76c
+     sta $76d
+     sta $76e
+     sta $76f
+     sta $770
+     sta $771
+     sta $772
+     sta $773
+     sta $774
+     sta $775
+     sta $776
+     sta $777
+     sta $7d0
+     sta $7d1
+     sta $7d2
+     sta $7d3
+     sta $7d4
+     sta $7d5
+     sta $7d6
+     sta $7d7
+     sta $7d8
+     sta $7d9
+     sta $7da
+     sta $7db
+     sta $7dc
+     sta $7dd
+     sta $7de
+     sta $7df
+     sta $7e0
+     sta $7e1
+     sta $7e2
+     sta $7e3
+     sta $7e4
+     sta $7e5
+     sta $7e6
+     sta $7e7
+     sta $7e8
+     sta $7e9
+     sta $7ea
+     sta $7eb
+     sta $7ec
+     sta $7ed
+     sta $7ee
+     sta $7ef
+     sta $7f0
+     sta $7f1
+     sta $7f2
+     sta $7f3
+     sta $7f4
+     sta $7f5
+     sta $7f6
+     sta $7f7
+     
+     RTS
+; -----------------------------------------------------------------------------
+; = Routine WAIT ======================
+; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 11 cycles obligatoire)
+!align 255,0
+WAIT
+!zone           
+		DEY								
+		BEQ .S1						
+                  
+.WL1 	LDX #$0B				            
+.WL2 	DEX							
+		BNE .WL2																
+                      
+		NOP								
+		NOP								
+		DEY								
+		BNE .WL1						
+																                      
+		LDX #$08					                   
+.WL3 	DEX							
+		BNE .WL3						
+                							
+		NOP								
+		NOP								
+		RTS								
+											         
+.S1	 	LDX #08					                    
+.WL4 	DEX							
+		BNE .WL4						
+																	
+		NOP								
+		RTS
+; =============================================================================
+CompLo 	!byte $00
+CompHi 	!byte $00
+MaxLo	!byte $10
+MaxHi	!byte $00
+; =============================================================================
+!align 255,0
+				;.....$00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C,$0D,$0E,$0F
+TableMode1 		!byte $56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56	; "pointes" lores couleurs/hires
+				!byte $56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56						; transtion
+				;.....$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$2A,$2B,$2C,$2D,$2E,$2F
+				!byte $50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50	; "complexe" hires/lettres FT
+				!byte $56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56						; transtion
+				;.....$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$4A,$4B,$4C,$4D,$4E,$4F
+				!byte $56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56	; "complexe" lores bicouleurs/hires
+				!byte $56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56						; transtion
+				;.....$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$6A,$6B,$6C,$6D,$6E,$6F
+				!byte $51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51	; "sinus" text (/) / hires
+				!byte $51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51
+				!byte $51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51	
+				!byte $51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51
+				!byte $51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51	
+FinTableMode1
+!align 255,0
+				;.....$00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C,$0D,$0E,$0F
+TableMode3 		!byte $57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57
+				!byte $56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56
+				;.....$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$2A,$2B,$2C,$2D,$2E,$2F
+				!byte $51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51,$51
+				!byte $56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56
+				;.....$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$4A,$4B,$4C,$4D,$4E,$4F
+				!byte $57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57
+				!byte $56,$56,$56,$56,$56,$56,$56,$56,$56,$56,$56
+				;.....$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$6A,$6B,$6C,$6D,$6E,$6F
+				!byte $50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50
+				!byte $50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50
+				!byte $50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50
+				!byte $50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50
+				!byte $50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50
+
+!align 255,0
+				;.....$00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C,$0D,$0E,$0F
+TableXMode		!byte $50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50
+				!byte $50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50
+				;.....$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$2A,$2B,$2C,$2D,$2E,$2F
+				!byte $57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57
+				!byte $50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50
+				;.....$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$4A,$4B,$4C,$4D,$4E,$4F
+				!byte $50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50
+				!byte $50,$50,$50,$50,$50,$50,$50,$50,$50,$50,$50
+				;.....$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$6A,$6B,$6C,$6D,$6E,$6F
+				!byte $57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57
+				!byte $57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57
+				!byte $57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57
+				!byte $57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57
+				!byte $57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57,$57
+
+!align 255,0
+				;.....$00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C,$0D,$0E,$0F
+TableColor 		!byte $11,$BB,$99,$cc,$ff,$88,$aa,$dd,$33,$22,$11,$77,$44,$33,$FF,$EE
+				!byte $FF,$66,$99,$cc,$ff,$88,$aa,$dd,$33,$22,$FF
+				;.....$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$2A,$2B,$2C,$2D,$2E,$2F
+				!byte $C6,$d2,$c5,$ce,$c3,$c8,$a0,$d4,$cf,$d5,$c3,$c8,$a0,$C6,$d2,$c5,$ce,$c3,$c8,$a0,$d4,$cf,$d5,$c3,$c8 ; FRENCH TOUCH FRENCH TOUCH
+				!byte $FF,$66,$99,$cc,$ff,$88,$aa,$dd,$33,$22,$FF
+				;.....$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$4A,$4B,$4C,$4D,$4E,$4F
+				!byte $21,$56,$89,$ac,$ef,$86,$46,$52,$72,$63,$F0,$13,$24,$57,$13,$28
+				!byte $FF,$66,$99,$cc,$ff,$88,$aa,$dd,$33,$22,$FF
+				;.....$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$6A,$6B,$6C,$6D,$6E,$6F
+				!byte $AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF	; - \ | /
+				!byte $AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF	; - \ | /
+				!byte $AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF	; - \ | /
+				!byte $AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF	; - \ | /
+				!byte $AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF,$AD,$DC,$FC,$AF	; - \ | /
+
+!align 255,0
+				;.....$00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C,$0D,$0E,$0F
+TableCompteurLo !byte $15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15
+				!byte $03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03
+				;.....$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$2A,$2B,$2C,$2D,$2E,$2F
+				!byte $15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15
+				!byte $03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03
+				;.....$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$4A,$4B,$4C,$4D,$4E,$4F
+				!byte $15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15,$15
+				!byte $03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03
+				;.....$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$6A,$6B,$6C,$6D,$6E,$6F
+				!byte $06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06
+				!byte $06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06
+				!byte $06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06
+				!byte $06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06
+				!byte $06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06
+
+!align 255,0
+				;.....$00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C,$0D,$0E,$0F
+TableCompteurHi	!byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+				!byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+				!byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+				!byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+				!byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+				!byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+				!byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+				!byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+				!byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+				!byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+				!byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+!align 255,0
+				;........$00...,...$01...,...$02...,...$03...,...$04...,...$05...,...$06...,...$07...,...$08...,...$09...,...$0A...,...$0B...,...$0C...,...$0D...,...$0E...,...$0F...
+AddrEffetLoL	!byte <Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO,<Effet7LO
+				!byte <ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL
+				;........$20...,...$21...,...$22...,...$23...,...$24...,...$25...,...$26...,...$27...,...$28...,...$29...,...$2A...,...$2B...,...$2C...,...$2D...,...$2E...,...$2F...
+				!byte <Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO,<Effet5LO
+				!byte <ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL
+				;........$40...,...$41...,...$42...,...$43...,...$44...,...$45...,...$46...,...$47...,...$48...,...$49...,...$4A...,...$4B...,...$4C...,...$4D...,...$4E...,...$4F...
+				!byte <Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO,<Effet6LO
+				!byte <ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL,<ColorGRL
+				;........$60...,...$61...,...$62...,...$63...,...$64...,...$65...,...$66...,...$67...,...$68...,...$69...,...$6A...,...$6B...,...$6C...,...$6D...,...$6E...,...$6F...
+				!byte <Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO
+				!byte <Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO
+				!byte <Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO
+				!byte <Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO
+				!byte <Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO,<Effet2LO
+				
+!align 255,0
+				;........$00...,...$01...,...$02...,...$03...,...$04...,...$05...,...$06...,...$07...,...$08...,...$09...,...$0A...,...$0B...,...$0C...,...$0D...,...$0E...,...$0F...
+AddrEffetLoH	!byte >Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO,>Effet7LO
+				!byte >ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL
+				;........$20...,...$21...,...$22...,...$23...,...$24...,...$25...,...$26...,...$27...,...$28...,...$29...,...$2A...,...$2B...,...$2C...,...$2D...,...$2E...,...$2F...
+				!byte >Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO,>Effet5LO
+				!byte >ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL
+				;........$40...,...$41...,...$42...,...$43...,...$44...,...$45...,...$46...,...$47...,...$48...,...$49...,...$4A...,...$4B...,...$4C...,...$4D...,...$4E...,...$4F...
+				!byte >Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO,>Effet6LO
+				!byte >ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL,>ColorGRL
+				;........$60...,...$61...,...$62...,...$63...,...$64...,...$65...,...$66...,...$67...,...$68...,...$69...,...$6A...,...$6B...,...$6C...,...$6D...,...$6E...,...$6F...
+				!byte >Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO
+				!byte >Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO
+				!byte >Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO
+				!byte >Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO
+				!byte >Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO,>Effet2LO
+				
+!align 255,0
+				;........$00...,...$01...,...$02...,...$03...,...$04...,...$05...,...$06...,...$07...,...$08...,...$09...,...$0A...,...$0B...,...$0C...,...$0D...,...$0E...,...$0F...
+AddrEffetHiL 	!byte <Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI,<Effet7HI
+				!byte <ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH
+				;........$20...,...$21...,...$22...,...$23...,...$24...,...$25...,...$26...,...$27...,...$28...,...$29...,...$2A...,...$2B...,...$2C...,...$2D...,...$2E...,...$2F...
+				!byte <Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI,<Effet5HI
+				!byte <ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH
+				;........$40...,...$41...,...$42...,...$43...,...$44...,...$45...,...$46...,...$47...,...$48...,...$49...,...$4A...,...$4B...,...$4C...,...$4D...,...$4E...,...$4F...
+				!byte <Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI,<Effet6HI
+				!byte <ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH,<ColorGRH
+				;........$60...,...$61...,...$62...,...$63...,...$64...,...$65...,...$66...,...$67...,...$68...,...$69...,...$6A...,...$6B...,...$6C...,...$6D...,...$6E...,...$6F...
+				!byte <Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI
+				!byte <Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI
+				!byte <Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI
+				!byte <Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI
+				!byte <Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI,<Effet2HI
+				
+!align 255,0
+				;........$00...,...$01...,...$02...,...$03...,...$04...,...$05...,...$06...,...$07...,...$08...,...$09...,...$0A...,...$0B...,...$0C...,...$0D...,...$0E...,...$0F...
+AddrEffetHiH	!byte >Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI,>Effet7HI
+				!byte >ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH
+				;........$20...,...$21...,...$22...,...$23...,...$24...,...$25...,...$26...,...$27...,...$28...,...$29...,...$2A...,...$2B...,...$2C...,...$2D...,...$2E...,...$2F...
+				!byte >Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI,>Effet5HI
+				!byte >ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH
+				;........$40...,...$41...,...$42...,...$43...,...$44...,...$45...,...$46...,...$47...,...$48...,...$49...,...$4A...,...$4B...,...$4C...,...$4D...,...$4E...,...$4F...
+				!byte >Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI,>Effet6HI
+				!byte >ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH,>ColorGRH
+				;........$60...,...$61...,...$62...,...$63...,...$64...,...$65...,...$66...,...$67...,...$68...,...$69...,...$6A...,...$6B...,...$6C...,...$6D...,...$6E...,...$6F...
+				!byte >Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI
+				!byte >Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI
+				!byte >Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI
+				!byte >Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI
+				!byte >Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI,>Effet2HI
+				
+; -----------------------------------------------------------------------------
+!align 255,0
+ColorGRL	!byte <ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR,<ECRANFIXEGR
+ColorGRH	!byte >ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR,>ECRANFIXEGR
+; -----------------------------------------------------------------------------
+!align 255,0
+; 'complexe'
+Effet5LO !byte <SPLIT2X12, <SPLIT2X12, <SPLIT2X13, <SPLIT2X12, <SPLIT2X13, <SPLIT2X13, <SPLIT2X13, <SPLIT2X13, <SPLIT2X14, <SPLIT2X14, <SPLIT2X14, <SPLIT2X14, <SPLIT2X15, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X18, <SPLIT2X18, <SPLIT2X18, <SPLIT2X18, <SPLIT2X18, <SPLIT2X18, <SPLIT2X18, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X15, <SPLIT2X14, <SPLIT2X14, <SPLIT2X13, <SPLIT2X13, <SPLIT2X12, <SPLIT2X12, <SPLIT2X11, <SPLIT2X11, <SPLIT2X10, <SPLIT2X10, <SPLIT2X09, <SPLIT2X09, <SPLIT2X09, <SPLIT2X08, <SPLIT2X08, <SPLIT2X07, <SPLIT2X07, <SPLIT2X07, <SPLIT2X07, <SPLIT2X06, <SPLIT2X07, <SPLIT2X07, <SPLIT2X07, <SPLIT2X07, <SPLIT2X07, <SPLIT2X07, <SPLIT2X07, <SPLIT2X07, <SPLIT2X08, <SPLIT2X08, <SPLIT2X09, <SPLIT2X09, <SPLIT2X10, <SPLIT2X10, <SPLIT2X11, <SPLIT2X12, <SPLIT2X12, <SPLIT2X13, <SPLIT2X13, <SPLIT2X15, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X18, <SPLIT2X19, <SPLIT2X19, <SPLIT2X20, <SPLIT2X21, <SPLIT2X21, <SPLIT2X22, <SPLIT2X23, <SPLIT2X23, <SPLIT2X23, <SPLIT2X24, <SPLIT2X24, <SPLIT2X24, <SPLIT2X25, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X25, <SPLIT2X25, <SPLIT2X25, <SPLIT2X24, <SPLIT2X24, <SPLIT2X24, <SPLIT2X23, <SPLIT2X23, <SPLIT2X23, <SPLIT2X22, <SPLIT2X22, <SPLIT2X22, <SPLIT2X21, <SPLIT2X21, <SPLIT2X21, <SPLIT2X21, <SPLIT2X20, <SPLIT2X21, <SPLIT2X20, <SPLIT2X20, <SPLIT2X20, <SPLIT2X20, <SPLIT2X20, <SPLIT2X21, <SPLIT2X21, <SPLIT2X21, <SPLIT2X21, <SPLIT2X21, <SPLIT2X21, <SPLIT2X22, <SPLIT2X22, <SPLIT2X23, <SPLIT2X23, <SPLIT2X24, <SPLIT2X24, <SPLIT2X24, <SPLIT2X25, <SPLIT2X26, <SPLIT2X27, <SPLIT2X27, <SPLIT2X27, <SPLIT2X28, <SPLIT2X29, <SPLIT2X29, <SPLIT2X30, <SPLIT2X30, <SPLIT2X31, <SPLIT2X31, <SPLIT2X31, <SPLIT2X32, <SPLIT2X32, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X34, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X32, <SPLIT2X32, <SPLIT2X32, <SPLIT2X32, <SPLIT2X31, <SPLIT2X31, <SPLIT2X31, <SPLIT2X30, <SPLIT2X30, <SPLIT2X30, <SPLIT2X29, <SPLIT2X29, <SPLIT2X29, <SPLIT2X28, <SPLIT2X28, <SPLIT2X28, <SPLIT2X27, <SPLIT2X27, <SPLIT2X27, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X27, <SPLIT2X26, <SPLIT2X26, <SPLIT2X27, <SPLIT2X27, <SPLIT2X26, <SPLIT2X27, <SPLIT2X27, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X25, <SPLIT2X24, <SPLIT2X24, <SPLIT2X24, <SPLIT2X23, <SPLIT2X23, <SPLIT2X22, <SPLIT2X22, <SPLIT2X22, <SPLIT2X21, <SPLIT2X21, <SPLIT2X20, <SPLIT2X19, <SPLIT2X19, <SPLIT2X19, <SPLIT2X18, <SPLIT2X18, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X15, <SPLIT2X14, <SPLIT2X14, <SPLIT2X14, <SPLIT2X13, <SPLIT2X13, <SPLIT2X13, <SPLIT2X13, <SPLIT2X13, <SPLIT2X12, <SPLIT2X12, <SPLIT2X13
+Effet5HI !byte >SPLIT2X12, >SPLIT2X12, >SPLIT2X13, >SPLIT2X12, >SPLIT2X13, >SPLIT2X13, >SPLIT2X13, >SPLIT2X13, >SPLIT2X14, >SPLIT2X14, >SPLIT2X14, >SPLIT2X14, >SPLIT2X15, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X18, >SPLIT2X18, >SPLIT2X18, >SPLIT2X18, >SPLIT2X18, >SPLIT2X18, >SPLIT2X18, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X15, >SPLIT2X14, >SPLIT2X14, >SPLIT2X13, >SPLIT2X13, >SPLIT2X12, >SPLIT2X12, >SPLIT2X11, >SPLIT2X11, >SPLIT2X10, >SPLIT2X10, >SPLIT2X09, >SPLIT2X09, >SPLIT2X09, >SPLIT2X08, >SPLIT2X08, >SPLIT2X07, >SPLIT2X07, >SPLIT2X07, >SPLIT2X07, >SPLIT2X06, >SPLIT2X07, >SPLIT2X07, >SPLIT2X07, >SPLIT2X07, >SPLIT2X07, >SPLIT2X07, >SPLIT2X07, >SPLIT2X07, >SPLIT2X08, >SPLIT2X08, >SPLIT2X09, >SPLIT2X09, >SPLIT2X10, >SPLIT2X10, >SPLIT2X11, >SPLIT2X12, >SPLIT2X12, >SPLIT2X13, >SPLIT2X13, >SPLIT2X15, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X18, >SPLIT2X19, >SPLIT2X19, >SPLIT2X20, >SPLIT2X21, >SPLIT2X21, >SPLIT2X22, >SPLIT2X23, >SPLIT2X23, >SPLIT2X23, >SPLIT2X24, >SPLIT2X24, >SPLIT2X24, >SPLIT2X25, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X25, >SPLIT2X25, >SPLIT2X25, >SPLIT2X24, >SPLIT2X24, >SPLIT2X24, >SPLIT2X23, >SPLIT2X23, >SPLIT2X23, >SPLIT2X22, >SPLIT2X22, >SPLIT2X22, >SPLIT2X21, >SPLIT2X21, >SPLIT2X21, >SPLIT2X21, >SPLIT2X20, >SPLIT2X21, >SPLIT2X20, >SPLIT2X20, >SPLIT2X20, >SPLIT2X20, >SPLIT2X20, >SPLIT2X21, >SPLIT2X21, >SPLIT2X21, >SPLIT2X21, >SPLIT2X21, >SPLIT2X21, >SPLIT2X22, >SPLIT2X22, >SPLIT2X23, >SPLIT2X23, >SPLIT2X24, >SPLIT2X24, >SPLIT2X24, >SPLIT2X25, >SPLIT2X26, >SPLIT2X27, >SPLIT2X27, >SPLIT2X27, >SPLIT2X28, >SPLIT2X29, >SPLIT2X29, >SPLIT2X30, >SPLIT2X30, >SPLIT2X31, >SPLIT2X31, >SPLIT2X31, >SPLIT2X32, >SPLIT2X32, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X34, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X32, >SPLIT2X32, >SPLIT2X32, >SPLIT2X32, >SPLIT2X31, >SPLIT2X31, >SPLIT2X31, >SPLIT2X30, >SPLIT2X30, >SPLIT2X30, >SPLIT2X29, >SPLIT2X29, >SPLIT2X29, >SPLIT2X28, >SPLIT2X28, >SPLIT2X28, >SPLIT2X27, >SPLIT2X27, >SPLIT2X27, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X27, >SPLIT2X26, >SPLIT2X26, >SPLIT2X27, >SPLIT2X27, >SPLIT2X26, >SPLIT2X27, >SPLIT2X27, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X25, >SPLIT2X24, >SPLIT2X24, >SPLIT2X24, >SPLIT2X23, >SPLIT2X23, >SPLIT2X22, >SPLIT2X22, >SPLIT2X22, >SPLIT2X21, >SPLIT2X21, >SPLIT2X20, >SPLIT2X19, >SPLIT2X19, >SPLIT2X19, >SPLIT2X18, >SPLIT2X18, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X15, >SPLIT2X14, >SPLIT2X14, >SPLIT2X14, >SPLIT2X13, >SPLIT2X13, >SPLIT2X13, >SPLIT2X13, >SPLIT2X13, >SPLIT2X12, >SPLIT2X12, >SPLIT2X13
+; 'complexe 2'
+Effet6LO !byte <SPLIT2X12, <SPLIT2X12, <SPLIT2X13, <SPLIT2X12, <SPLIT2X13, <SPLIT2X13, <SPLIT2X13, <SPLIT2X13, <SPLIT2X14, <SPLIT2X14, <SPLIT2X14, <SPLIT2X14, <SPLIT2X15, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X18, <SPLIT2X18, <SPLIT2X18, <SPLIT2X18, <SPLIT2X18, <SPLIT2X18, <SPLIT2X18, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X15, <SPLIT2X14, <SPLIT2X14, <SPLIT2X13, <SPLIT2X13, <SPLIT2X12, <SPLIT2X12, <SPLIT2X11, <SPLIT2X11, <SPLIT2X10, <SPLIT2X10, <SPLIT2X09, <SPLIT2X09, <SPLIT2X09, <SPLIT2X08, <SPLIT2X08, <SPLIT2X07B, <SPLIT2X07B, <SPLIT2X07B, <SPLIT2X07B, <SPLIT2X06, <SPLIT2X07B, <SPLIT2X07B, <SPLIT2X07B, <SPLIT2X07B, <SPLIT2X07B, <SPLIT2X07B, <SPLIT2X07B, <SPLIT2X07B, <SPLIT2X08, <SPLIT2X08, <SPLIT2X09, <SPLIT2X09, <SPLIT2X10, <SPLIT2X10, <SPLIT2X11, <SPLIT2X12, <SPLIT2X12, <SPLIT2X13, <SPLIT2X13, <SPLIT2X15, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X18, <SPLIT2X19, <SPLIT2X19, <SPLIT2X20, <SPLIT2X21, <SPLIT2X21, <SPLIT2X22, <SPLIT2X23, <SPLIT2X23, <SPLIT2X23, <SPLIT2X24, <SPLIT2X24, <SPLIT2X24, <SPLIT2X25, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X25, <SPLIT2X25, <SPLIT2X25, <SPLIT2X24, <SPLIT2X24, <SPLIT2X24, <SPLIT2X23, <SPLIT2X23, <SPLIT2X23, <SPLIT2X22, <SPLIT2X22, <SPLIT2X22, <SPLIT2X21, <SPLIT2X21, <SPLIT2X21, <SPLIT2X21, <SPLIT2X20, <SPLIT2X21, <SPLIT2X20, <SPLIT2X20, <SPLIT2X20, <SPLIT2X20, <SPLIT2X20, <SPLIT2X21, <SPLIT2X21, <SPLIT2X21, <SPLIT2X21, <SPLIT2X21, <SPLIT2X21, <SPLIT2X22, <SPLIT2X22, <SPLIT2X23, <SPLIT2X23, <SPLIT2X24, <SPLIT2X24, <SPLIT2X24, <SPLIT2X25, <SPLIT2X26, <SPLIT2X27, <SPLIT2X27, <SPLIT2X27, <SPLIT2X28, <SPLIT2X29, <SPLIT2X29, <SPLIT2X30, <SPLIT2X30, <SPLIT2X31, <SPLIT2X31, <SPLIT2X31, <SPLIT2X32, <SPLIT2X32, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X34, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X32, <SPLIT2X32, <SPLIT2X32, <SPLIT2X32, <SPLIT2X31, <SPLIT2X31, <SPLIT2X31, <SPLIT2X30, <SPLIT2X30, <SPLIT2X30, <SPLIT2X29, <SPLIT2X29, <SPLIT2X29, <SPLIT2X28, <SPLIT2X28, <SPLIT2X28, <SPLIT2X27, <SPLIT2X27, <SPLIT2X27, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X27, <SPLIT2X26, <SPLIT2X26, <SPLIT2X27, <SPLIT2X27, <SPLIT2X26, <SPLIT2X27, <SPLIT2X27, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X26, <SPLIT2X25, <SPLIT2X24, <SPLIT2X24, <SPLIT2X24, <SPLIT2X23, <SPLIT2X23, <SPLIT2X22, <SPLIT2X22, <SPLIT2X22, <SPLIT2X21, <SPLIT2X21, <SPLIT2X20, <SPLIT2X19, <SPLIT2X19, <SPLIT2X19, <SPLIT2X18, <SPLIT2X18, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X17, <SPLIT2X15, <SPLIT2X14, <SPLIT2X14, <SPLIT2X14, <SPLIT2X13, <SPLIT2X13, <SPLIT2X13, <SPLIT2X13, <SPLIT2X13, <SPLIT2X12, <SPLIT2X12, <SPLIT2X13
+Effet6HI !byte >SPLIT2X12, >SPLIT2X12, >SPLIT2X13, >SPLIT2X12, >SPLIT2X13, >SPLIT2X13, >SPLIT2X13, >SPLIT2X13, >SPLIT2X14, >SPLIT2X14, >SPLIT2X14, >SPLIT2X14, >SPLIT2X15, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X18, >SPLIT2X18, >SPLIT2X18, >SPLIT2X18, >SPLIT2X18, >SPLIT2X18, >SPLIT2X18, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X15, >SPLIT2X14, >SPLIT2X14, >SPLIT2X13, >SPLIT2X13, >SPLIT2X12, >SPLIT2X12, >SPLIT2X11, >SPLIT2X11, >SPLIT2X10, >SPLIT2X10, >SPLIT2X09, >SPLIT2X09, >SPLIT2X09, >SPLIT2X08, >SPLIT2X08, >SPLIT2X07B, >SPLIT2X07B, >SPLIT2X07B, >SPLIT2X07B, >SPLIT2X06, >SPLIT2X07B, >SPLIT2X07B, >SPLIT2X07B, >SPLIT2X07B, >SPLIT2X07B, >SPLIT2X07B, >SPLIT2X07B, >SPLIT2X07B, >SPLIT2X08, >SPLIT2X08, >SPLIT2X09, >SPLIT2X09, >SPLIT2X10, >SPLIT2X10, >SPLIT2X11, >SPLIT2X12, >SPLIT2X12, >SPLIT2X13, >SPLIT2X13, >SPLIT2X15, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X18, >SPLIT2X19, >SPLIT2X19, >SPLIT2X20, >SPLIT2X21, >SPLIT2X21, >SPLIT2X22, >SPLIT2X23, >SPLIT2X23, >SPLIT2X23, >SPLIT2X24, >SPLIT2X24, >SPLIT2X24, >SPLIT2X25, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X25, >SPLIT2X25, >SPLIT2X25, >SPLIT2X24, >SPLIT2X24, >SPLIT2X24, >SPLIT2X23, >SPLIT2X23, >SPLIT2X23, >SPLIT2X22, >SPLIT2X22, >SPLIT2X22, >SPLIT2X21, >SPLIT2X21, >SPLIT2X21, >SPLIT2X21, >SPLIT2X20, >SPLIT2X21, >SPLIT2X20, >SPLIT2X20, >SPLIT2X20, >SPLIT2X20, >SPLIT2X20, >SPLIT2X21, >SPLIT2X21, >SPLIT2X21, >SPLIT2X21, >SPLIT2X21, >SPLIT2X21, >SPLIT2X22, >SPLIT2X22, >SPLIT2X23, >SPLIT2X23, >SPLIT2X24, >SPLIT2X24, >SPLIT2X24, >SPLIT2X25, >SPLIT2X26, >SPLIT2X27, >SPLIT2X27, >SPLIT2X27, >SPLIT2X28, >SPLIT2X29, >SPLIT2X29, >SPLIT2X30, >SPLIT2X30, >SPLIT2X31, >SPLIT2X31, >SPLIT2X31, >SPLIT2X32, >SPLIT2X32, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X34, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X32, >SPLIT2X32, >SPLIT2X32, >SPLIT2X32, >SPLIT2X31, >SPLIT2X31, >SPLIT2X31, >SPLIT2X30, >SPLIT2X30, >SPLIT2X30, >SPLIT2X29, >SPLIT2X29, >SPLIT2X29, >SPLIT2X28, >SPLIT2X28, >SPLIT2X28, >SPLIT2X27, >SPLIT2X27, >SPLIT2X27, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X27, >SPLIT2X26, >SPLIT2X26, >SPLIT2X27, >SPLIT2X27, >SPLIT2X26, >SPLIT2X27, >SPLIT2X27, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X26, >SPLIT2X25, >SPLIT2X24, >SPLIT2X24, >SPLIT2X24, >SPLIT2X23, >SPLIT2X23, >SPLIT2X22, >SPLIT2X22, >SPLIT2X22, >SPLIT2X21, >SPLIT2X21, >SPLIT2X20, >SPLIT2X19, >SPLIT2X19, >SPLIT2X19, >SPLIT2X18, >SPLIT2X18, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X17, >SPLIT2X15, >SPLIT2X14, >SPLIT2X14, >SPLIT2X14, >SPLIT2X13, >SPLIT2X13, >SPLIT2X13, >SPLIT2X13, >SPLIT2X13, >SPLIT2X12, >SPLIT2X12, >SPLIT2X13
+; 'pointes'
+Effet7LO !byte <SPLIT2X06, <SPLIT2X07B, <SPLIT2X08, <SPLIT2X09, <SPLIT2X10, <SPLIT2X11, <SPLIT2X12, <SPLIT2X13, <SPLIT2X14, <SPLIT2X15, <SPLIT2X17, <SPLIT2X17, <SPLIT2X18, <SPLIT2X19, <SPLIT2X20, <SPLIT2X21, <SPLIT2X22, <SPLIT2X23, <SPLIT2X24, <SPLIT2X25, <SPLIT2X26, <SPLIT2X27, <SPLIT2X28, <SPLIT2X29, <SPLIT2X30, <SPLIT2X31, <SPLIT2X32, <SPLIT2X33, <SPLIT2X34, <SPLIT2X33, <SPLIT2X32, <SPLIT2X31, <SPLIT2X30, <SPLIT2X29, <SPLIT2X28, <SPLIT2X27, <SPLIT2X26, <SPLIT2X25, <SPLIT2X24, <SPLIT2X23, <SPLIT2X22, <SPLIT2X21, <SPLIT2X20, <SPLIT2X19, <SPLIT2X18, <SPLIT2X17, <SPLIT2X17, <SPLIT2X15, <SPLIT2X14, <SPLIT2X13, <SPLIT2X12, <SPLIT2X11, <SPLIT2X10, <SPLIT2X09, <SPLIT2X08, <SPLIT2X07B, <SPLIT2X06, <SPLIT2X07B, <SPLIT2X08, <SPLIT2X09, <SPLIT2X10, <SPLIT2X11, <SPLIT2X12, <SPLIT2X13, <SPLIT2X14, <SPLIT2X15, <SPLIT2X17, <SPLIT2X17, <SPLIT2X18, <SPLIT2X19, <SPLIT2X20, <SPLIT2X21, <SPLIT2X22, <SPLIT2X23, <SPLIT2X24, <SPLIT2X25, <SPLIT2X26, <SPLIT2X27, <SPLIT2X28, <SPLIT2X29, <SPLIT2X30, <SPLIT2X31, <SPLIT2X32, <SPLIT2X33, <SPLIT2X34, <SPLIT2X33, <SPLIT2X32, <SPLIT2X31, <SPLIT2X30, <SPLIT2X29, <SPLIT2X28, <SPLIT2X27, <SPLIT2X26, <SPLIT2X25, <SPLIT2X24, <SPLIT2X23, <SPLIT2X22, <SPLIT2X21, <SPLIT2X20, <SPLIT2X19, <SPLIT2X18, <SPLIT2X17, <SPLIT2X17, <SPLIT2X15, <SPLIT2X14, <SPLIT2X13, <SPLIT2X12, <SPLIT2X11, <SPLIT2X10, <SPLIT2X09, <SPLIT2X08, <SPLIT2X07B, <SPLIT2X06, <SPLIT2X07B, <SPLIT2X08, <SPLIT2X09, <SPLIT2X10, <SPLIT2X11, <SPLIT2X12, <SPLIT2X13, <SPLIT2X14, <SPLIT2X15, <SPLIT2X17, <SPLIT2X17, <SPLIT2X18, <SPLIT2X19, <SPLIT2X20, <SPLIT2X21, <SPLIT2X22, <SPLIT2X23, <SPLIT2X24, <SPLIT2X25, <SPLIT2X26, <SPLIT2X27, <SPLIT2X28, <SPLIT2X29, <SPLIT2X30, <SPLIT2X31, <SPLIT2X32, <SPLIT2X33, <SPLIT2X34, <SPLIT2X33, <SPLIT2X32, <SPLIT2X31, <SPLIT2X30, <SPLIT2X29, <SPLIT2X28, <SPLIT2X27, <SPLIT2X26, <SPLIT2X25, <SPLIT2X24, <SPLIT2X23, <SPLIT2X22, <SPLIT2X21, <SPLIT2X20, <SPLIT2X19, <SPLIT2X18, <SPLIT2X17, <SPLIT2X17, <SPLIT2X15, <SPLIT2X14, <SPLIT2X13, <SPLIT2X12, <SPLIT2X11, <SPLIT2X10, <SPLIT2X09, <SPLIT2X08, <SPLIT2X07B, <SPLIT2X06, <SPLIT2X07B, <SPLIT2X08, <SPLIT2X09, <SPLIT2X10, <SPLIT2X11, <SPLIT2X12, <SPLIT2X13, <SPLIT2X14, <SPLIT2X15, <SPLIT2X17, <SPLIT2X17, <SPLIT2X18, <SPLIT2X19, <SPLIT2X20, <SPLIT2X21, <SPLIT2X22, <SPLIT2X23, <SPLIT2X24, <SPLIT2X25, <SPLIT2X26, <SPLIT2X27, <SPLIT2X28, <SPLIT2X29, <SPLIT2X30, <SPLIT2X31, <SPLIT2X32, <SPLIT2X33, <SPLIT2X34, <SPLIT2X33, <SPLIT2X32, <SPLIT2X31, <SPLIT2X30, <SPLIT2X29, <SPLIT2X28, <SPLIT2X27, <SPLIT2X26, <SPLIT2X25, <SPLIT2X24, <SPLIT2X23, <SPLIT2X22, <SPLIT2X21, <SPLIT2X20, <SPLIT2X19, <SPLIT2X18, <SPLIT2X17, <SPLIT2X17, <SPLIT2X15, <SPLIT2X14, <SPLIT2X13, <SPLIT2X12, <SPLIT2X11, <SPLIT2X10, <SPLIT2X09, <SPLIT2X08, <SPLIT2X07B, <SPLIT2X06, <SPLIT2X07B, <SPLIT2X08, <SPLIT2X09, <SPLIT2X10, <SPLIT2X11, <SPLIT2X12, <SPLIT2X13, <SPLIT2X14, <SPLIT2X15, <SPLIT2X17, <SPLIT2X17, <SPLIT2X18, <SPLIT2X19, <SPLIT2X20, <SPLIT2X21, <SPLIT2X22, <SPLIT2X23, <SPLIT2X24, <SPLIT2X25, <SPLIT2X26, <SPLIT2X27, <SPLIT2X28, <SPLIT2X29, <SPLIT2X30, <SPLIT2X31, <SPLIT2X32, <SPLIT2X33, <SPLIT2X34, <SPLIT2X33, <SPLIT2X32, <SPLIT2X31
+Effet7HI !byte >SPLIT2X06, >SPLIT2X07B, >SPLIT2X08, >SPLIT2X09, >SPLIT2X10, >SPLIT2X11, >SPLIT2X12, >SPLIT2X13, >SPLIT2X14, >SPLIT2X15, >SPLIT2X17, >SPLIT2X17, >SPLIT2X18, >SPLIT2X19, >SPLIT2X20, >SPLIT2X21, >SPLIT2X22, >SPLIT2X23, >SPLIT2X24, >SPLIT2X25, >SPLIT2X26, >SPLIT2X27, >SPLIT2X28, >SPLIT2X29, >SPLIT2X30, >SPLIT2X31, >SPLIT2X32, >SPLIT2X33, >SPLIT2X34, >SPLIT2X33, >SPLIT2X32, >SPLIT2X31, >SPLIT2X30, >SPLIT2X29, >SPLIT2X28, >SPLIT2X27, >SPLIT2X26, >SPLIT2X25, >SPLIT2X24, >SPLIT2X23, >SPLIT2X22, >SPLIT2X21, >SPLIT2X20, >SPLIT2X19, >SPLIT2X18, >SPLIT2X17, >SPLIT2X17, >SPLIT2X15, >SPLIT2X14, >SPLIT2X13, >SPLIT2X12, >SPLIT2X11, >SPLIT2X10, >SPLIT2X09, >SPLIT2X08, >SPLIT2X07B, >SPLIT2X06, >SPLIT2X07B, >SPLIT2X08, >SPLIT2X09, >SPLIT2X10, >SPLIT2X11, >SPLIT2X12, >SPLIT2X13, >SPLIT2X14, >SPLIT2X15, >SPLIT2X17, >SPLIT2X17, >SPLIT2X18, >SPLIT2X19, >SPLIT2X20, >SPLIT2X21, >SPLIT2X22, >SPLIT2X23, >SPLIT2X24, >SPLIT2X25, >SPLIT2X26, >SPLIT2X27, >SPLIT2X28, >SPLIT2X29, >SPLIT2X30, >SPLIT2X31, >SPLIT2X32, >SPLIT2X33, >SPLIT2X34, >SPLIT2X33, >SPLIT2X32, >SPLIT2X31, >SPLIT2X30, >SPLIT2X29, >SPLIT2X28, >SPLIT2X27, >SPLIT2X26, >SPLIT2X25, >SPLIT2X24, >SPLIT2X23, >SPLIT2X22, >SPLIT2X21, >SPLIT2X20, >SPLIT2X19, >SPLIT2X18, >SPLIT2X17, >SPLIT2X17, >SPLIT2X15, >SPLIT2X14, >SPLIT2X13, >SPLIT2X12, >SPLIT2X11, >SPLIT2X10, >SPLIT2X09, >SPLIT2X08, >SPLIT2X07B, >SPLIT2X06, >SPLIT2X07B, >SPLIT2X08, >SPLIT2X09, >SPLIT2X10, >SPLIT2X11, >SPLIT2X12, >SPLIT2X13, >SPLIT2X14, >SPLIT2X15, >SPLIT2X17, >SPLIT2X17, >SPLIT2X18, >SPLIT2X19, >SPLIT2X20, >SPLIT2X21, >SPLIT2X22, >SPLIT2X23, >SPLIT2X24, >SPLIT2X25, >SPLIT2X26, >SPLIT2X27, >SPLIT2X28, >SPLIT2X29, >SPLIT2X30, >SPLIT2X31, >SPLIT2X32, >SPLIT2X33, >SPLIT2X34, >SPLIT2X33, >SPLIT2X32, >SPLIT2X31, >SPLIT2X30, >SPLIT2X29, >SPLIT2X28, >SPLIT2X27, >SPLIT2X26, >SPLIT2X25, >SPLIT2X24, >SPLIT2X23, >SPLIT2X22, >SPLIT2X21, >SPLIT2X20, >SPLIT2X19, >SPLIT2X18, >SPLIT2X17, >SPLIT2X17, >SPLIT2X15, >SPLIT2X14, >SPLIT2X13, >SPLIT2X12, >SPLIT2X11, >SPLIT2X10, >SPLIT2X09, >SPLIT2X08, >SPLIT2X07B, >SPLIT2X06, >SPLIT2X07B, >SPLIT2X08, >SPLIT2X09, >SPLIT2X10, >SPLIT2X11, >SPLIT2X12, >SPLIT2X13, >SPLIT2X14, >SPLIT2X15, >SPLIT2X17, >SPLIT2X17, >SPLIT2X18, >SPLIT2X19, >SPLIT2X20, >SPLIT2X21, >SPLIT2X22, >SPLIT2X23, >SPLIT2X24, >SPLIT2X25, >SPLIT2X26, >SPLIT2X27, >SPLIT2X28, >SPLIT2X29, >SPLIT2X30, >SPLIT2X31, >SPLIT2X32, >SPLIT2X33, >SPLIT2X34, >SPLIT2X33, >SPLIT2X32, >SPLIT2X31, >SPLIT2X30, >SPLIT2X29, >SPLIT2X28, >SPLIT2X27, >SPLIT2X26, >SPLIT2X25, >SPLIT2X24, >SPLIT2X23, >SPLIT2X22, >SPLIT2X21, >SPLIT2X20, >SPLIT2X19, >SPLIT2X18, >SPLIT2X17, >SPLIT2X17, >SPLIT2X15, >SPLIT2X14, >SPLIT2X13, >SPLIT2X12, >SPLIT2X11, >SPLIT2X10, >SPLIT2X09, >SPLIT2X08, >SPLIT2X07B, >SPLIT2X06, >SPLIT2X07B, >SPLIT2X08, >SPLIT2X09, >SPLIT2X10, >SPLIT2X11, >SPLIT2X12, >SPLIT2X13, >SPLIT2X14, >SPLIT2X15, >SPLIT2X17, >SPLIT2X17, >SPLIT2X18, >SPLIT2X19, >SPLIT2X20, >SPLIT2X21, >SPLIT2X22, >SPLIT2X23, >SPLIT2X24, >SPLIT2X25, >SPLIT2X26, >SPLIT2X27, >SPLIT2X28, >SPLIT2X29, >SPLIT2X30, >SPLIT2X31, >SPLIT2X32, >SPLIT2X33, >SPLIT2X34, >SPLIT2X33, >SPLIT2X32, >SPLIT2X31
+; 'sinus'
+Effet2LO !byte <SPLIT2X27, <SPLIT2X28, <SPLIT2X28, <SPLIT2X29, <SPLIT2X29, <SPLIT2X30, <SPLIT2X30, <SPLIT2X31, <SPLIT2X31, <SPLIT2X32, <SPLIT2X32, <SPLIT2X32, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X32, <SPLIT2X32, <SPLIT2X32, <SPLIT2X31, <SPLIT2X31, <SPLIT2X31, <SPLIT2X30, <SPLIT2X30, <SPLIT2X29, <SPLIT2X29, <SPLIT2X28, <SPLIT2X27, <SPLIT2X27, <SPLIT2X26, <SPLIT2X26, <SPLIT2X25, <SPLIT2X24, <SPLIT2X24, <SPLIT2X23, <SPLIT2X22, <SPLIT2X22, <SPLIT2X21, <SPLIT2X20, <SPLIT2X20, <SPLIT2X19, <SPLIT2X18, <SPLIT2X17, <SPLIT2X17, <SPLIT2X16, <SPLIT2X15, <SPLIT2X15, <SPLIT2X14, <SPLIT2X14, <SPLIT2X13, <SPLIT2X12, <SPLIT2X12, <SPLIT2X11, <SPLIT2X11, <SPLIT2X10, <SPLIT2X10, <SPLIT2X09, <SPLIT2X09, <SPLIT2X08, <SPLIT2X08, <SPLIT2X08, <SPLIT2X07C, <SPLIT2X07C, <SPLIT2X07C, <SPLIT2X07C, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X07C, <SPLIT2X07C, <SPLIT2X07C, <SPLIT2X07C, <SPLIT2X08, <SPLIT2X08, <SPLIT2X08, <SPLIT2X09, <SPLIT2X09, <SPLIT2X09, <SPLIT2X10, <SPLIT2X10, <SPLIT2X11, <SPLIT2X11, <SPLIT2X12, <SPLIT2X13, <SPLIT2X13, <SPLIT2X14, <SPLIT2X14, <SPLIT2X15, <SPLIT2X16, <SPLIT2X17, <SPLIT2X17, <SPLIT2X18, <SPLIT2X18, <SPLIT2X19, <SPLIT2X20, <SPLIT2X20, <SPLIT2X21, <SPLIT2X22, <SPLIT2X23, <SPLIT2X23, <SPLIT2X24, <SPLIT2X25, <SPLIT2X25, <SPLIT2X26, <SPLIT2X26, <SPLIT2X27, <SPLIT2X28, <SPLIT2X28, <SPLIT2X29, <SPLIT2X29, <SPLIT2X30, <SPLIT2X30, <SPLIT2X31, <SPLIT2X31, <SPLIT2X32, <SPLIT2X32, <SPLIT2X32, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X34, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X33, <SPLIT2X32, <SPLIT2X32, <SPLIT2X32, <SPLIT2X31, <SPLIT2X31, <SPLIT2X31, <SPLIT2X30, <SPLIT2X30, <SPLIT2X29, <SPLIT2X29, <SPLIT2X28, <SPLIT2X27, <SPLIT2X27, <SPLIT2X26, <SPLIT2X26, <SPLIT2X25, <SPLIT2X24, <SPLIT2X24, <SPLIT2X23, <SPLIT2X22, <SPLIT2X22, <SPLIT2X21, <SPLIT2X20, <SPLIT2X20, <SPLIT2X19, <SPLIT2X18, <SPLIT2X17, <SPLIT2X17, <SPLIT2X16, <SPLIT2X15, <SPLIT2X15, <SPLIT2X14, <SPLIT2X14, <SPLIT2X13, <SPLIT2X12, <SPLIT2X12, <SPLIT2X11, <SPLIT2X11, <SPLIT2X10, <SPLIT2X10, <SPLIT2X09, <SPLIT2X09, <SPLIT2X08, <SPLIT2X08, <SPLIT2X08, <SPLIT2X07C, <SPLIT2X07C, <SPLIT2X07C, <SPLIT2X07C, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X06, <SPLIT2X07C, <SPLIT2X07C, <SPLIT2X07C, <SPLIT2X07C, <SPLIT2X08, <SPLIT2X08, <SPLIT2X08, <SPLIT2X09, <SPLIT2X09, <SPLIT2X09, <SPLIT2X10, <SPLIT2X10, <SPLIT2X11, <SPLIT2X11, <SPLIT2X12, <SPLIT2X13, <SPLIT2X13, <SPLIT2X14, <SPLIT2X14, <SPLIT2X15, <SPLIT2X16, <SPLIT2X17, <SPLIT2X17, <SPLIT2X18, <SPLIT2X18, <SPLIT2X19, <SPLIT2X20, <SPLIT2X20, <SPLIT2X21, <SPLIT2X22, <SPLIT2X23, <SPLIT2X23, <SPLIT2X24, <SPLIT2X25, <SPLIT2X25, <SPLIT2X26, <SPLIT2X26
+Effet2HI !byte >SPLIT2X27, >SPLIT2X28, >SPLIT2X28, >SPLIT2X29, >SPLIT2X29, >SPLIT2X30, >SPLIT2X30, >SPLIT2X31, >SPLIT2X31, >SPLIT2X32, >SPLIT2X32, >SPLIT2X32, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X32, >SPLIT2X32, >SPLIT2X32, >SPLIT2X31, >SPLIT2X31, >SPLIT2X31, >SPLIT2X30, >SPLIT2X30, >SPLIT2X29, >SPLIT2X29, >SPLIT2X28, >SPLIT2X27, >SPLIT2X27, >SPLIT2X26, >SPLIT2X26, >SPLIT2X25, >SPLIT2X24, >SPLIT2X24, >SPLIT2X23, >SPLIT2X22, >SPLIT2X22, >SPLIT2X21, >SPLIT2X20, >SPLIT2X20, >SPLIT2X19, >SPLIT2X18, >SPLIT2X17, >SPLIT2X17, >SPLIT2X16, >SPLIT2X15, >SPLIT2X15, >SPLIT2X14, >SPLIT2X14, >SPLIT2X13, >SPLIT2X12, >SPLIT2X12, >SPLIT2X11, >SPLIT2X11, >SPLIT2X10, >SPLIT2X10, >SPLIT2X09, >SPLIT2X09, >SPLIT2X08, >SPLIT2X08, >SPLIT2X08, >SPLIT2X07C, >SPLIT2X07C, >SPLIT2X07C, >SPLIT2X07C, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X07C, >SPLIT2X07C, >SPLIT2X07C, >SPLIT2X07C, >SPLIT2X08, >SPLIT2X08, >SPLIT2X08, >SPLIT2X09, >SPLIT2X09, >SPLIT2X09, >SPLIT2X10, >SPLIT2X10, >SPLIT2X11, >SPLIT2X11, >SPLIT2X12, >SPLIT2X13, >SPLIT2X13, >SPLIT2X14, >SPLIT2X14, >SPLIT2X15, >SPLIT2X16, >SPLIT2X17, >SPLIT2X17, >SPLIT2X18, >SPLIT2X18, >SPLIT2X19, >SPLIT2X20, >SPLIT2X20, >SPLIT2X21, >SPLIT2X22, >SPLIT2X23, >SPLIT2X23, >SPLIT2X24, >SPLIT2X25, >SPLIT2X25, >SPLIT2X26, >SPLIT2X26, >SPLIT2X27, >SPLIT2X28, >SPLIT2X28, >SPLIT2X29, >SPLIT2X29, >SPLIT2X30, >SPLIT2X30, >SPLIT2X31, >SPLIT2X31, >SPLIT2X32, >SPLIT2X32, >SPLIT2X32, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X34, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X33, >SPLIT2X32, >SPLIT2X32, >SPLIT2X32, >SPLIT2X31, >SPLIT2X31, >SPLIT2X31, >SPLIT2X30, >SPLIT2X30, >SPLIT2X29, >SPLIT2X29, >SPLIT2X28, >SPLIT2X27, >SPLIT2X27, >SPLIT2X26, >SPLIT2X26, >SPLIT2X25, >SPLIT2X24, >SPLIT2X24, >SPLIT2X23, >SPLIT2X22, >SPLIT2X22, >SPLIT2X21, >SPLIT2X20, >SPLIT2X20, >SPLIT2X19, >SPLIT2X18, >SPLIT2X17, >SPLIT2X17, >SPLIT2X16, >SPLIT2X15, >SPLIT2X15, >SPLIT2X14, >SPLIT2X14, >SPLIT2X13, >SPLIT2X12, >SPLIT2X12, >SPLIT2X11, >SPLIT2X11, >SPLIT2X10, >SPLIT2X10, >SPLIT2X09, >SPLIT2X09, >SPLIT2X08, >SPLIT2X08, >SPLIT2X08, >SPLIT2X07C, >SPLIT2X07C, >SPLIT2X07C, >SPLIT2X07C, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X06, >SPLIT2X07C, >SPLIT2X07C, >SPLIT2X07C, >SPLIT2X07C, >SPLIT2X08, >SPLIT2X08, >SPLIT2X08, >SPLIT2X09, >SPLIT2X09, >SPLIT2X09, >SPLIT2X10, >SPLIT2X10, >SPLIT2X11, >SPLIT2X11, >SPLIT2X12, >SPLIT2X13, >SPLIT2X13, >SPLIT2X14, >SPLIT2X14, >SPLIT2X15, >SPLIT2X16, >SPLIT2X17, >SPLIT2X17, >SPLIT2X18, >SPLIT2X18, >SPLIT2X19, >SPLIT2X20, >SPLIT2X20, >SPLIT2X21, >SPLIT2X22, >SPLIT2X23, >SPLIT2X23, >SPLIT2X24, >SPLIT2X25, >SPLIT2X25, >SPLIT2X26, >SPLIT2X26

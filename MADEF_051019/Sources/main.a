@@ -1,0 +1,639 @@
+; ACME 0.96.4
+; 
+; MAD EFFECT
+; FRENCH TOUCH - 10/2019
+;
+; v0.11 - Released version
+;
+!cpu 6502
+!convtab "a2txt.bin" ; 
+!sl "lbl_main.txt"
+
+!src "lbl_routine.txt"
+!src "lbl_PIC.txt"
+!src "lbl_LORES.txt"
+!src "../../macros.a"
+
+; INCLUDE
+
+           *= $E000 ; ORG = $D000 (RAM Langage Card)
+
+; =====================================
+VERTBLANK   = $C019
+; -------------------------------------
+FLOAD       = $FC00     ; routine Fast Load XTREME - MAIN
+; =====================================
+; PAGE ZERO => FIXED
+bRefresh    = $01   ; byte REFRESH RATE ($56/50Hz | $06/60Hz)
+bSLOT       = $02   ; numero SLOT * 0x10
+IntL        = $04   ; L value for INT delay
+IntH        = $05   ; H value for INT delay
+Index       = $06
+
+
+MB_BASEADDR = $10
+MB_BASEADDR2 = $12
+
+; INTx
+; save_A      = $82
+; save_X      = $83
+; save_Y      = $84
+ExpoMode     = $07
+Tick  = $08 ;16b    
+
+; ROUTINEs
+; Tmp1        = $13
+; Tmp2        = $14
+; value1      = $15   ; -> #>FUNC / #$C0
+; value2      = $16   ; -> #$20 / #$AD
+; counter     = $17
+counter2    = $18
+valgfx      = $19   ; -> #$20/#$40
+phase       = $20
+
+; decompLZ4
+; src1        = $90   ; +$31
+; src2        = $92   ; +$33
+; dest        = $94   ; +$35
+; lenL        = $96
+; lenH        = $97
+; token       = $98
+lz4_src     = $90   	; +$91
+lz4_dest    = $92   	; +$93
+lz4_len     = $94     ; +$95 (tmp)
+lz4_token   = $95
+lz4_bank    = $96
+
+
+; PLAYER
+z80_A       = $70
+z80_C       = $71
+z80_B       = $72
+z80_E       = $73
+z80_D       = $74
+z80_L       = $75
+z80_H       = $76
+z80_IX      = $77       ; + $78
+z80_AP      = $79
+z80_TP      = $7A       ; + $7B        
+
+; F4~FE MUTUAL INTs
+DISPLAYSYNC	= $F4
+VSYNC		= $F5
+T2Timing		= $F6
+WaitSyncPTR	= $F8
+WaitDisplayPTR	= $FA
+T1RoutPTR		= $FC  ;16b
+T2SyncCodePTR 	= $FE   ;16b
+; --------
+; =============================================================================
+MAIN
+!zone
+TABLENOP = $1000
+  STA ExpoMode
+            LDA #0
+            STA T2SyncCodePTR+1 ; disable sync code interrupt
+            STA Tick
+            STA Tick+1
+
+            LDA WaitSyncPTR
+            STA WAIT_VSYNC+1
+            LDA WaitSyncPTR+1
+            STA WAIT_VSYNC+2
+
+            ; Init Screen + some init
+            STA $C000           ; 80STOREOFF
+            STA $C008           ; zero Page = Main (+ $FXXX MAIN)
+
+            LDA #192
+            STA counter
+            LDA #3
+            STA counter2
+            LDA #$AD            ; opcode for LDA
+            STA value2
+            LDA #$C0            ; high for "$C051"
+            STA value1
+            LDA #$00
+            STA Index
+            LDA #$40            ; HIRES1
+            STA valgfx
+            LDA #$03
+            STA phase
+; ------------------
+            ; DECOMP ROUTINE -> $4000(M) - > $6000(M)
+            +set_ptr $4000,lz4_src
+            +set_ptr $7000,lz4_dest
+            JSR DECOMPLZ4
+
+          ;   ; Chargement LORES  -> $1000(A) (COMP)
+          ; already done
+          ;   ; Chargement HIRES  -> $2000(A) (COMP)
+          ; already done
+            ; Decomp PIC1 -> HIRES PAGES
+            +set_ptr $2000,lz4_src
+            +set_ptr $4000,lz4_dest
+            STA $C003           ; read AUX
+            JSR DECOMPLZ4
+            ; Decomp LORES1  -> LORES PAGE1/2
+            +set_ptr $1000,lz4_src
+            +set_ptr $400,lz4_dest
+            JSR DECOMPLZ4
+            STA $C002           ; read MAIN
+
+; =============================================================================
+Init_MB     ; init Mockingboard             
+!zone
+            ; PREMIER init MB (6522/AY1) / (6522/AY2)
+            LDY #3
+            LDA #$FF
+            STA (MB_BASEADDR),Y          ; DDRA1
+            LDY #2
+            LDA #$07
+            STA (MB_BASEADDR),Y           ; DDRB1
+
+            ; clean REGISTER AY1 / AY2
+            LDY #0
+            LDA #$00
+            STA (MB_BASEADDR),Y
+            LDA #$04
+            STA (MB_BASEADDR),Y
+
+            LDY #3
+            LDA #$FF
+            STA (MB_BASEADDR2),Y          ; DDRA1
+            LDY #2
+            LDA #$07
+            STA (MB_BASEADDR2),Y           ; DDRB1
+
+            ; clean REGISTER AY1 / AY2
+            LDY #0
+            LDA #$00
+            STA (MB_BASEADDR2),Y
+            LDA #$04
+            STA (MB_BASEADDR2),Y
+
+            ; init sound
+            LDA #<MUSIC
+            STA z80_L
+            LDA #>MUSIC
+            STA z80_H
+            JSR chip_song               ; init Song
+
+; -------------------------------------
+Init_INT    ; init interrupt
+!zone       
+           
+  SEI                         ; inhib
+  +set_ptr chip_play, T1RoutPTR
+  +set_ptr SYNCCODE, T2SyncCodePTR
+  LDY #$04			; 2
+	LDA (MB_BASEADDR),Y		; read T1CL (low counter) & reset T1 IRF
+  LDY #$08
+	LDA (MB_BASEADDR),Y		; read T2CL (low counter) & reset T2 IRF
+  CLI
+  STA $C056
+
+MAINLOOP
+  JSR WAIT_VSYNC  ; wait for the sync code interrupt
+  LDA $C000
+  CMP #27+$80
+  BNE +
+  JMP END
++
+
+  LDA ExpoMode
+  BEQ ++
+  INC Tick
+  BNE +
+  INC Tick+1
++ LDA Tick+1
+  CMP #$17   ; ~ 2 minutes
+  BNE ++
+  JMP END
+++
+  ; in VBLANK
+RET_VBL
+   ;         JSR chip_play           ; music! (one tick)
+
+            JSR ROUTINE2
+            LDA counter
+            BNE .next
+            DEC counter2
+            BEQ +
+.next
+            JMP MAINLOOP
+; change display...
++           ; reinit values
+            LDA #3
+            STA counter2
+            LDA #192
+            STA counter
+            ; check at wich phase we are
+            DEC phase
+            BEQ .phase0             ; phase 0 -> beginning of animation to erase picture
+            LDA phase
+            CMP #02
+            BEQ .phase2             ; phase 2 => beginning of displaying a picture
+            CMP #01
+            BEQ .phase1             ; phase 1 => picture fully displayed/beginning of decompressing next picture
+            JMP MAINLOOP
+            ; -------------------------
+.phase0     ; phase 0 => beginning of animation to erase picture
+            ; set values
+            LDA #$C0                ; high of $C051
+            STA value1
+            LDA #$AD                ; opcode for LDA
+            STA value2
+            LDA #$04
+            STA phase
+            JMP MAINLOOP
+            ;--------------------------
+.phase2     ; phase 2 => beginning of displaying a picture
+            ; set values
+            LDA #>FUNC              ; high of FUNC
+            STA value1
+            LDA #$20                ; opcode for JSR
+            STA value2
+            ; change HIRES1/2 into FUNC
+            LDA modfunc+1
+            EOR #($54 XOR $55)
+            STA modfunc+1
+            JMP MAINLOOP
+            ; -------------------------
+.phase1     ; phase 1 => at this stage, one full picture is displayed
+            ; change INT ROUTINE to ROUT2
+            LDA $C057               ; Hires mode forced during decomp
+.modpage    LDA $C055               ; page x forced during decomp
+            LDA .modpage+1          ; prepare next page to display when back here
+            EOR #($54 XOR $55)
+            STA .modpage+1
+            ; SEI/CLI not need (I guess) because INT never happens here 
+            LDA #0
+            STA T2SyncCodePTR+1 ; disable sync code interrupt
+            LDA valgfx
+            EOR #($20 XOR $40)
+            STA valgfx
+            STA lz4_dest+1 ; dest+1
+            LDA #00 
+            STA lz4_dest ; dest
+            LDX Index
+            INX
+            CPX #MAXPIC
+            BNE +
+            LDX #00
++           STX Index
+            LDA TablePicLz4H,X
+            STA lz4_src+1
+            LDA TablePicLz4L,X
+            STA lz4_src
+            STA $C003           ; read AUX
+            JSR DECOMPLZ4
+            ; decomp LORES       
+            LDX Index
+            LDA TableLORLz4H,X
+            STA lz4_src+1 ;src2+1
+            LDA TableLORLz4L,X
+            STA lz4_src ;src2
+            +set_ptr $400,lz4_dest
+            JSR DECOMPLZ4
+            STA $C002           ; read MAIN again
+            +set_ptr SYNCCODE, T2SyncCodePTR
+            JMP .phase0
+
+WAIT_VSYNC
+   JMP *
+
+END
+  STA $C010
+  RTS
+
+; =============================================================================
+; synchronized CODE here - 65 CYCLES BEFORE FIRST LINE DISPLAY - CYCLE #00
+; =============================================================================
+SYNCCODE
+  LDY #1
+  JSR WAIT65
+  LDA $4000,Y
+  LDA $4000,Y
+  NOP
+  LDA $40
+  ;LDA $40
+  CLI   ; nested interrupts ON because T1 *will* happen before the end of this interrupt
+
+  ; display line 0, cycle 0
+  JMP ROUTINE1            ; WARNING décalage 6 cycles (JMP/JMP) ->
+
+ 
+; =============================================================================
+!align 255,0
+WAIT65              ; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 8 cycles obligatoire -> LDY #xx / JSR WAIT65)
+WAIT65ZP = * + 1    ; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 9 cycles obligatoire -> LDY ZP / JSR WAIT65Z)
+!zone           
+		    LDA $EA     ; 3 (dummy)  -> on arrive sur NOP si JSR WAIT65Z
+WAIT62      ; = attend 1*62 cycles exactement (JSR/RTS compris -> LDY #01 / JSR WAIT63)
+            DEY			; 2					
+		    BEQ .S1	    ; 3/2			
+                  
+.WL1 	    LDX #$0B				            
+.WL2 	    DEX							
+		    BNE .WL2	; 2 + (2+3)*10 + 2 + 2 = 56															
+                      
+		    NOP			; 2					
+		    NOP			; 2					
+		    DEY			; 2					
+		    BNE .WL1	; (56+2+2+2+3)*(Y-2) + 56 + 2 + 2 + 2 + 2 = 65*Y - 2*65 + 64 = 65*Y - 66				
+
+WAIT59      ; = attend 1*59 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT59)											                      
+		    LDX #$08					
+.WL3 	    DEX							
+		    BNE .WL3	; 2 + (2+3)*7 + 2 + 2 = 41					
+                							
+		    NOP			; 2					
+		    NOP			; 2					
+		    RTS			; 6
+
+                        ; WAIT62 = 2 + 2 + (65-66) + 41 + 2 + 2 + 6 + (8) = 62 
+                        ; WAIT65 = 3 + 2 + 2 + (65*Y-66) + 41 + 2 + 2 + 6 + (8) = 65*Y
+                        ; WAIT59 = 41 + 2 + 2 + 6 + (8) = 59 					
+
+WAIT57      ; = attend 1*57 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT57)											         
+.S1	 	    NOP         ; 2
+WAIT55      ; = attend 1*55 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT55)	
+            LDX #08					
+                      
+.WL4 	    DEX							
+		    BNE .WL4    ; 2 + (2+3)*7 + 2 + 2 = 41					
+		    RTS         ; 6
+                        ; = 49
+
+                        ; WAIT65 = 3 + 2 + 3 + 49 + (8) = 65
+                        ; WAIT62 = 2 + 3 + 49 + (8) = 62
+                        ; WAIT57 = 49 + (8) = 57
+                        ; WAIT55 = 47 + (8) = 55
+; =============================================================================
+MAXPIC = 9
+TablePicLz4L    !byte <PIC0,<PIC1,<PIC2,<PIC3,<PIC4,<PIC5,<PIC6,<PIC7,<PIC8
+TablePicLz4H    !byte >PIC0,>PIC1,>PIC2,>PIC3,>PIC4,>PIC5,>PIC6,>PIC7,>PIC8
+TableLORLz4L    !byte <LORES0,<LORES1,<LORES2,<LORES3,<LORES4,<LORES5,<LORES6,<LORES7,<LORES3
+TableLORLz4H    !byte >LORES0,>LORES1,>LORES2,>LORES3,>LORES4,>LORES5,>LORES6,>LORES7,>LORES3
+; =============================================================================
+
+; =============================================================================
+DECOMPLZ4
+!zone
+  LDY #$02
+  BIT $C013  ; AUX READ Status
+  BPL +
+  LDY #$03 ; AUX READ is activated
++ STY lz4_bank
+  STY PATCHDECOMP2+1
+
+	; Skip lz4 header (11 bytes)
+	; of course this won't work if lz4 header is larger than 11 bytes, make sure it isn't
+	CLC
+	LDA lz4_src
+	ADC #$0b
+	STA lz4_src
+	BCS +		; inverted carry because I use a "negative Y" just below
+	DEC lz4_src+1	;    - and negative Y is not possible so 1 is substracted from the high byte
++	; check for data pack format
+	LDY #-1
+	LDA (lz4_src),Y	; negative = data is not packed
+	TAX
+	; find length & setup end data test
+	LDY #-4		; length of packed data
+	CLC
+	LDA (lz4_src),Y	; find end of packed data
+	STA lz4_len	; save for .unpacked
+	ADC lz4_src
+	STA .modL+1
+	INY
+	LDA (lz4_src),Y
+	STA lz4_len+1	; save for .unpacked
+	INC lz4_src+1
+	ADC lz4_src+1
+	STA .modH+1
+	; negative = unpacked data / positive = packed data
+	TXA
+	BPL .packed
+
+;================ UNPACKED DATA ================
+; This happens when the lz4 encoder detected it couldn't do anything about the original data.
+; memcpy possible to:
+; => lower memory
+; => not overlapping buffer 
+
+.unpacked
+	LDX lz4_len+1	; length high byte
+	INX
+	LDY #0
+.loopunpack
+	DEX
+	BEQ .endunpacked
+
+-	LDA (lz4_src),Y
+	STA (lz4_dest),Y
+	INY
+	BNE -
+	BEQ .loopunpack
+
+.endunpacked
+	LDX lz4_len	; length low byte
+	STX .copymod+1
+
+-	LDA (lz4_src),Y
+	STA (lz4_dest),Y
+	INY
+.copymod	CPY #$AA
+	BNE -
+	RTS
+
+;================ PACKED DATA ================
+; unpacking possible to:
+; => not overlapping buffer
+; => lower memory but not guaranteed, depends on the last lz4 segments' size which must not be overwritten
+
+.packed
+	LDY #0
+	STY lz4_len
+
+; --------> Read lz4 token
+
+.readtoken
+	; READ NEW SRC BYTE
+	; get new lz4 token
+	LDA (lz4_src),Y
+	INC lz4_src		
+	BNE +
+	INC lz4_src+1	
++               
+  STA lz4_token
+	AND #$F0
+	BEQ .match	; no literals
+	LSR
+	LSR
+	LSR
+	LSR
+
+; --------> Copy "literals" data string
+
+.literals
+	; Copy literal string of data
+	; A = initial length (max $0F) from lz4 token
+	; Y should be ̂$00, will return as $00
+	TAX		; length of the current segment (max $FF)
+	CPX #$0F		; length is encoded in more than 1 byte
+	BEQ .litlength
+	LDA lz4_src
+	STA .modcopy+1	
+	LDA lz4_src+1
+	STA .modcopy+2
+	JMP .startliterals
+
+.litlength
+	; find end of length encoding
+-	LDA (lz4_src),Y
+	INY
+	CMP #255
+	BEQ -
+	; max length is 255 bytes so 254*255+254+15 = 65039 bytes which should be enough for Apple II :p
+	; note: there is no check for this limitation, which is not part of the spec.
+	; Pack files that are < 65039 bytes only
+
+	STY lz4_len	; length of the byte chain that codes "literals" length
+
+	; adjust src pointer and put it directly in LDA instructions
+	TYA
+	LDY lz4_src+1
+	CLC
+	ADC lz4_src
+	STA .modcopy+1
+	BCC +
+	INY
++	STY .modcopy+2
+	
+.startliterals
+  LDA lz4_bank
+  STA PATCHDECOMP+1
+	JSR .copy
+
+.doneliterals
+	LDA .modcopy+1	; restore back lz4_src
+	STA lz4_src
+	LDA .modcopy+2
+	STA lz4_src+1
+
+; --------> Check for end of packed data
+; The last segment contains only "literals" so the check must be done before match testing
+
+	;LDA lz4_src+1 ; useless because of previous STA
+.modH	CMP #$AA
+	BNE .match
+	LDA lz4_src
+.modL	CMP #$AA
+	BNE .match
+	RTS		; EOF
+
+; --------> Copy "match" data string
+; previous redondant unpacked data to copy back to current destination
+; this is where we need to switch memory banks if src bank != dest bank
+
+.match 	; add offset to dest and set up the pointer in copy rout
+	SEC
+	LDA lz4_dest
+	SBC (lz4_src),Y
+	STA .modcopy+1
+	INY
+	LDA lz4_dest+1
+	SBC (lz4_src),Y
+	STA .modcopy+2
+	LDY #0	; Y=0 expected later
+	; lz4_src+=2, to point to the length chain
+	CLC
+	LDA lz4_src
+	ADC #2
+	STA lz4_src
+	BCC +
+	INC lz4_src+1
++
+	LDA lz4_token
+	AND #$0F
+	CLC
+	ADC #4
+	TAX		; length of the current segment-4
+	CPX #$13		; length is encoded in more than 1 byte
+	BNE .startmatch
+
+	; find end of length encoding (max 255 bytes, again not spec)
+-	LDA (lz4_src),Y
+	INY
+	CMP #255
+	BEQ -
+	STY lz4_len	; length of the byte chain that codes length
+
+.startmatch
+  LDA #$02
+  STA PATCHDECOMP+1
+	JSR .copy
+	JMP .readtoken
+	; end of unpacking loop here
+
+; --------> Common data copy loop
+
+.copy	
+	INC lz4_len	; lz4_len = nb of "length chain" bytes +1
+	; X = (still) initial length from token
+	LDY #0
+.loopcopy	STX .modcopy2+1
+PATCHDECOMP
+  STA $C002
+.modcopy	LDA $AAAA,Y	; copy byte (modified src address)
+
+	STA (lz4_dest),Y
+	INY
+	DEX
+	BNE .modcopy
+PATCHDECOMP2
+  STA $C002   ; switch back bank if needed
+	; adjust src and dest pointers (+Y bytes)
+.modcopy2 LDY #$AA
+	TYA
+	CLC
+	ADC .modcopy+1
+	STA .modcopy+1
+	BCC +
+	INC .modcopy+2
++	TYA
+	CLC
+	ADC lz4_dest
+	STA lz4_dest
+	BCC +
+	INC lz4_dest+1
++	; how many "length" bytes to read?
+	LDY #0		; clear Y
+	DEC lz4_len
+	BEQ .endcopy	; none
+
+	; READ NEW SRC BYTE
+	; get new length byte (max $FF)
+	LDA (lz4_src),Y
+	INC lz4_src		
+	BNE +
+	INC lz4_src+1	
++
+	TAX	
+	BNE .loopcopy	; special case: the length chain can end with $00
+.endcopy	STY lz4_len	; clean length which may not be zero because of this special case
+	RTS
+
+EO_DECOMPLZ4
+
+; =============================================================================
+PLAYER_CHP
+!src "player_CHIPNSFX.a"
+
+!align 255,0            ; data music must be aligned... BUG?!
+MUSIC
+!src "chp7.a"
+
+ENDADD

@@ -1,0 +1,1 @@
+%A2SDK%\BIN\dw.py ..\DSK\test.dsk ZICDECOMP.lz4 4 0 + D>log.txt

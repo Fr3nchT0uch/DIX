@@ -1,0 +1,1144 @@
+; ACME 0.96.4
+;
+; [binary MAX Size: (16+16+12)*256 = 11264 bytes]
+;
+; DIGIDREAM: Sharpness Buzztone Tribute!
+; featuring
+; - DIGIDRUM + PYM ("Pattern YM") Player for Apple IIe (128KB)
+; - "AN3 Trick"
+;
+; GROUiK / FRENCH TOUCH
+; fenarinarsa / FRENCH TOUCH
+; 03/2020
+;
+; v0.06 - IIc compatibility (Mockingboard 4c)
+; v0.05 - bug of loop/tick reinit value fixed
+; v0.04 - released first version
+;
+!cpu 6502
+!convtab "a2txt.bin" ;
+!sl "lbl_main.txt"
+
+; include
+!source "include.a"
+!source "lbl_drum.txt"
+!source "../sysconst.a"
+!source "../macros.a"
+
+	*= $E000 ; ORG = $D000 (RAM Langage Card)
+
+; =============================================================================
+; SYSTEM/CONSTANT
+; =============================================================================
+; ZERO PAGE individual
+bIIc        = $03
+MB_BASEADDR = $10 
+; decompLZ4
+lz4_src     = $18   	; +$91
+lz4_dest    = $1A   	; +$93
+lz4_len     = $1C     ; +$95 (tmp)
+lz4_token   = $1D
+lz4_bank_src = $1E
+lz4_bank_dst = $1F 
+; --------
+Tmp1        = $16
+Tmp2        = $18
+MBpatch_start = $18 ; +$19
+MBpatch_end   = $1A ; +$1B
+dest = lz4_dest
+
+; INT1/2
+saveA	= $40
+saveY	= $41
+saveX	= $42
+Tick	= $43	; +$44
+
+; PLAYER YM/AY
+; ------
+nREG0	= $50
+vREG0	= $51
+dREG0	= $52	; +$53
+nREG1	= $54
+vREG1	= $55
+dREG1	= $56	; +$57
+nREG2	= $58
+vREG2	= $59
+dREG2	= $5A	; +$5B
+nREG3	= $5C
+vREG3	= $5D
+dREG3	= $5E	; +$5F
+nREG4	= $60
+vREG4	= $61
+dREG4	= $62	; +$63
+nREG5	= $64
+vREG5	= $65
+dREG5	= $66	; +$67
+nREG6	= $68
+vREG6	= $69
+dREG6	= $6A	; +$6B
+nREG7	= $6C
+vREG7	= $6D
+dREG7	= $6E	; +$6F
+nREG8	= $70
+vREG8	= $71
+dREG8	= $72	; +$73
+nREG9	= $74
+vREG9	= $75
+dREG9	= $76	; +$77
+nREGA	= $78
+vREGA	= $79
+dREGA	= $7A	; +$7B
+nREGB	= $7C
+vREGB	= $7D
+dREGB	= $7E	; +$7F
+nREGD	= $80
+vREGD	= $81
+dREGD	= $82	; +$83
+nREGE	= $84
+vREGE	= $85
+dREGE	= $86	; +$87
+
+count1Pat   = $88
+indexPat    = $89
+
+iREG0	= $8A
+iREG1	= $8B
+iREG2	= $8C
+iREG3	= $8D
+iREG4	= $8E
+iREG5	= $8F
+iREG6	= $90
+iREG7	= $91
+iREG8	= $92
+iREG9	= $93
+iREGA	= $94
+iREGB	= $95
+iREGD	= $96
+iREGE	= $97
+
+pDrum	= $98   ; +$99
+voice	= $9A
+tempp	= $9B
+; $9C MAX
+
+; =================================================================================================
+MAIN
+!zone
+	CMP #0
+	BNE +
+	LDA #$FF		; Not Expo Mode
+	STA MODEXPO
++	STA $C000		; 80STOREOFF
+	STA $C008		; zero Page = Main (+ $FXXX MAIN)
+
+	STA $C003		; read AUX
+	STA $C005		; write AUX
+
+	; Patch Mockingboard registers
+	+set_ptr Init_MB,MBpatch_start
+	+set_ptr MB_PATCH,MBpatch_end
+	JSR MB_PATCH
+
+	; set Hires mode
+	BIT $C057
+	BIT $C050
+; =================================================================================================
+Init_MB     ; init Mockingboard             
+!zone
+	; init MB (6522/AY1) / (6522/AY2)
+	LDA #$FF
+	LDX #$07
+	STA $CF03          ; DDRA1
+	STX $CF02          ; DDRB1
+	STA $CF83
+	STX $CF82
+	; ---------
+	; clean REGISTER AY1 / AY2
+	LDA #$00
+	LDX #$04
+	STA $CF00
+	STX $CF00
+	STA $CF80
+	STX $CF80
+EO_Init_MB
+	; ---------
+	LDA #PATTERNSIZE
+	STA count1Pat
+	LDA #0
+	STA Tick
+	STA Tick+1
+	STA indexPat
+	STA voice
+	TAX                 ; = 0 - init with pattern 0
+	JSR INIT_PATTERN
+; -------------------------------------
+Init_INT	; init interrupt
+!zone       
+	SEI                 ; inhib
+	
+	; pour IIe 
+	LDA #<INT_ROUT
+	STA $FFFE       
+	LDA #>INT_ROUT
+	STA $FFFF
+
+	LDA bIIc
+	BNE .InitIIe
+
+.InitIIc	; IIc with mockingboard 4c has only one 6522 T_T
+	; T1 = digidrums
+	; T2 = player (with some drift)
+	LDA #%01000000      ; T1 Continuous Interrupt (Free-Run Mode) / PB7 disabled / T2 timed interrupt 
+	STA $CF0B           ; Auxiliary Control Register (T1/6522/1)
+	LDA #%01100000      ; T1 Disable / T2 disable
+	STA $CF0E           ; IER (T1/6522/1)
+
+	CLI
+	LDX #$36                                                        
+	LDY #$4F                                                                   
+	STX $CF08		; T2C_1-Lower                    
+	STY $CF09		; T2C_1-High  (+reset interrupt flag)    
+	JMP LOOP
+
+.InitIIe
+	; Set INT
+	LDA #%01000000      ; T1 Continuous Interrupt (Free-Run Mode) / PB7 disabled 
+	STA $CF0B           ; Auxiliary Control Register (T1/6522/1)
+	STA $CF8B           ; ACR (T1/6522/2) 
+	LDA #%11000000      ; T1 Enable
+	STA $CF0E           ; Interrupt Enable Register (T1/6522/1)
+	
+	LDA #%01000000      ; T1 Disable
+	STA $CF8E           ; IER (T1/6522/2)
+
+; =================================================================================================            
+	CLI                         ; music!
+	
+-	LDA VERTBLANK
+	BPL -        
+-	LDA VERTBLANK
+	BMI -                       ; wait until next VBL
+
+	; 50Hz PAL Delay 
+	; fill registers for TIMER only (no INT here) - T1/6522/2 
+	LDX #$36                                                        
+	LDY #$4F                                                                   
+	STX $CF84                   ; T1C_1-Lower                    
+	STY $CF85                   ; T1C_1-High  (+reset interrupt flag)                      
+
+	; IIe: T1/6522/2
+LOOP	LDA bIIc
+	BEQ .LoopIIc
+
+.LoopIIe	LDA $CF8D
+	AND #%01000000                   
+	BEQ .LoopIIe                ; test bit6 -> T1 timer reach 0 (T1/6522/2)   
+
+	; clear bit6 of the IFR
+	BIT $CF84                   ; T1/6522/2
+	JMP LOOP_PLAY
+
+	; IIc: T2/6522/1
+.LoopIIc	LDA $CF0D
+	AND #%00100000                   
+	BEQ .LoopIIc                ; test bit5 -> T2 timer reached 0 (T1/6522/1)
+													
+	LDY #$4F                                                                                  
+	STY $CF09                   ; T2C_1-High  (+reset interrupt flag) + also reloads T2C_1_Lower
+
+LOOP_PLAY
+	LDA $C000
+	CMP #27+$80
+	BEQ END
+	LDA Tick+1
+MODEXPO	CMP #$15
+	BEQ END
+
++	; play one tick
+	JSR PLAYER_PYM
+	INC Tick                    ; inc frame counter                                             
+	BNE +                                                                               
+	INC Tick+1                                                                  
++	LDA Tick+1
+	CMP #>FRAMEMAX 
+	BNE LOOP
+	LDA Tick
+	CMP #<FRAMEMAX
+	BNE LOOP
+
+; set loop position
+	LDA #PATTERNSIZE
+	STA count1Pat
+	LDX #PATLOOP
+	STX indexPat
+	JSR INIT_PATTERN
+	LDA #<TICKLOOP
+	STA Tick
+	LDA #>TICKLOOP
+	STA Tick+1
+	JMP LOOP
+
+END	STA $C010
+	RTS
+
+; =================================================================================================
+INT_ROUT    
+!zone                       
+	STA saveA
+	STX saveX
+	STY saveY
+	LDY #00
+	LDA (pDrum),Y
+	BMI .endINT2        ; end of digidrum
+	STA tempp
+ 
+	LDY #$07
+	LDX #$04
+	LDA voice
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA tempp
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00   
+
+	LDA voice
+	LDY #$07
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA tempp
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	
+	INC pDrum		; prepare next data sample
+	BNE +
+	INC pDrum+1
++
+	BIT $CF04		; INT again (T1/6522/1)
+	LDA saveA
+	LDX saveX
+	LDY saveY 
+	RTI
+
+.endINT2	LDA #%01000000	; stop INT (T1/6522/1)
+	STA $CF0E		; VIA_IER
+	LDA #00
+	STA voice
+
+	; color change
+	STA $C05F
+
++	LDA saveA
+	LDX saveX
+	LDY saveY
+	RTI
+; =================================================================================================
+PLAYER_PYM					
+!zone
+
+.r0     
+
+	SEI
+	; REGISTER 0
+	LDX #$04
+	LDA #$00				
+	LDY #$07
+
+	STA $CF01		;reg#
+	STY $CF00		;func set reg# 7
+	STX $CF00		;func inactive 4		
+	LDA vREG0
+	LDY #$06
+	STA $CF01		;value
+	STY $CF00		;func set value 6
+	STX $CF00		;func inactive 4
+
+	LDA #$00		; On IIc/MB4c the two AY must be programmed sequentially		
+	LDY #$07		; because there's only one 6522
+	STA $CF81		;reg#		
+	STY $CF80		;func set reg#
+	STX $CF80		;func inactive
+	LDA vREG0
+	LDY #$06
+	STA $CF81   				
+	STY $CF80   		
+	STX $CF80   		
+	CLI
+
+	DEC nREG0
+	BNE .r1
+	LDY iREG0
+	LDA (dREG0),Y
+	STA nREG0
+	INY
+	LDA (dREG0),Y
+	STA vREG0
+	INY
+	STY iREG0
+	
+.r1	SEI
+	; REGISTER 1
+	LDA #$01				
+	LDY #$07
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA vREG1
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00   
+
+	LDA #$01
+	LDY #$07
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA vREG1
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	CLI
+
+	DEC nREG1
+	BNE .r2
+	LDY iREG1
+	LDA (dREG1),Y
+	STA nREG1
+	INY
+	LDA (dREG1),Y
+	STA vREG1
+	INY
+	STY iREG1
+	
+.r2	SEI
+	; REGISTER 2
+	LDA #$02				
+	LDY #$07
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA vREG2
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00   
+
+	LDA #$02
+	LDY #$07
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA vREG2
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	CLI
+
+	DEC nREG2
+	BNE .r3
+	LDY iREG2
+	LDA (dREG2),Y
+	STA nREG2
+	INY
+	LDA (dREG2),Y
+	STA vREG2
+	INY
+	STY iREG2
+
+.r3	SEI
+	; REGISTER 3
+	LDA #$03				
+	LDY #$07
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA vREG3
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00   
+
+	LDA #$03
+	LDY #$07
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA vREG3
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	CLI
+
+	DEC nREG3
+	BNE .r4
+	LDY iREG3
+	LDA (dREG3),Y
+	STA nREG3
+	INY
+	LDA (dREG3),Y
+	STA vREG3
+	INY
+	STY iREG3
+
+.r4	SEI
+	; REGISTER 4
+	TXA		; LDA #$04				
+	LDY #$07
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA vREG4
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00   
+
+	TXA
+	LDY #$07
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA vREG4
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	CLI
+
+	DEC nREG4
+	BNE .r5
+	LDY iREG4
+	LDA (dREG4),Y
+	STA nREG4
+	INY
+	LDA (dREG4),Y
+	STA vREG4
+	INY
+	STY iREG4
+
+.r5	SEI
+	; REGISTER 5
+	LDA #$05				
+	LDY #$07
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA vREG5
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00   
+
+	LDA #$05
+	LDY #$07
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA vREG5
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	CLI
+
+	DEC nREG5
+	BNE .r6
+	LDY iREG5
+	LDA (dREG5),Y
+	STA nREG5
+	INY
+	LDA (dREG5),Y
+	STA vREG5
+	INY
+	STY iREG5
+
+.r6	SEI
+	; REGISTER 6
+	LDA #$06				
+	LDY #$07
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA vREG6
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00   
+
+	LDA #$06
+	LDY #$07
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA vREG6
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	CLI
+
+	DEC nREG6
+	BNE .r7
+	LDY iREG6
+	LDA (dREG6),Y
+	STA nREG6
+	INY
+	LDA (dREG6),Y
+	STA vREG6
+	INY
+	STY iREG6
+
+.r7	SEI
+	; REGISTER 7
+	LDA #$07				
+	TAY		; LDY #$07
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA vREG7
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00   
+
+	LDA #$07
+	TAY
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA vREG7
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	CLI
+
+	DEC nREG7
+	BNE .r8
+	LDY iREG7
+	LDA (dREG7),Y
+	STA nREG7
+	INY
+	LDA (dREG7),Y
+	STA vREG7
+	INY
+	STY iREG7
+
+.r8	LDA voice
+	CMP #08
+	BEQ +
+	SEI
+	; REGISTER 8
+	LDA #$08
+	LDY #$07
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA vREG8
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00   
+
+	LDA #$08
+	LDY #$07
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA vREG8
+	LSR
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80   
+	CLI
++
+	DEC nREG8
+	BNE .r9
+	LDY iREG8
+	LDA (dREG8),Y
+	STA nREG8
+	INY
+	LDA (dREG8),Y
+	STA vREG8
+	INY
+	STY iREG8
+
+.r9	LDA voice
+	CMP #09
+	BEQ +
+	SEI
+	; REGISTER 9
+	LDA #$09				
+	LDY #$07
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA vREG9
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00   
+
+	LDA #$09	
+	LDY #$07
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA vREG9
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	CLI	
++
+	DEC nREG9
+	BNE .ra
+	LDY iREG9
+	LDA (dREG9),Y
+	STA nREG9
+	INY
+	LDA (dREG9),Y
+	STA vREG9
+	INY
+	STY iREG9
+
+.ra	LDA voice
+	CMP #10
+	BEQ +
+	SEI
+	; REGISTER 10
+	LDA #$0A
+	LDY #$07
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA vREGA
+	LSR
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00
+
+	LDA #$0A
+	LDY #$07
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA vREGA
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	CLI
++
+	DEC nREGA
+	BNE .rb
+	LDY iREGA
+	LDA (dREGA),Y
+	STA nREGA
+	INY
+	LDA (dREGA),Y
+	STA vREGA
+	INY
+	STY iREGA
+
+.rb	SEI
+	; REGISTER 11
+	LDA #$0B				
+	LDY #$07
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA vREGB
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00   
+
+	LDA #$0B
+	LDY #$07
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA vREGB
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	CLI
+
+	DEC nREGB
+	BNE .rd
+	LDY iREGB
+	LDA (dREGB),Y
+	STA nREGB
+	INY
+	LDA (dREGB),Y
+	STA vREGB
+	INY
+	STY iREGB
+
+	; REGISTER 12	; 0 for all values
+
+.rd	; REGISTER 13	; skip if = $FF
+	LDA vREGD
+	CMP #$FF
+	BEQ .rdb
+	SEI
+	LDA #$0D				
+	LDY #$07
+	STA $CF01
+	STY $CF00
+	STX $CF00
+	LDA vREGD
+	LDY #$06
+	STA $CF01
+	STY $CF00
+	STX $CF00   
+
+	LDA #$0D	
+	LDY #$07
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	LDA vREGD
+	LDY #$06
+	STA $CF81
+	STY $CF80
+	STX $CF80
+	CLI
+
+.rdb	DEC nREGD
+	BNE .re
+	LDY iREGD
+	LDA (dREGD),Y
+	STA nREGD
+	INY
+	LDA (dREGD),Y
+	STA vREGD
+	INY
+	STY iREGD
+	
+.re	; "REGISTER" E	; containing digidrum information (0xXY => X voice-reg# | Y digidrum#)
+	LDA vREGE		; is beginning of digidrum this frame ?!
+	BEQ +
+	SEI
+	TAY
+	; set digidrum#
+	AND #0b11
+	TAX
+	LDA TDrumL,X
+	STA pDrum
+	LDA TDrumH,X
+	STA pDrum+1
+	; set register voice# (high part of vREGE)
+	TYA
+	LSR
+	LSR
+	LSR
+	LSR
+	STA voice
+	; init DIGIDRUM INT (T1/6522/1)
+	LDA #%11000000      
+	STA $CF0E			; interrupt Enable register (Timer 1 + Set) (T1/6522/1) 
+	; set TIMER delay (T1/6522/1)
+	LDA #<(DELAYDIGI-2)
+	STA $CF04			; T1C_1-Lower    
+	LDA #>(DELAYDIGI-2)
+	STA $CF05			; T1C_1-High 
+	CLI
+
+	; color change
+	STA $C05E
+	; ---------                      
++	DEC nREGE
+	BNE .checkpattern
+	LDY iREGE
+	LDA (dREGE),Y
+	STA nREGE
+	INY
+	LDA (dREGE),Y
+	STA vREGE
+	INY
+	STY iREGE
+	
+.checkpattern
+	DEC count1Pat	; end of ONE pattern ?
+	BEQ +		; if yes, next pattern!
+	RTS
++	; next pattern
+	LDA #PATTERNSIZE
+	STA count1Pat
+	INC indexPat
+	LDX indexPat
+
+MOD	BIT $C055
+	LDA MOD+1
+	EOR #($54XOR$55)
+	STA MOD+1
+
+INIT_PATTERN
+	; init new pattern
+	LDA D_REG0,X
+	STA dREG0
+	LDA D_REG0+NBPATTERNS,X
+	STA dREG0+1
+	LDY #00
+	LDA (dREG0),Y
+	STA nREG0
+	INY
+	LDA (dREG0),Y
+	STA vREG0
+	INY
+	STY iREG0
+	LDA D_REG1,X
+	STA dREG1
+	LDA D_REG1+NBPATTERNS,X
+	STA dREG1+1
+	LDY #00
+	LDA (dREG1),Y
+	STA nREG1
+	INY
+	LDA (dREG1),Y
+	STA vREG1
+	INY
+	STY iREG1
+	LDA D_REG2,X
+	STA dREG2
+	LDA D_REG2+NBPATTERNS,X
+	STA dREG2+1
+	LDY #00
+	LDA (dREG2),Y
+	STA nREG2
+	INY
+	LDA (dREG2),Y
+	STA vREG2
+	INY
+	STY iREG2
+	LDA D_REG3,X
+	STA dREG3
+	LDA D_REG3+NBPATTERNS,X
+	STA dREG3+1
+	LDY #00
+	LDA (dREG3),Y
+	STA nREG3
+	INY
+	LDA (dREG3),Y
+	STA vREG3
+	INY
+	STY iREG3
+	LDA D_REG4,X
+	STA dREG4
+	LDA D_REG4+NBPATTERNS,X
+	STA dREG4+1
+	LDY #00
+	LDA (dREG4),Y
+	STA nREG4
+	INY
+	LDA (dREG4),Y
+	STA vREG4
+	INY
+	STY iREG4
+	LDA D_REG5,X
+	STA dREG5
+	LDA D_REG5+NBPATTERNS,X
+	STA dREG5+1
+	LDY #00
+	LDA (dREG5),Y
+	STA nREG5
+	INY
+	LDA (dREG5),Y
+	STA vREG5
+	INY
+	STY iREG5
+	LDA D_REG6,X
+	STA dREG6
+	LDA D_REG6+NBPATTERNS,X
+	STA dREG6+1
+	LDY #00
+	LDA (dREG6),Y
+	STA nREG6
+	INY
+	LDA (dREG6),Y
+	STA vREG6
+	INY
+	STY iREG6
+	LDA D_REG7,X
+	STA dREG7
+	LDA D_REG7+NBPATTERNS,X
+	STA dREG7+1
+	LDY #00
+	LDA (dREG7),Y
+	STA nREG7
+	INY
+	LDA (dREG7),Y
+	STA vREG7
+	INY
+	STY iREG7
+	LDA D_REG8,X
+	STA dREG8
+	LDA D_REG8+NBPATTERNS,X
+	STA dREG8+1
+	LDY #00
+	LDA (dREG8),Y
+	STA nREG8
+	INY
+	LDA (dREG8),Y
+	STA vREG8
+	INY
+	STY iREG8
+	LDA D_REG9,X
+	STA dREG9
+	LDA D_REG9+NBPATTERNS,X
+	STA dREG9+1
+	LDY #00
+	LDA (dREG9),Y
+	STA nREG9
+	INY
+	LDA (dREG9),Y
+	STA vREG9
+	INY
+	STY iREG9
+	LDA D_REGA,X
+	STA dREGA
+	LDA D_REGA+NBPATTERNS,X
+	STA dREGA+1
+	LDY #00
+	LDA (dREGA),Y
+	STA nREGA
+	INY
+	LDA (dREGA),Y
+	STA vREGA
+	INY
+	STY iREGA
+	LDA D_REGB,X
+	STA dREGB
+	LDA D_REGB+NBPATTERNS,X
+	STA dREGB+1
+	LDY #00
+	LDA (dREGB),Y
+	STA nREGB
+	INY
+	LDA (dREGB),Y
+	STA vREGB
+	INY
+	STY iREGB
+	LDA D_REGD,X
+	STA dREGD
+	LDA D_REGD+NBPATTERNS,X
+	STA dREGD+1
+	LDY #00
+	LDA (dREGD),Y
+	STA nREGD
+	INY
+	LDA (dREGD),Y
+	STA vREGD
+	INY
+	STY iREGD
+	LDA D_REGE,X
+	STA dREGE
+	LDA D_REGE+NBPATTERNS,X
+	STA dREGE+1
+	LDY #00
+	LDA (dREGE),Y
+	STA nREGE
+	INY
+	LDA (dREGE),Y
+	STA vREGE
+	INY
+	STY iREGE
+	RTS
+; =============================================================================
+; =============================================================================
+; patch all STAs/STXs to mockinboard registers
+
+MB_PATCH
+!zone
+    LDA MBpatch_end+1
+    STA .modmb1+1
+    LDA MBpatch_end
+    STA .modmb2+1
+.loop
+    LDY #0
+    LDA (MBpatch_start),Y
+    CMP #$8D    ; "STA xxxx"
+    BEQ .yes2
+    CMP #$8C    ; "STY xxxx"
+    BEQ .yes2
+    CMP #$2C    ; "BIT xxxx"
+    BEQ .yes2
+    CMP #$AD    ; "LDA xxxx"
+    BEQ .yes2
+    CMP #$8E    ; "STX xxxx"
+    BNE .not
+.yes2
+     INY
+      LDA (MBpatch_start),Y
+      AND #$F0
+     CMP #$00
+     BEQ .yes
+     CMP #$80
+     BNE .not
+.yes
+    INY
+    LDA (MBpatch_start),Y
+    CMP #$CF        ; "STA $CFxx" or "STX $CFxx"
+    BNE .not
+    ; patching
+    LDA MB_BASEADDR+1
+    STA (MBpatch_start),Y
+.not
+    INC MBpatch_start
+    BNE +
+    INC MBpatch_start+1
++   LDA MBpatch_start+1
+.modmb1
+    CMP #$00
+    BNE .loop
+    LDA MBpatch_start
+.modmb2
+    CMP #$00
+    BNE .loop
+    RTS
+; =================================================================================================
+NBPATTERNS	= 204	   ; MAX 255!
+PATTERNSIZE	= 96	    ; MAX 128!
+FRAMEMAX		= 19584
+TICKLOOP		= 768
+PATLOOP		= TICKLOOP/PATTERNSIZE
+
+D_REG0 = $2000
+D_REG1 = $26DE
+D_REG2 = $28C4
+D_REG3 = $3110
+D_REG4 = $33B2
+D_REG5 = $4616
+D_REG6 = $4814
+D_REG7 = $4A3C
+D_REG8 = $4CE0
+D_REG9 = $4F36
+D_REGA = $53AC
+D_REGB = $58CC
+D_REGD = $5D02
+D_REGE = $5F24
+
+;
+; ATARI ST MFP_CLOCK = 2457600
+; A2 DELAY = 1000000(us)*1.017(Mhz)/(MFP/prediv)
+; DELAY = 1000000*1.017/(2457600/(4*90))
+DELAYDIGI = 149
+
+TDrumL	!byte 0,<DRUM1,<DRUM2
+TDrumH	!byte 0,>DRUM1,>DRUM2
+; ------------------------------------------
+ENDMAIN

@@ -1,0 +1,197 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; Ansi Story I
+; scroll H/B (SYNCHRO VBL / Double Buffer)
+; version 0.2
+;
+!sl "Scrolllabel.a"
+
+		*= $3600 ; ORG = $3600
+
+; PZ 
+	bMachine 	= $0B	; byte MACHINE ($7F/IIE | $FF/GS)
+
+; Constantes SYSTEM
+
+	VERTBLANK	= $C019	; >=80 : display | <80 : VBL
+	WTAUX 		= $C055 ; switch mémoire aux
+	WTPRINC 	= $C054 ; switch mémoire princ
+
+	XFER		= $C314 ; routine transfert exécution entre Main/Aux
+
+	
+	RAMRDOFF	= $C002 ; read main memory
+	RAMRDON		= $C003	; read aux memory
+	RAMWRTOFF	= $C004	; write main memory
+	RAMWRTON	= $C005	; write auxiliary memory
+
+; Constantes Adresses
+	
+	RECALL		= $F103	; retour du scroll
+	Buffer		= $F900	;
+	
+; =========================================================
+SCROLLBversH
+!zone
+
+		sta $C001
+		LDA bMachine
+.lp1	CMP  VERTBLANK
+		BMI   .lp1	 	; boucle tant que A >= $80 (display) => on attend la fin du trace courant
+.lp2	CMP	 VERTBLANK 	; 
+		BPL   .lp2		; boucle tant que A <$80 (VBL) => attend le début du prochain display
+
+		; on a 65x8=520 cycles à utiliser pour attendre que la première ligne text soit affichée !
+		
+		LDX #104  	; 2
+.b1		DEX		  	; 2
+		BNE	.b1   	; 3 
+				  	; = 2+(2+3)*103+(2+2) = 2 + 515 + 4 = 521 (on a de la marge donc c'est OK)
+		
+		; génération code LDA Ligne+1 - STA Ligne (mem PRINC et AUX) pour chaque octet de la ligne TEXT
+		!for HiOff1,3 {
+			!for HiOff2,7 {
+				sta WTAUX
+				!for Offset, 40 {
+				lda (HiOff2-1)*$80+$480+(HiOff1-1)*$28+Offset-1
+				sta (HiOff2-1)*$80+$400+(HiOff1-1)*$28+Offset-1
+				}
+				sta WTPRINC
+				!for Offset, 40 {
+				lda (HiOff2-1)*$80+$480+(HiOff1-1)*$28+Offset-1
+				sta (HiOff2-1)*$80+$400+(HiOff1-1)*$28+Offset-1
+				}
+			}
+			!if (HiOff1 < 3) {	
+				sta WTAUX
+				!for Offset, 40 {
+					lda $428+(HiOff1-1)*$28 +Offset-1
+					sta $780+(HiOff1-1)*$28 +Offset-1
+					}
+				sta WTPRINC
+				!for Offset, 40 {
+					lda $428+(HiOff1-1)*$28 +Offset-1
+					sta $780+(HiOff1-1)*$28 +Offset-1
+					}
+			}
+		}
+		; génération code LDA/STA pour dernière ligne (buffer = mémoire linéaire)
+		sta WTAUX
+		!for Offset, 40 {
+			lda Buffer+(Offset-1)*2
+			sta $7D0+Offset-1
+			}
+		sta WTPRINC
+		!for Offset, 40 {
+			lda Buffer+1+(Offset-1)*2
+			sta $7D0+Offset-1
+			}
+		sta $C000
+		
+		LDA #<RECALL
+		STA $3ED
+		LDA #>RECALL
+		STA $3EE
+		clc		; aux to main
+		clv		; use main stack and page 0
+		JMP XFER
+; =========================================================
+SCROLLHversB1		; (bPage = 0) page 1 affichée donc scroll vers page 2 Haut vers Bas
+!zone
+		!for HiOff1,3 {
+			!for HiOff2,7 {
+				sta RAMWRTON
+				sta RAMRDON
+				!for Offset, 40 {
+				lda $750-(HiOff2-1)*$80-(HiOff1-1)*$28+Offset-1
+				sta $BD0-(HiOff2-1)*$80-(HiOff1-1)*$28+Offset-1
+				}
+				sta RAMWRTOFF
+				sta RAMRDOFF
+				!for Offset, 40 {
+				lda $750-(HiOff2-1)*$80-(HiOff1-1)*$28+Offset-1
+				sta $BD0-(HiOff2-1)*$80-(HiOff1-1)*$28+Offset-1
+				}
+			}
+			!if (HiOff1 < 3) {	
+				sta RAMWRTON
+				sta RAMRDON
+				!for Offset, 40 {
+					lda $7A8-(HiOff1-1)*$28 +Offset-1
+					sta $850-(HiOff1-1)*$28 +Offset-1
+					}
+				sta RAMWRTOFF
+				sta RAMRDOFF
+				!for Offset, 40 {
+					lda $7A8-(HiOff1-1)*$28 +Offset-1
+					sta $850-(HiOff1-1)*$28 +Offset-1
+					}
+			}
+		}
+		; génération code LDA/STA pour première ligne (buffer = mémoire linéaire)
+		sta RAMWRTON
+		!for Offset, 40 {
+			lda Buffer+(Offset-1)*2
+			sta $800+Offset-1
+			
+			}
+		sta RAMWRTOFF
+		!for Offset, 40 {
+			lda Buffer+1+(Offset-1)*2
+			sta $800+Offset-1
+			}
+			
+		rts
+; =========================================================
+SCROLLHversB2	; (bPage = 1) page 2 affichée donc scroll vers page 1 Haut vers Bas
+!zone
+		!for HiOff1,3 {
+			!for HiOff2,7 {
+				sta RAMWRTON
+				sta RAMRDON
+				!for Offset, 40 {
+				lda $B50-(HiOff2-1)*$80-(HiOff1-1)*$28+Offset-1
+				sta $7D0-(HiOff2-1)*$80-(HiOff1-1)*$28+Offset-1
+				}
+				sta RAMWRTOFF
+				sta RAMRDOFF
+				!for Offset, 40 {
+				lda $B50-(HiOff2-1)*$80-(HiOff1-1)*$28+Offset-1
+				sta $7D0-(HiOff2-1)*$80-(HiOff1-1)*$28+Offset-1
+				}
+			}
+			!if (HiOff1 < 3) {	
+				sta RAMWRTON
+				sta RAMRDON
+				!for Offset, 40 {
+					lda $BA8-(HiOff1-1)*$28 +Offset-1
+					sta $450-(HiOff1-1)*$28 +Offset-1
+					}
+				sta RAMWRTOFF
+				sta RAMRDOFF
+				!for Offset, 40 {
+					lda $BA8-(HiOff1-1)*$28 +Offset-1
+					sta $450-(HiOff1-1)*$28 +Offset-1
+					}
+			}
+		}
+		; génération code LDA/STA pour première ligne (buffer = mémoire linéaire)
+		sta RAMWRTON
+		!for Offset, 40 {
+			lda Buffer+(Offset-1)*2
+			sta $400+Offset-1
+			
+			}
+		sta RAMWRTOFF
+		!for Offset, 40 {
+			lda Buffer+1+(Offset-1)*2
+			sta $400+Offset-1
+			}
+		rts			
+; =========================================================
+ENDSCROLL
+		
+
+
+
+		

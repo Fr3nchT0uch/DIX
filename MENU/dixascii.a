@@ -1,0 +1,59 @@
+!cpu 6502
+!convtab "../a2txt.bin"
+!source "../macros.a"
+!source "../sysconst.a"
+
+	* = $B000
+
+DIXPRINT
+!zone
+	STA _80STOREon
+.loop1	LDY #0
+	CPY #7
+	BEQ .end
+	LDA DIXTEXT_L,Y
+	STA .mod1+1
+	STA .mod2+1
+	LDA DIXTEXT_H,Y
+	STA .mod1+2
+	STA .mod2+2
+	INC .loop1+1
+
+	LDY #39
+	LDX #79
+.loop2	LDA _PAGE2off
+.mod3	LDA DIXTEXT,X
+.mod1	STA $428,Y
+	LDA _PAGE2on
+	DEX
+.mod4	LDA DIXTEXT,X
+.mod2	STA $428,Y
+	DEX
+	DEY
+
+	BPL .loop2
+	LDA .mod3+1
+	CLC
+	ADC #80
+	STA .mod3+1
+	STA .mod4+1
+	BCC +
+	INC .mod3+2
+	INC .mod4+2
++	JMP .loop1
+.end	LDA _PAGE2off
+	STA _80STOREoff
+	RTS
+
+DIXTEXT_L	!byte $28,$A8,$28,$A8,$28,$A8,$28
+DIXTEXT_H !byte $04,$04,$05,$05,$06,$06,$07
+
+
+DIXTEXT
+	!text "                     :::::::::        :::::::::::       :::    :::              "
+	!text "                    :+:    :+:           :+:           :+:    :+:               "
+	!text "                   +:+    +:+           +:+            +:+  +:+                 " 
+	!text "                  +#+    +:+           +#+             +#++:+                   "   
+	!text "                 +#+    +#+           +#+            +#+  +#+                   "     
+	!text "                #+#    #+#           #+#           #+#    #+#                   "     
+	!text "               #########        ###########       ###    ###                    "     

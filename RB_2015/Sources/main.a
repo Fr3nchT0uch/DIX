@@ -1,0 +1,905 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; COLOR BARS
+; version 0.03
+; 
+; 0.01 = premi�re version TEST
+; 0.02 + support m�moire $D000/$F000 pour d�compresseur/player YM
+; 0.03 + modification player pour prendre en compte la compression RLE et la non compression suivant les registres (cf Not So Cheap Tunes)
+
+!convtab "a2txt.bin" ; 
+!sl "mainlabel.a"
+
+!source "../../sysconst.a"
+!source "../../macros.a"
+
+; INCLUDE
+
+	*= $F100 ; ORG = $F100 (RAM Langage Card)
+
+; PSEUDO CATALOG Track/SectorDebut-Track/SectorFin (inclus)
+
+; T00/S00 			: BOOT0	($800) x1
+; T00/S01-S09 		: MAIN	($F100) x8
+; T00/S0A-S0F		: FLOAD ($FA00) x6
+
+; T01/S00 - T01/S08	: ZIC ($8000) x09
+; T02/S0D - T03/S0F : TABLES ($D00) x19
+; T04/S00 - T05/S0F : HGR1 ($2000) x 32
+; T06/S00 - T07/S0F : HGR2 ($4000) x 32
+; T08/S00 - T09/S0F : HGR3 ($6000) x 32
+; T0A/S00 - T0D/S0F : ROUTINES ($8000) x64
+; T0E/S00 - T0F/S0F : MASK ($D000) x32
+
+
+
+
+; CONSTANTES SYSTEME ===================
+VERTBLANK	 		= $C019	;
+
+; CONSTANTES PROGRAMME =================
+DATADECOMP			= $200		; AUX
+
+; SOUS-ROUTINES BOOT0
+EXECFROMBOOT2  		= $857 	; sous routine de d�tection type APPLE II (utilise ROM)
+
+; SOUS-ROUTINES PROGRAMMES EXTERNES
+HYPLOD				= $FA00	; routine Fast Load
+
+BARS_DEBUT			= $8009
+
+;======PARAMETRES DU FAST LOAD
+                        ;-PARAMETRES D'ENTREE
+PISDEP   =   $300       ;PISTE DE DEPART
+SECDEP   =   $301       ;SECTEUR DE DEPART
+BUFFER   =   $302       ;ADRESSE OU L'ON CHARGE
+TOTSEC   =   $304       ;TOTAL DES SECTEURS A CHARGER
+
+DRVNUM   =   $305       ;1 OU 2
+ERRMAX   =   $306       ;MAXIMUM D'ERREURS TOLEREES SUR UN SECTEUR AVANT DE RENDRE LA MAIN
+DLFLAG   =   $307       ;1=DELAI AVANT DE LIRE ;0=NON
+                        
+                        ;-PARAMETRES ENTREE/SORTIE
+ICURTRK1 =   $310       ;2*PISTE INITIALE DU DRIVE1 A GARNIR POUR LE 1ER APPEL
+ICURTRK2 =   $311       ;2*PISTE INITIALE DU DRIVE2    "
+
+bAFFICHE = 	 $312
+BUFFERAFFH=	 $313         ; adresse du buffer d'affichage
+BUFFERAFFL=	 $314		  ; haut et bas
+CARAFF	 =	 $315		  ; caract�re � afficher
+
+; PAGE ZERO ===========================
+; adresses fixes
+;
+; system
+bMocking	= $08	; Mockingboard (00 - NOP / 01 - OK)
+;bIIc		= $200	; byte IIc	(00 = //c | other = pas //c !)
+bMachine 	= $01	; byte MACHINE ($7F/IIE | $FF/GS)
+
+bitsixset	= $0C	; utiliser pour un SLV (set overflow) = $60
+vblflag		= $0D	; utilis�e par interruption VBL sur //c
+
+MB_BASEADDR = $10 ;+ $11
+
+; player YM
+;
+OUT1		= $20 ; +$21
+OUT2		= $22 ; +$23
+
+Mark		= $25
+
+TempP		= $26
+Mem			= $27 	; +$28
+
+RM_TO = $C0
+RM_FROM = $C2
+RM_SIZEL = $C4
+RM_SIZEH = $C5
+
+; ; -------------------------------------
+; ; adresses P0 r�utilisables
+; ;
+; ; d�compression LZ4
+; Tmp			= $F6
+; token		= $F7 
+; dest		= $F8	; + $F9
+; src1		= $FA	; + $FB
+; src2 		= $FC  	; + $FD
+; lenL		= $FE 
+; lenH		= $FF
+; -------------------------------------
+;	======== DEBUT PROGRAMME =========
+START	
+ 		JMP DEBUT2
+ 		
+VBLANK	
+		JMP VSYNC
+
+DEBUT2				
+!zone 				 
+     LDA _LCBANK1rw      ;unmap loader from RAM to protect it
+     LDA _LCBANK1rw
+     
+     	LDA #$7F		; force IIe
+	STA bMachine
+
+
+
+ 		 ; === CHARGEMENTS =====
+ 		 ; initialisation HyperLoad + divers !
+ 		LDX #00
+; 		STX 	ICURTRK1
+ 		STX 	bAFFICHE		; on d�sactive l'affichage lors du chargement (pour l'instant)
+;		STX 	SECDEP			; secteur 00
+ ;		STX 	BUFFER			; buffer low 
+ 		INX	; 1
+; 		STX 	DRVNUM
+ ;		STX 	DLFLAG
+ 		STX 	OUT1
+; =============================================================================
+	LDA #<SIMPLEVSYNC
+	STA $FFFE		
+	LDA #>SIMPLEVSYNC
+	STA $FFFF
+	LDA OUT2+1
+	STA OUT1+1		;
+	STA OFFBIT+2	; fixe BIT $Cx04 (reinit interruption)
+
+	SEI
+	LDA #%00100000		; disable T2
+	LDY #$0E
+	STA (MB_BASEADDR),Y		; STA $C40B			; Auxiliary Control Register
+
+	LDA #%01000000		; continuous interrupt / PB7 disabled
+	LDY #$0B
+	STA (MB_BASEADDR),Y		; STA $C40B			; Auxiliary Control Register
+
+	LDA #%11000000		;
+	LDY #$0D 
+	STA (MB_BASEADDR),Y		;	STA $C40D			; interrupt flag register	(Time Out of Timer 1/Int)
+	INY
+	STA (MB_BASEADDR),Y		; STA $C40E			; interrupt Enable register (Timer 1 + Set)
+	LDY #$04
+	LDA (MB_BASEADDR),Y 	; clear T1 IFR
+	LDY #$08
+	LDA (MB_BASEADDR),Y 	; clear T2 IFR
+	CLI
+
+		LDX #11
+.b1		LDA Title1,X
+		STA $528+14,X
+		DEX
+		BPL .b1
+	LDX #50
+-	JSR VSYNC
+	DEX
+	BNE -
+
+	; copy & relocate gfx
+	LDA #<$4000
+	STA RM_FROM
+	LDA #>$4000
+	STA RM_FROM+1
+	LDA #<$D000
+	STA RM_TO
+	LDA #>$D000
+	STA RM_TO+1
+	LDA #<$2000
+	STA RM_SIZEL
+	LDA #>$2000
+	STA RM_SIZEH
+	JSR RAM_MOVEUP
+
+	LDA #<$2000
+	STA RM_FROM
+	LDA #>$2000
+	STA RM_FROM+1
+	LDA #<$4000
+	STA RM_TO
+	LDA #>$4000
+	STA RM_TO+1
+	LDA #<$2000
+	STA RM_SIZEL
+	LDA #>$2000
+	STA RM_SIZEH
+	JSR RAM_MOVEUP
+
+	LDA #<$2000
+	STA RM_FROM
+	LDA #>$2000
+	STA RM_FROM+1
+	LDA #<$6000
+	STA RM_TO
+	LDA #>$6000
+	STA RM_TO+1
+	LDA #<$2000
+	STA RM_SIZEL
+	LDA #>$2000
+	STA RM_SIZEH
+	JSR RAM_MOVEUP
+
+
+; =============================================================================
+		; chargement ZIC
+		; LDA #01
+		; STA PISDEP			; piste 01
+ 		; LDA #$80			; buffer high -> $8000
+		; STA BUFFER+1
+		; LDA #09				; nb secteurs
+		; STA TOTSEC		
+		; JSR HYPLOD			; chargement !
+
+; =============================================================================
+; DECOMPRESSION MUSIC
+; =============================================================================			
+		
+		; JSR DECOMP
+		; STA $C004			; restore write MAIN Memory
+
+; =============================================================================		
+		LDX #11
+.b2		LDA Title2,X
+		STA $628+14,X
+		DEX
+		BPL .b2
+
+	LDX #100
+-	JSR VSYNC
+	DEX
+	BNE -
+; =============================================================================			 		
+ 		; chargement Tables + 3*HGRs + Routines
+		; LDA #02
+ 		; STA PISDEP			; piste $02
+		; LDA #$0D			
+		; STA SECDEP			; secteur $0D
+		; STA BUFFER+1		; buffer high -> $D00
+		; LDA #$00
+		; STA BUFFER		
+		; LDA #19+32+32+32+53		; nb secteurs 
+		; STA TOTSEC		
+		; JSR HYPLOD			; chargement !
+ 		
+ 		; ; chargement MASK
+		; LDA #$0E
+ 		; STA PISDEP			; piste $0E
+		; LDA #$00			; secteur $00
+		; STA SECDEP
+		; STA BUFFER
+ 		; LDA #$D0			; buffer high -> $D000
+		; STA BUFFER+1
+		; LDA #32				; nb secteurs 
+		; STA TOTSEC		
+		; JSR HYPLOD			; chargement !
+ 		
+ ; =============================================================================			 		
+ 		
+ 		; LDA bIIc
+ 		; BNE .SUITE	; si c'est pas un IIc, on passe � la suite
+		
+
+		; ; ====== IIC ONLY =============
+		; ; si c'est un IIc  mise en place de l'interruption !
+		; LDA #00
+		; STA vblflag				; initialisation vblflag pour l'interruption
+		; LDA #<VBLANKIIc			; on fixe la routine d'appel au VBLANK
+ 		; STA VBLANK+1			; sur la routine
+ 		; LDA #>VBLANKIIc			; //c
+ 		; STA VBLANK+2
+		
+ 		; sei 					; disable interrupts
+ 		
+ 		; lda #<VBLI 				; on fixe le vecteur de l'interruption 
+ 		; STA $FFFE				; du IIc (VBL)
+ 		; lda #>VBLI				; pour pointer
+ 		; STA $FFFF				; sur notre routine VBLI
+ 		
+ 		; ; on active la premi�re interruption pour VBL
+ 		; sta $c079 				; enable IOU access
+ 		; sta $c05b 				; enable VBL int (CLI)
+ 		; sta $c078 				; disable IOU access
+		; JMP .SUITE2
+		; ; =============================
+ 		
+.SUITE	;LDA bMocking
+ 	;	BEQ .SUITE2	; s'il n'y a pas de MOCKINGBOARD d�tect�e
+
+		; == PREPARATION MOCKINGBOARD =		
+	SEI
+	;	LDA bMachine	; si IIGS
+	;	BMI	.INITMB
+		
+		; mise en place vecteur IIe
+		; (vecteur GS d�j� mis en place dans BOOT)
+		LDA #<INTPLAYERYM
+		STA $FFFE		
+		LDA #>INTPLAYERYM
+		STA $FFFF
+		
+.INITMB		
+		; init MB (OUT1/OUT2)
+		LDA   	#$FF
+		LDY	  	#$03
+		STA 	(OUT2),Y	; STA   $C403		; DDRA1
+		LDY 	#$83
+		STA 	(OUT2),Y	; STA   $C483		; DDRA2
+		LDA   	#$07
+		LDY 	#$02
+		STA		(OUT2),Y	; STA   $C402		; DDRB1
+		LDY 	#$82
+		STA		(OUT2),Y	; STA   $C482		; DDRB2
+
+		; n�cessaire ?
+		LDA 	#$00		; Set fct "Reset"
+		LDY 	#$00
+		STA 	(OUT2),Y	; STA $C400
+		LDY 	#$80		
+		STA		(OUT2),Y	; STA $C480	
+		LDA 	#$04		; Set fct "Inactive"
+		LDY 	#$00
+		STA 	(OUT2),Y	; STA $C400
+		LDY 	#$80
+		STA		(OUT2),Y	; STA $C480
+		; ---
+		; nettoyage TIMER
+		
+		; ---
+
+		
+		; =============================
+
+.SUITE2	
+; =============================================================================
+; AFFICHAGE TITRE
+
+			; A FAIRE !
+; =============================================================================
+; effacement PAGE2 (virtuelle donc +$C00)
+			LDX #00
+			TXA			; A = 00 (noir/noir en GR)
+.bCleanGR
+			STA $800,X
+			STA $900,X
+			STA $A00,X
+			STA $B00,X
+			STA $C00,X
+			DEX
+			BNE .bCleanGR
+
+
+; =============================================================================
+; INIT INTERRUPTION + DATA
+; =============================================================================	
+!zone
+		; mise en place de l'interruption
+		SEI					; inhib
+		
+		; ; pr�paration interruption - TIMER 1 6522 
+		; LDA #%00100000		; disable T2
+		; LDY #$0E
+		; STA (MB_BASEADDR),Y		; STA $C40B			; Auxiliary Control Register
+
+		; LDA #%01000000		; continuous interrupt / PB7 disabled
+		; LDY #$0B
+		; STA (MB_BASEADDR),Y		; STA $C40B			; Auxiliary Control Register
+
+		; LDA #%11000000		;
+		; LDY #$0D 
+		; STA (MB_BASEADDR),Y		;	STA $C40D			; interrupt flag register	(Time Out of Timer 1/Int)
+		; INY
+		; STA (MB_BASEADDR),Y		; STA $C40E			; interrupt Enable register (Timer 1 + Set)
+		
+		; TIMER : 50 Hz = 20 ms = 20 000 microsecond = 20 000 tick environ (1 Mhz d'holorge) = $4E20
+		; calcul fin : 
+		; 50 Hz = 20 ms
+		; 1.0205 Mhz = 1020500 cycles par seconde soit 1020.5 cycles par ms
+		; pour 20ms, il faut donc 1020.5*20 = 20410 cycles soit : $4FBA
+		;  LDA	#<20280-2
+		;  LDY #04
+		;  STA (OUT2),Y		; STA $C404			; T1C-Lower
+		;  LDA #>20280-2
+		;  INY
+		;  STA (OUT2),Y		; STA $C405			; T1C-High
+		
+		
+		; --- initialisation Tables Offsets Data Registres, Offsets Loop, et Table Compression (MAIN)
+		
+		; initialisation offset Registre (AUX) + Marker
+		
+		STA $C003 	 			; READ AUX MEMORY
+		; Offsets Registres
+		LDX #11					; registers [0-A + marker (#11)]
+
+.b2		LDA TableCompression,X
+		BNE .g2  ;si pas de compression, on shunte tout (rien � lire)
+		LDA TableOffsetDataB,X
+		STA Mem
+		CLC
+		ADC #02
+		STA TableOffsetDataB,X
+		LDA TableOffsetDataH,X
+		STA Mem+1
+		ADC #00
+		STA TableOffsetDataH,X
+		LDY #00
+		LDA (Mem),Y
+		STA TableCompteur,X
+		INY
+		LDA (Mem),Y
+		STA TableData,X
+.g2		DEX
+		BPL .b2
+		; ----------------------		
+		
+		STA $C002				; READ MAIN MEMORY
+		; ---
+		
+; =============================================================================
+; BOUCLE PRINCIPALE PLAYING
+; =============================================================================	
+!zone 
+		JMP BARS_DEBUT
+
+; =============================================================================
+
+; =============================================================================
+; SOUS ROUTINES
+; =============================================================================
+; -------------------------------------
+; DECOMP
+; !zone
+; ; routine de d�compression LZ4
+; ; code: XXL and FOX (from Atari Scene)
+; ; modified: FT
+; ;
+; ; dans A - partie haute adresse data compress�es
+ 
+; ; init
+
+; 		LDA #$80
+; 		STA src2+1					
+; 		LDA #$00					; commence en $00
+; 		STA src2
+; 		LDA #<DATADECOMP
+; 		STA dest
+; 		LDA #>DATADECOMP
+; 		STA dest+1
+		
+; 		LDY #0
+; 		STY lenH
+; 		STY lenL	
+
+; ; init m�moire
+		
+; 		STA $C000			; 80STOREOFF
+; 		STA $C002			; read MAIN Memory
+; 		STA $C005 			; write AUX Memory
+; 		STA $C008			; zero Page = Main
+
+; ; -------------------------------------
+; ; d�comp LZ4 routine
+; ; -------------------------------------				
+; .BP
+;              		jsr   	.GET_BYTE                  
+;                   	sta    	token
+;                		lsr
+;                		lsr
+;                		lsr
+;                		lsr
+;                   	beq    	.read_offset                     ; there is no literal
+;                   	cmp    	#$0f
+;                   	jsr    	.getLength
+                  	
+; .b_literals         jsr    	.GET_BYTE
+;                   	jsr    	.store
+;                   	bne    	.b_literals
+                  	
+; .read_offset       	jsr    	.GET_BYTE		; offset L
+;                   	tax
+;                   	sec
+;                   	eor    	#$ff
+;                   	adc    	dest
+;                   	sta    	src1
+;                   	txa
+;                   	php							
+;                   	jsr    	.GET_BYTE		; offset H
+;                   	plp
+;                   	bne    	.not_done
+;                   	tax
+;                   	beq    	.unlz4_done	; sortie routine !
+; .not_done          	eor    	#$ff
+;                   	adc    	dest+1				; calcul offset H (absolu)
+;                   	STA		src1+1				; sauvegarde de l'offset apr�s correction hors page $C0 : $C0->$D0 / $D0->$E0
+;                   	LDY 	#00					; remise � 0 de Y
+;                   	; c=1
+; 		            lda    	token
+;                   	and    	#$0f
+;                   	adc    	#$03        ; 3+1=4
+;                   	cmp    	#$13
+;                   	jsr    	.getLength
+
+; .b1                 STA 	$C003			; read AUX Memory
+; 					lda    	(src1),Y
+;                   	STA 	$C002			; read MAIN Memory
+;                   	INC 	src1
+;                   	BNE 	.s1
+;                   	INC 	src1+1 	
+; .s1                 jsr    	.store
+;                   	bne    	.b1
+;                   	jmp		.BP                  
+
+
+; .store             	sta    	(dest),Y
+;                   	INC		dest
+;                   	BEQ 	.s2               	
+; 		            dec    	lenL
+;                   	beq    	.s2b
+; .unlz4_done         rts
+; .s2b                dec    	lenH
+; 		        	rts
+; .s2					INC 	dest+1
+; 					dec    	lenL
+;                   	beq    	.s2b
+; 		        	rts
+															
+
+; .getLength_next    	jsr    	.GET_BYTE
+;                   	tax
+;                   	clc
+; 	                adc    	lenL
+;                   	bcc    	s3
+;                   	inc    	lenH
+; s3   	            inx
+
+; .getLength         	sta    	lenL
+;                   	beq    	.getLength_next
+;                   	tax
+;                   	beq    	.s4
+;                   	inc    	lenH
+; .s4 	            rts
+	
+; .GET_BYTE			LDA		(src2),Y		
+; 					INC 	src2		
+; 					BEQ 	.s5
+; 					RTS					
+; .s5					INC 	src2+1			
+; 					RTS
+
+; =============================================================================
+; =============================================================================
+INTPLAYERYM			; interruption toutes les 20ms (50Hz)
+!zone
+		;
+		PHP					; on sauve les flags
+		PHA					; on sauve A
+		TXA					; on sauve 
+		PHA					; X
+		TYA					; on sauve
+		PHA					; Y
+
+
+		LDA OUT1			; permutation g/d
+		EOR #$80
+		STA OUT1
+		LDA OUT2
+		EOR #$80
+		STA OUT2
+
+		STA $C003			; read AUX Memory
+		LDY #00
+
+		; registre 0 (non compress�)
+		LDA #00				; registre 0
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+
+.OFFR0	LDA $200
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		INC .OFFR0+1
+		BNE .sr2
+		INC .OFFR0+2
+
+.sr2	; registre 1 (compress�)
+		LDA #01
+		TAX
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		
+		LDA TableData,X
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		
+		; registre 2 (non compress�)
+		LDA #02				; registre 0
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+
+.OFFR2	LDA $19C5
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		INC .OFFR2+1
+		BNE .sr3
+		INC .OFFR2+2
+
+.sr3	; registre 3 (compress�)
+		LDA #03
+		TAX
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		
+		LDA TableData,X
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)		
+		
+		; registre 4 (non compress�)
+		LDA #04				; registre 0
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+
+.OFFR4	LDA $306E
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		INC .OFFR4+1
+		BNE .sr5
+		INC .OFFR4+2
+		
+		; remplissage REGISTRES (5/6/7/8)		
+.sr5	LDX #05
+
+.br1	TXA
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		
+		LDA TableData,X
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		INX
+		CPX #9
+		BNE .br1
+		
+		; registre 9 (non compress�)
+		TXA					; 9
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+
+.OFFR9	LDA $77B2
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		INC .OFFR9+1
+		BNE .srA
+		INC .OFFR9+2
+		
+		; registre A (non compress�)
+.srA	LDA #10				; registre 10
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$07			; Set fct "Set PSG Reg #"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+
+.OFFRA	LDA $8D92
+		STA (OUT1),Y		; ORA1 (data)
+		LDA #$06			; Set fct "Write DATA"
+		STA (OUT2),Y		; ORB1 (fct)
+		LDA #$04			; Set fct "Inactive"
+		STA (OUT2),Y		; ORB1 (fct)
+		INC .OFFRA+1
+		BNE .srB
+		INC .OFFRA+2
+		
+		; remplissage REGISTRES (B/C/D) � 00 - inutile ?!
+.srB	
+;		LDX #11
+;
+;.br2	TXA
+;		STA (OUT1),Y		; ORA1 (data)
+;		LDA #$07			; Set fct "Set PSG Reg #"
+;		STA (OUT2),Y		; ORB1 (fct)
+;		
+;		LDA #00				; valeur 00 pour tous ces registres � chaque frame !
+;		STA (OUT1),Y		; ORA1 (data)
+;		LDA #$06			; Set fct "Write DATA"
+;		STA (OUT2),Y		; ORB1 (fct)
+;		INX
+;		CPX #14
+;		BNE .br2
+
+		; lecture info MARKER Tempo
+		LDX #11
+		LDA TableData,X
+		BEQ .suite
+		INC Mark			; si 0x01 (ou 0x81)
+
+.suite
+		
+.b2		LDA TableCompression,X
+		BNE .g2
+		DEC TableCompteur,X
+		BEQ .g1
+.g2		DEX
+		BPL .b2
+
+OFFBIT	BIT $C404           ; Clears interrupt (T1CL) pour pouvoir �tre de nouveau r�utilis�! 
+
+.finInterrupt	LDA #$00
+		STA vblflag
+		PLA
+		TAY					; on r�cup Y
+		PLA
+		TAX					; on r�cup X
+		PLA					; on r�cup A
+		PLP
+		STA $C002			; read MAIN Memory
+		RTI					; sortie 1
+								
+.g1		LDA TableOffsetDataB,X
+		STA Mem
+		CLC
+		ADC #02
+		STA TableOffsetDataB,X
+		LDA TableOffsetDataH,X
+		STA Mem+1
+		ADC #00
+		STA TableOffsetDataH,X
+		LDY #00
+		LDA (Mem),Y
+		BEQ .endframes
+		STA TableCompteur,X
+		INY
+		LDA (Mem),Y
+		STA TableData,X
+		JMP .g2
+		
+.endframes
+		; on coupe le son
+
+		LDA #01				; FIN !
+		STA Mark
+		
+		JMP .finInterrupt
+
+SIMPLEVSYNC
+	PHP					; on sauve les flags
+	PHA					; on sauve A
+	TXA					; on sauve 
+	PHA					; X
+	TYA					; on sauve
+	PHA					; Y
+	JMP OFFBIT
+
+VSYNC	LDA #$FF
+	STA vblflag
+-	LDA vblflag
+	BNE -
+	RTS
+
+; Move memory up
+;
+; FROM = source start address
+;   TO = destination start address
+; SIZE = number of bytes to move
+;
+		!zone
+RAM_MOVEUP
+	LDX RM_SIZEH    ; the last byte must be moved first
+	CLC          ; start at the final pages of FROM and TO
+	TXA
+	ADC RM_FROM+1
+	STA RM_FROM+1
+	CLC
+	TXA
+	ADC RM_TO+1
+	STA RM_TO+1
+	INX          ; allows the use of BNE after the DEX below
+	LDY RM_SIZEL
+	BEQ .MU3
+	DEY          ; move bytes on the last page first
+	BEQ .MU2
+.MU1	LDA (RM_FROM),Y
+	STA (RM_TO),Y
+	DEY
+	BNE .MU1
+.MU2	LDA (RM_FROM),Y ; handle Y = 0 separately
+	STA (RM_TO),Y
+.MU3	DEY
+	DEC RM_FROM+1   ; move the next page (if any)
+	DEC RM_TO+1
+	DEX
+	BNE .MU1
+	RTS
+
+; ; ==============================================================================
+; ; SOUS ROUTINES 
+; ; ==============================================================================
+; VBLI		; routine execut� lors de l'interruption VBL de la Mouse Rom d'un IIc
+; !zone
+;  		; on r�active l'interruption
+;  		sta $c079 		; enable IOU access
+;  		sta $c05b 		; enable VBL int
+;  		sta $c078 		; disable IOU access
+; 		; on fixe le flag
+;  		LDA #$80
+;  		STA vblflag 	; set hibit
+; 		RTI
+; ; =============================================================================
+; VBLANKIIc				; code from Prince Of Persia Source (Jordan Mechner - 1989)
+;  !zone		
+;  		cli 			; enable interrupts
+
+; .l1 	bit vblflag
+; 		bpl .l1 		; wait for vblflag = 1
+; 		lsr vblflag 	;...&  set vblflag = 0
+ 		
+;  		sei
+;  		rts
+; ; =============================================================================
+; VBLANK_GSE
+; !zone
+;  		LDA bMachine                                                                   
+; .LVBL1	CMP VERTBLANK         
+; 		BPL .LVBL1 			; attend fin vbl courant
+         
+;         ;LDA bMachine                               
+; .LVBL2 	CMP VERTBLANK        
+; 		BMI .LVBL2 			; attend fin display
+; 		; d�but VBL
+; 		RTS			
+; ============================================================================
+; offset d�but data registres + marker (on n'utilise pas les registres mis � zero tout le temps = B/C/D)
+; .............................00  01  02  03  04  05  06  07  08  09  0A  MK
+TableOffsetDataB 		!byte $00,$E0,$C5,$A5,$6E,$4E,$AB,$78,$ED,$B2,$92,$72 ; <- marker
+TableOffsetDataH 		!byte $02,$17,$19,$2F,$30,$46,$51,$63,$68,$77,$8D,$A3
+TableCompression		!byte $01,$00,$01,$00,$01,$00,$00,$00,$00,$01,$01,$00
+
+TableCompteur 			!fill 12,00
+TableData 				!fill 12,00
+; ============================================================================
+; attention � l'alignement
+;..............0000000000111111111122222222223333333333
+;..............0123456789012345678901234567890123456789 
+Title1	!text "FRENCH TOUCH"
+Title2	!text "  PRESENTS  "
+		

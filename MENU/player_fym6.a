@@ -1,0 +1,417 @@
+; French Touch framework
+; (c) Cyril Lambin, Grouik (French Touch)
+
+;  This program is free software: you can redistribute it and/or modify
+;  it under the terms of the GNU Affero General Public License as
+;  published by the Free Software Foundation, either version 3 of the
+;  License, or (at your option) any later version.
+;
+;  This program is distributed in the hope that it will be useful,
+;  but WITHOUT ANY WARRANTY; without even the implied warranty of
+;  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;  GNU Affero General Public License for more details.
+;
+;  You should have received a copy of the GNU Affero General Public License
+;  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+; ====================================================================================
+; FYM2 player (v3 6channels)
+;
+; by Fenarinarsa/FRENCH TOUCH
+
+!cpu 6502
+
+!source "../sysconst.a"
+!source "../macros.a"
+;!source "boot/setup.a"
+
+MB_BASEADDR	= $10
+
+TableOffsetData	= $30	; 56 bytes
+TableIndex	= $68	; 28 bytes
+TableCompteur	= $84	; 28 bytes
+pPartition	= $A0	; 2 bytes
+TableData 	= $A2 	; 28 bytes
+SeqCount		= $BE	; 1 byte
+Mem		= $BF	; 2 bytes
+pattern		= $C1	; 1 byte
+MBpatch_start	= $C2	; 2 bytes
+MBpatch_end	= $C4	; 2 bytes
+StartWithLoop	= $C6
+
+FYM_DATA		= $6000
+LOOP_PATTERN	= 32   ; usually 0
+
+DEBUGPLAYER = 0
+
+	* = $F100
+
+PLAYER
+	JMP PLAYER_FYM
+	JMP PLAYER_FYM_INIT
+	JMP PLAYER_YMRESET
+
+PLAYER_FYM_INIT
+	STX StartWithLoop
+	; Patch Mockingboard registers
+	+set_ptr PLAYER_YMRESET,MBpatch_start
+	+set_ptr next_sequence,MBpatch_end
+	JSR MB_PATCH
+
+	JSR PLAYER_YMRESET
+
+	STA _RAMWRTaux
+	STA _RAMRDaux
+	LDA #0
+	STA pattern
+
+	; prepare tune data
+	; FYM2
+	LDA FYM_DATA+1
+	STA modseqlength+1
+	STA SeqCount
+
+relocate_partition
+	; file is loaded at $2000
+	CLC
+	LDA FYM_DATA+3
+	ADC #>FYM_DATA    ; relocate main partition ptr
+	STA FYM_DATA+3
+	; relocate partition pointers
+	LDA FYM_DATA+2
+	STA pPartition
+	STA Mem
+	LDA FYM_DATA+3
+	STA pPartition+1
+	STA Mem+1
+.reloc1	LDY #1
+	CLC
+.reloc0	LDA (Mem),Y
+	ADC #>FYM_DATA
+	STA (Mem),Y
+	INY
+	INY
+	CPY #56+1
+	BNE .reloc0
+	LDY #56+1
+	LDA (Mem),Y
+	BEQ .end_relocate ; partition end
+	CLC
+	LDA Mem
+	ADC #56
+	STA Mem
+	BCC .reloc1
+	LDA Mem+1
+	ADC #0
+	STA Mem+1
+	JMP .reloc1
+.end_relocate
+
+!macro init_packbits {
+	!zone
+	; packbits file format
+	; 1 control byte (n) + ? data bytes
+	; if control byte ==$80 => end (not used here)
+	; if control byte >$00 => copy n data bytes
+	; if control byte <$00 => repeat 1 data byte n times
+	; n is always equals to (delta between control byte's value and $00)+1
+	; for example n will be $03 if the control byte is $02 or $FE
+	; => the value of the first byte after the control byte is always copied as is.
+
+	; copy partition pointers
+	LDY #0
+!for iplayer,0,56-1 {
+	LDA (pPartition),Y
+	STA TableOffsetData+iplayer
+	INY
+ }
+	; init 28 patterns' packbits
+	LDY #0
+	LDX #2
+!for iplayer,0,28-1 {
+	LDA (TableOffsetData+(iplayer*2)),Y	; control byte
+	STA TableCompteur+iplayer
+	INY
+	LDA (TableOffsetData+(iplayer*2)),Y	; value byte
+!if iplayer<28-1 {
+	DEY
+  }
+	STA TableData+iplayer
+	STX TableIndex+iplayer
+ }
+}
+	LDA StartWithLoop
+	BEQ +
+	JSR LOOPTUNE
++	; call macro
+	+init_packbits
+
+	STA _RAMWRTmain
+	STA _RAMRDmain
+	RTS
+
+; =============================================================================
+; patch all STAs/STXs to mockinboard registers
+
+MB_PATCH
+!zone
+	LDA MBpatch_end+1
+	STA .modmb1+1
+	LDA MBpatch_end
+	STA .modmb2+1
+.loop
+	LDY #0
+	LDA (MBpatch_start),Y
+	CMP #$8D    ; "STA xxxx"
+	BEQ .yes2
+	CMP #$8C    ; "STY xxxx"
+	BEQ .yes2
+	CMP #$2C    ; "BIT xxxx"
+	BEQ .yes2
+	CMP #$AD    ; "LDA xxxx"
+	BEQ .yes2
+	CMP #$8E    ; "STX xxxx"
+	BNE .not
+.yes2
+	INY
+	LDA (MBpatch_start),Y
+	AND #$F0
+	CMP #$00
+	BEQ .yes
+	CMP #$80
+	BNE .not
+.yes
+	INY
+	LDA (MBpatch_start),Y
+	CMP #$CF        ; "STA $CFxx" or "STX $CFxx"
+	BNE .not
+	; patching
+	LDA MB_BASEADDR+1
+	STA (MBpatch_start),Y
+.not
+	INC MBpatch_start
+	BNE +
+	INC MBpatch_start+1
++	LDA MBpatch_start+1
+.modmb1
+	CMP #$00
+	BNE .loop
+	LDA MBpatch_start
+.modmb2
+	CMP #$00
+	BNE .loop
+	RTS
+
+PLAYER_YMRESET
+!zone
+	LDA #$FF
+	STA $CF03
+	STA $CF83
+    	LDA #$07
+          STA $CF02
+          STA $CF82
+
+	LDA #$00
+	STA $CF00
+	STA $CF80
+	LDA #$04
+	STA $CF00
+	STA $CF80
+	RTS
+
+
+
+; =============================================================================
+PLAYER_FYM
+!zone
+	; This way of programming the two AYs at the same time using $CF0x and $CF8x
+	; works on the original Mockingboard and emulators but does not on Mockingboard 4c.
+	; On 4c there is only one VIA with address mapping so by poking $CF0x, then $CF8x,
+	; only one AY is actually set up witht the right data, resulting in a mono sound.
+	; Consequence: when stereo is enabled, it will play as mono on Mockingboard 4c
+	; and as stereo on any other Mockingboard or emulators.
+	; On the plus side, the AY setup is then ~128 cycles faster.
+
+!if DEBUGPLAYER=1 {
+	JSR print_debugplayer
+}
+
+	!zone psg
+	STA _RAMRDaux
+
+; AY1 ---------------------------------------------------------------------
+
+	LDX #$04
+!for iplayer,0,12 {
+	; R0~R12
+	LDA #iplayer
+	STA $CF01			; ORA1 (data)
+	LDA TableData+iplayer
+	LDY #$07			; Set fct "Set PSG Reg #"
+	STY $CF00			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF00			; ORB1 (fct)
+	STA $CF01			; ORA1 (data)
+	LDY #$06			; Set fct "Write DATA"
+	STY $CF00			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF00			; ORB1 (fct)
+}
+	
+	LDA TableData+13
+	CMP #$FF
+	BEQ .no_r13update
+	LDA #13
+	STA $CF01			; ORA1 (data)
+	LDA TableData+iplayer
+	LDY #$07			; Set fct "Set PSG Reg #"
+	STY $CF00			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF00			; ORB1 (fct)
+	STA $CF01			; ORA1 (data)
+	LDY #$06			; Set fct "Write DATA"
+	STY $CF00			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF00			; ORB1 (fct)
+.no_r13update
+
+; AY2 ---------------------------------------------------------------------
+
+	LDX #$04
+!for iplayer,0,12 {
+	; R0~R12
+	LDA #iplayer
+	STA $CF81			; ORA1 (data)
+	LDA TableData+iplayer+14
+	LDY #$07			; Set fct "Set PSG Reg #"
+	STY $CF80			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF80			; ORB1 (fct)
+	STA $CF81			; ORA1 (data)
+	LDY #$06			; Set fct "Write DATA"
+	STY $CF80			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF80			; ORB1 (fct)
+}
+	
+	LDA TableData+13+14
+	CMP #$FF
+	BEQ .no_r13update2
+	LDA #13
+	STA $CF81			; ORA1 (data)
+	LDA TableData+iplayer+14
+	LDY #$07			; Set fct "Set PSG Reg #"
+	STY $CF80			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF80			; ORB1 (fct)
+	STA $CF81			; ORA1 (data)
+	LDY #$06			; Set fct "Write DATA"
+	STY $CF80			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF80			; ORB1 (fct)
+.no_r13update2
+	!zone unpack_data
+
+; ---------- partition handling
+
+	; if SeqCount reaches zero, we step to another patterns sequence in the partition
+	DEC SeqCount
+	BEQ next_sequence
+	JMP unpack_pattern
+
+; ---------- load new sequence of 28 pointers in partition
+next_sequence
+	; we are at the end of the pattern sequence
+	; reset sequence count
+modseqlength
+	LDA #$AA		; sequence length
+	STA SeqCount
+
+	LDY #56+1
+	LDA (pPartition),Y
+	BEQ .looptune
+
+	; next partition sequence (+56 bytes)
+	CLC
+	LDA pPartition
+	ADC #56
+	STA pPartition
+	LDA pPartition+1
+	ADC #0
+	STA pPartition+1
+
+	INC pattern	; debug
+	BNE .newpatterns
+	
+.looptune ; end of partition, looping to the start of the song
+	JSR LOOPTUNE
+		
+.newpatterns
+	; reset packbits depack counters for all 28 registers
+	+init_packbits
+	STA _RAMRDmain
+	RTS
+
+LOOPTUNE
+	LDY #LOOP_PATTERN
+	STY pattern
+	CLC
+	LDA FYM_DATA+2
+	ADC #<28*LOOP_PATTERN
+	STA pPartition
+	LDA FYM_DATA+3
+	ADC #>28*LOOP_PATTERN
+	STA pPartition+1
+	RTS	
+
+; ---------- handling packbits for each 28 registers
+unpack_pattern
+	CLC
+!for iplayer,0,28-1 {
+	!zone
+	LDY TableCompteur+iplayer
+	BEQ .controlbyte ; ==0 read next control byte
+	BMI .dupmode
+
+.copymode ; counter is positive
+	DEY
+	STY TableCompteur+iplayer
+	LDY TableIndex+iplayer
+	LDA (TableOffsetData+(iplayer*2)),Y
+	STA TableData+iplayer
+	INY
+	STY TableIndex+iplayer
+!if iplayer<28-1 {
+	BCC .nextreg
+} else {
+	BCC .exit
+}
+
+.dupmode	; counter is negative
+	INY
+	STY TableCompteur+iplayer
+!if iplayer<28-1 {
+	BCC .nextreg
+} else {
+	BCC .exit
+}
+
+.controlbyte
+	LDY TableIndex+iplayer
+	LDA (TableOffsetData+(iplayer*2)),Y	; control byte
+	STA TableCompteur+iplayer
+	INY
+	LDA (TableOffsetData+(iplayer*2)),Y	; value byte
+	STA TableData+iplayer
+	INY
+	STY TableIndex+iplayer
+
+.nextreg
+}
+; ---------- end of partition handling
+
+.exit	STA _RAMRDmain
+	RTS
+
+
+EO_PLAYER

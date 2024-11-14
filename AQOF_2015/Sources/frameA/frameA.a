@@ -1,0 +1,22 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+
+
+!sl "frameAlabel.a"
+	*= $1000 ; ORG
+
+CLIP1A	!bin "0001A"
+CLIP2A	!bin "0002A"
+CLIP3A	!bin "0003A"
+CLIP4A	!bin "0004A"
+CLIP5A	!bin "0005A"
+CLIP6A	!bin "0006A"
+CLIP7A	!bin "0007A"
+CLIP9A	!bin "0009A"
+CLIPBA	!bin "000BA"
+
+
+
+
+
+

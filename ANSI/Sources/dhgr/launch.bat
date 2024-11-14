@@ -1,0 +1,1 @@
+start dw.py test.dsk FTDHGR 1 0 + d

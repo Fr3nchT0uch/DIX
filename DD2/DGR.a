@@ -1,0 +1,5 @@
+
+ *=$800
+
+	!binary "DGR/1.main"
+	!binary "DGR/1.aux.lz4"

@@ -1,0 +1,909 @@
+; ACME 0.96.4
+; 
+; [binary MAX Size: (16+16+12)*256 = 11264 bytes]
+;
+; MAD EFFECT 3
+; GROUiK / FRENCH TOUCH
+; 01/2020
+;
+; v0.06
+;
+!cpu 6502
+!convtab "a2txt.bin" ; 
+!sl "lbl_main.txt"
+!source "../../macros.a"
+
+; INCLUDE
+!source "lbl_sub.txt"
+
+           *= $E000 ; ORG = $E000 (RAM Langage Card)
+
+; =====================================
+; VERTBLANK   = $C019
+; FLOAD       = $FC00     ; routine Fast Load XTREME - MAIN
+; =====================================
+; PAGE ZERO
+bRefresh    = $01   ; byte REFRESH RATE ($00/50Hz | $01/60Hz)
+bSLOT       = $02   ; numero SLOT * 0x10
+IntL        = $03   ; L value for INT delay
+IntH        = $04   ; H value for INT delay
+
+MB_BASEADDR = $10 ;+ $11
+
+; decompLZ4
+lz4_src     = $18   	; +$91
+lz4_dest    = $1A   	; +$93
+lz4_len     = $1C     ; +$95 (tmp)
+lz4_token   = $1D
+lz4_bank_src = $1E
+lz4_bank_dst = $1F 
+; --------
+Tmp1        = $16
+Tmp2        = $18
+MBpatch_start = $18 ; +$19
+MBpatch_end   = $1A ; +$1B
+dest = lz4_dest
+
+bMark       = $33
+
+
+; PLAYER YM/AY
+; ------
+nREG0		= $80
+vREG0		= $81
+dREG0		= $82	; +$83
+nREG1		= $84
+vREG1		= $85
+dREG1		= $86	; +$87
+nREG2		= $88
+vREG2		= $89
+dREG2		= $8A	; +$8B
+nREG3		= $8C
+vREG3		= $8D
+dREG3		= $8E	; +$8F
+nREG4		= $90
+vREG4		= $91 
+dREG4		= $92	; +$93
+nREG5		= $94
+vREG5		= $95 
+dREG5		= $96	; +$97
+nREG6		= $98
+vREG6		= $99
+dREG6		= $9A	; +$9B
+nREG7		= $9C
+vREG7		= $9D
+dREG7		= $9E	; +$9F
+nREG8		= $A0
+vREG8		= $A1
+dREG8		= $A2	; +$A3
+nREG9		= $A4
+vREG9		= $A5
+dREG9		= $A6	; +$A7
+nREGA		= $A8
+vREGA		= $A9 
+dREGA		= $AA	; +$AB
+nREGB		= $AC
+vREGB		= $AD 
+dREGB		= $AE	; +$AF
+nREGD		= $B0
+vREGD		= $B1
+dREGD		= $B2	; +$B3
+
+dTiming     = $B4   ; +$B5
+
+; F4~FE INTs 
+DISPSYNC	= $F4
+VSYNC		= $F5
+T2Timing    = $F6
+WaitSyncPTR = $F8
+WaitDisplayPTR = $FA
+T1RoutPTR = $FC 
+T2SyncCodePTR = $FE
+
+DEFAULT_SYNC_TIMER = 7479+(22*65)+38 ; change default T2 timing
+
+
+; =============================================================================
+MAIN
+!zone
+    SEI
+    STX DECOMPLZ4+1
+    STY DECOMPLZ4+2
+
+            STA $C000           ; 80STOREOFF
+            STA $C008           ; zero Page = Main (+ $FXXX MAIN)
+
+
+        ; Patch Mockingboard registers
+        +set_ptr Init_MB,MBpatch_start
+        +set_ptr EO_Init_MB,MBpatch_end
+        JSR MB_PATCH
+        +set_ptr PLAYER_YM,MBpatch_start
+        +set_ptr EO_PLAYER_YM,MBpatch_end
+        JSR MB_PATCH
+        +set_ptr STOPINT,MBpatch_start
+        +set_ptr END,MBpatch_end
+        JSR MB_PATCH
+
+; Some inits
+            ;
+            LDA $C057           ; hires
+            LDA $C052           ; fullscreen
+            ; ------------------------------
+            LDA #<PBLUE_P
+            STA T_COLOR_P
+            LDA #>PBLUE_P
+            STA T_COLOR_P+1
+            LDA #<PBLUE_S
+            STA T_COLOR_S
+            LDA #>PBLUE_S
+            STA T_COLOR_S+1
+            LDA #00
+            STA VALX1
+            STA VALY2
+            LDA #128
+            STA VALX2
+            LDA #64
+            STA VALY1
+            LDA #$01
+            STA VALADDX1
+            STA VALADDX2
+            LDA #$02
+            STA VALADDY1
+            LDA #$FC
+            STA VALADDY2
+; =============================================================================
+Init_MB     ; init Mockingboard             
+!zone
+            ; init MB (6522/AY1) / (6522/AY2)
+            LDA #$FF
+            STA $CF03          ; DDRA1
+            LDA #$07
+            STA $CF02          ; DDRB1
+            ; ---------
+            ; clean REGISTER AY1 / AY2
+            LDA #$00
+            STA $CF00
+            LDA #$04
+            STA $CF00
+
+            LDA #$FF
+            STA $CF83
+            LDA #$07
+            STA $CF82
+            ; ---------
+            ; clean REGISTER AY1 / AY2
+            LDA #$00
+            STA $CF80
+            LDA #$04
+            STA $CF80
+EO_Init_MB
+
+    LDA #<DEFAULT_SYNC_TIMER
+	STA T2Timing
+	LDA #>DEFAULT_SYNC_TIMER
+	STA T2Timing+1
+
+            ; ---------
+            LDX #(13*4-1)
+.b1			LDA TableREG,X
+			STA nREG0,X
+			DEX
+			BPL .b1
+            LDA #<($1000)
+            STA dTiming
+            LDA #>($1000)
+            STA dTiming+1
+; -------------------------------------
+Init_INT    ; init interrupt
+!zone       
+    +set_ptr PLAYER_YM,T1RoutPTR
+ 
+; ; =================================================================================================
+STORYBOARD
+!zone
+
+            CLI             ; music!
+.step1      ; TEXT/FT Presents/
+            ; display TEXTLINE1 -----------------------------------------------
+            LDX #21
+-           LDA TextLine1,X
+            STA $5A8+9,X
+            DEX
+            BPL -
+
+
+            ; decomp TIMING -> 1000M
+            +set_ptr TIMING,lz4_src
+            +set_ptr $1000,lz4_dest
+            JSR DECOMPLZ4
+
+            ; loop
+.loop1      JSR TESTKBD
+            LDA bMark                                    
+            BEQ .loop1
+            DEC bMark       ; reset
+
+.step2      ; HIRES/TITLE SCREEN PAGE1                  ; timing = $100                     
+            LDA $C050           ; GFX
+            LDA $C054
+            ; decomp LORES 1 
+            +set_ptr LORES,lz4_src
+            +set_ptr $400,lz4_dest
+            JSR DECOMPLZ4
+            ; loop
+.loop2      JSR TESTKBD
+      LDA bMark                                    
+            BEQ .loop2
+            DEC bMark       ; reset
+
+.step3      ; HIRES/TITLE SCREEN PAGE2                  ; timing = $200
+            LDA $C055       ; page 2
+            ; copy LORES page1->page2 
+            LDY #00
+            LDX #04
+.mod1       LDA $400,Y
+.mod2       STA $800,Y
+            INY
+            BNE .mod1
+            INC .mod1+2
+            INC .mod2+2
+            DEX
+            BNE .mod1
+            ; loop
+.loop3      JSR TESTKBD
+      LDA bMark                                    
+            BEQ .loop3
+            DEC bMark
+            ; ---------------------------------------------
+.step4      ; LORES/SYNC - PHASE 1 => BLUE PRECALC1     ; timing = $300
+            LDA $C056       ; lores
+            LDA $C054       ; page1
+            +set_ptr INT_ROUTM, T2SyncCodePTR
+            ; LDA #<INT_ROUTM
+            ; STA $FFFE       
+            ; LDA #>INT_ROUTM
+            ; STA $FFFF
+            ; loop
+.loop4      JSR TESTKBD
+      LDA bMark
+            BEQ .loop4
+            DEC bMark
+
+.step5      ; LORES/SYNC - PHASE 2 => GREEN PRECALC2    ; timing = $400
+            LDA #<PGREEN_P
+            STA T_COLOR_P
+            LDA #>PGREEN_P
+            STA T_COLOR_P+1
+            LDA #<PGREEN_S
+            STA T_COLOR_S
+            LDA #>PGREEN_S
+            STA T_COLOR_S+1
+            LDA #<PRECALC2
+            STA MODPRECALC+1
+            LDA #>PRECALC2
+            STA MODPRECALC+2
+            LDA #00
+            STA VALX1
+            STA VALX2 
+            STA VALY1
+            STA VALY2
+            LDA #$FF
+            STA VALADDX1
+            STA VALADDX2
+            STA VALADDY1
+            LDA #$01
+            STA VALADDY2
+.loop5      JSR TESTKBD
+      LDA bMark
+            BEQ .loop5
+            DEC bMark
+.step6      ; LORES/SYNC - PHASE 2 => RED PRECALC2      ; timing = $440
+            LDA #<PRED_P
+            STA T_COLOR_P
+            LDA #>PRED_P
+            STA T_COLOR_P+1
+            LDA #<PRED_S
+            STA T_COLOR_S
+            LDA #>PRED_S
+            STA T_COLOR_S+1
+.loop6      JSR TESTKBD
+      LDA bMark
+            BEQ .loop6
+            DEC bMark
+.step7      ; LORES/SYNC - PHASE 2 => N&B PRECALC2   ; timing = $480
+            LDA #<PNB_P
+            STA T_COLOR_P
+            LDA #>PNB_P
+            STA T_COLOR_P+1
+            LDA #<PNB_S
+            STA T_COLOR_S
+            LDA #>PNB_S
+            STA T_COLOR_S+1
+.loop7      JSR TESTKBD
+      LDA bMark
+            BEQ .loop7
+            DEC bMark
+.step8      ; LORES/SYNC - PHASE 2 => YELLOW PRECALC2      ; timing = $4C0
+            LDA #<PYEL_P
+            STA T_COLOR_P
+            LDA #>PYEL_P
+            STA T_COLOR_P+1
+            LDA #<PYEL_S
+            STA T_COLOR_S
+            LDA #>PYEL_S
+            STA T_COLOR_S+1
+.loop8      JSR TESTKBD
+      LDA bMark
+            BEQ .loop8
+            DEC bMark
+.step9      ; LORES/SYNC - PHASE 3 => MULTIA PRECALC1  (-)  ; timing = $500
+            LDA #<PMULTIA_P
+            STA T_COLOR_P
+            LDA #>PMULTIA_P
+            STA T_COLOR_P+1
+            LDA #<PMULTIA_S
+            STA T_COLOR_S
+            LDA #>PMULTIA_S
+            STA T_COLOR_S+1
+            LDA #<PRECALC1
+            STA MODPRECALC+1
+            LDA #>PRECALC1
+            STA MODPRECALC+2
+            LDA #$02
+            STA VALADDX1
+            LDA #$01
+            STA VALADDX2
+            LDA #$FF
+            STA VALADDY1
+            STA VALADDY2
+.loop9      JSR TESTKBD
+      LDA bMark
+            BEQ .loop9
+            DEC bMark
+
+.step10     ; LORES/SYNC - PHASE 3 => MULTIA PRECALC1 (+)   ; timing = $540
+            LDA #$02
+            STA VALADDX1
+            LDA #$01
+            STA VALADDX2
+            STA VALADDY1
+            LDA #$FF
+            STA VALADDY2
+.loop10      JSR TESTKBD
+     LDA bMark
+            BEQ .loop10
+            DEC bMark
+.step11     ; LORES/SYNC - PHASE 3 => MULTIA PRECALC1 (-)   ; timing = $580
+            LDA #$FE
+            STA VALADDX1
+            LDA #$FF
+            STA VALADDX2
+            STA VALADDY2
+            LDA #$01
+            STA VALADDY1            
+.loop11      JSR TESTKBD
+     LDA bMark
+            BEQ .loop11
+            DEC bMark
+.step12     ; LORES/SYNC - PHASE 3 => MULTIA PRECALC1 (+)   ; timing = $5C0
+            LDA #$02
+            STA VALADDX1
+            LDA #$FF
+            STA VALADDX2
+            STA VALADDY2
+            LDA #$01
+            STA VALADDY1
+.loop12      JSR TESTKBD
+     LDA bMark
+            BEQ .loop12
+            DEC bMark
+.step13     ; LORES/SYNC - PHASE 4 => MULTI2 PRECALC2   ; timing = $600
+            LDA #<PMULTI2_P
+            STA T_COLOR_P
+            LDA #>PMULTI2_P
+            STA T_COLOR_P+1
+            LDA #<PMULTI2_S
+            STA T_COLOR_S
+            LDA #>PMULTI2_S
+            STA T_COLOR_S+1
+            LDA #<PRECALC2
+            STA MODPRECALC+1
+            LDA #>PRECALC2
+            STA MODPRECALC+2
+            LDA #40
+            STA VALX1
+            LDA #70
+            STA VALX2
+            LDA #80 
+            STA VALY1
+            LDA #120
+            STA VALY2
+            LDA #$FE
+            STA VALADDX1
+            LDA #$FF
+            STA VALADDX2
+            LDA #$00
+            STA VALADDY1
+            STA VALADDY2
+.loop13      JSR TESTKBD
+     LDA bMark
+            BEQ .loop13
+            DEC bMark
+.step14     ; LORES/SYNC - PHASE 5 => MULTI1 PRECALC1   ; timing = $700
+            LDA #<PMULTI1_P
+            STA T_COLOR_P
+            LDA #>PMULTI1_P
+            STA T_COLOR_P+1
+            LDA #<PMULTI1_S
+            STA T_COLOR_S
+            LDA #>PMULTI1_S
+            STA T_COLOR_S+1
+            LDA #<PRECALC1
+            STA MODPRECALC+1
+            LDA #>PRECALC1
+            STA MODPRECALC+2
+            LDA #00
+            STA VALX1
+            STA VALX2
+            STA VALY1
+            STA VALY2
+            LDA #$02
+            STA VALADDX1
+            LDA #$FF
+            STA VALADDX2
+            LDA #$01
+            STA VALADDY1
+            LDA #$FF
+            STA VALADDY2
+.loop14      JSR TESTKBD
+     LDA bMark
+            BEQ .loop14
+            DEC bMark
+            ; ---------------------------------------------
+.end        LDA #0
+            STA T2SyncCodePTR+1
+            ; LDA #<INT_ROUTP
+            ; STA $FFFE       
+            ; LDA #>INT_ROUTP
+            ; STA $FFFF
+
+            ; display TEXT de FIN
+            LDX #39
+.loop
+            LDA L00,X
+            STA $400,X
+            LDA L01,X
+            STA $480,X
+            LDA L02,X
+            STA $500,X
+            LDA L03,X
+            STA $580,X
+            LDA L04,X
+            STA $600,X
+            LDA L05,X
+            STA $680,X
+            LDA L06,X
+            STA $700,X
+            LDA L07,X
+            STA $780,X
+            LDA L08,X
+            STA $428,X
+            LDA L09,X
+            STA $4A8,X
+            LDA L10,X
+            STA $528,X
+            LDA L11,X
+            STA $5A8,X
+            LDA L12,X
+            STA $628,X
+            LDA L13,X
+            STA $6A8,X
+            LDA L14,X
+            STA $728,X
+            LDA L15,X
+            STA $7A8,X
+            LDA L16,X
+            STA $450,X
+            LDA L17,X
+            STA $4D0,X
+            LDA L18,X
+            STA $550,X
+            LDA L19,X
+            STA $5D0,X
+            LDA L20,X
+            STA $650,X
+            LDA L21,X
+            STA $6D0,X
+            LDA L22,X
+            STA $750,X
+            LDA L23,X
+            STA $7D0,X
+            DEX
+            BMI +
+            JMP .loop
++
+            LDA $C051
+            LDA $C054
+
+.loopend      JSR TESTKBD
+    LDA bMark
+            BEQ .loopend
+            DEC bMark
+
+STOPINT
+;     LDA #%01000000
+;             STA $CF0E           ; $CX0E => VIA_IER
+            SEI
+            ; clean REGISTER AY1 / AY2 => FAST MUTE!
+            LDA #$00
+            STA $CF00
+            LDA #$04
+            STA $CF00
+            LDA #$00
+            STA $CF80
+            LDA #$04
+            STA $CF80
+            ; ---------
+
+END         RTS  ;JMP END
+
+
+
+
+; =============================================================================
+INT_ROUTP   ; previous INT ROUTINE
+; !zone        
+;             STA save_A 
+;             STX save_X 
+;             STY save_Y                 
+            
+;             JSR PLAYER_YM       ; music! (one tick)                         
+           
+;             BIT $CF04           ; int again (6522)
+;             LDA save_A 
+;             LDX save_X 
+;             LDY save_Y 
+ 		    RTI					; sortie INT
+; =============================================================================
+INT_ROUTM   ; main INT ROUTINE
+!zone        
+            ; STA save_A 
+            ; STY save_Y 
+            CLI     ; enable nested interrupts
+MODPRECALC  JSR PRECALC1                                   
+            ; JSR PLAYER_YM       ; music! (one tick)              
+
+            ; BIT $CF04           ; int again (6522)
+            ; LDY save_Y
+            ; LDA save_A 
+		    ; RTI					; sortie INT
+    RTS
+
+TESTKBD
+    LDA $C000       ; test ESC
+	CMP #27+$80
+	BEQ +
+    RTS
++   STA $C010
+    PLA     ; unstack RTS
+    PLA
+    JMP STOPINT
+
+; =============================================================================
+; patch all STAs/STXs to mockinboard registers
+
+MB_PATCH
+!zone
+    LDA MBpatch_end+1
+    STA .modmb1+1
+    LDA MBpatch_end
+    STA .modmb2+1
+.loop
+    LDY #0
+    LDA (MBpatch_start),Y
+    CMP #$8D    ; "STA xxxx"
+    BEQ .yes2
+    CMP #$8C    ; "STY xxxx"
+    BEQ .yes2
+    CMP #$8E    ; "STX xxxx"
+    BNE .not
+.yes2
+    INY
+    LDA (MBpatch_start),Y
+    CMP #$00
+    BEQ .yes
+    CMP #$01
+    BEQ .yes
+    CMP #$02
+    BEQ .yes
+    CMP #$03
+    BEQ .yes
+    CMP #$40
+    BEQ .yes
+    CMP #$41
+    BEQ .yes
+    CMP #$80
+    BEQ .yes
+    CMP #$81
+    BEQ .yes
+    CMP #$82 
+    BEQ .yes
+    CMP #$83
+    BNE .not
+.yes
+    INY
+    LDA (MBpatch_start),Y
+    CMP #$CF        ; "STA $CFxx" or "STX $CFxx"
+    BNE .not
+    ; patching
+    LDA MB_BASEADDR+1
+    STA (MBpatch_start),Y
+.not
+    INC MBpatch_start
+    BNE +
+    INC MBpatch_start+1
++   LDA MBpatch_start+1
+.modmb1
+    CMP #$00
+    BNE .loop
+    LDA MBpatch_start
+.modmb2
+    CMP #$00
+    BNE .loop
+    RTS
+; =============================================================================
+DECOMPLZ4
+    JSR *
+
+; =============================================================================
+PLAYER_YM					
+!zone
+		STA $C003			; read AUX Memory
+
+	LDX #$04
+
+!for i,0,11 {
+	; R0~R12
+	LDA #i
+	STA $CF01			; ORA1 (data)
+	STA $CF81			; ORA1 (data)
+	LDA vREG0+i*4
+	LDY #$07			; Set fct "Set PSG Reg #"
+	STY $CF00			; ORB1 (fct)
+	STY $CF80			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF00			; ORB1 (fct)
+	STA $CF01			; ORA1 (data)
+	STX $CF80			; ORB1 (fct)
+	STA $CF81			; ORA1 (data)
+	LDY #$06			; Set fct "Write DATA"
+	STY $CF00			; ORB1 (fct)
+	STY $CF80			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF00			; ORB1 (fct)
+	STX $CF80			; ORB1 (fct)
+
+    LDY #0
+    DEC nREG0+i*4
+    BNE +
+    LDA (dREG0+i*4),Y
+    STA nREG0+i*4
+    INY
+    LDA (dREG0+i*4),Y
+    STA vREG0+i*4
+    DEY
+    LDA dREG0+i*4 
+    CLC         
+    ADC #02     
+    STA dREG0+i*4
+    BCC +
+    INC dREG0+1+i*4
++
+}
+
+
+		; REGISTRE 13		; pas oublier de shunter si = $FF
+        LDY #0 
+		LDA vREGD
+		CMP #$FF
+		BEQ +
+
+	LDA #$0D
+	STA $CF01			; ORA1 (data)
+	STA $CF81			; ORA1 (data)
+	LDA vREGD
+	LDY #$07			; Set fct "Set PSG Reg #"
+	STY $CF00			; ORB1 (fct)
+	STY $CF80			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF00			; ORB1 (fct)
+	STA $CF01			; ORA1 (data)
+	STX $CF80			; ORB1 (fct)
+	STA $CF81			; ORA1 (data)
+	LDY #$06			; Set fct "Write DATA"
+	STY $CF00			; ORB1 (fct)
+	STY $CF80			; ORB1 (fct)
+				; Set fct "Inactive"
+	STX $CF00			; ORB1 (fct)
+	STX $CF80			; ORB1 (fct)
+
+		; LDA #13				; registre 13
+		; STA $CF01   		; ORA1 (data)
+		; STA $CF81   		; ORA1 (data)
+		; LDA #$07			; Set fct "Set PSG Reg #"
+		; STA $CF00   		; ORB1 (fct)
+		; LDX #$04			; Set fct "Inactive"
+		; STX $CF00   		; ORB1 (fct)
+		; STA $CF80   		; Set fct "Set PSG Reg #"
+        ; STX $CF80   		; Set fct "Inactive"
+
+		; LDA vREGD			; on lit la valeur
+		; STA $CF01   		; ORA1 (data)
+		; STA $CF81   		; ORA1 (data)
+		; LDA #$06			; Set fct "Write DATA"
+		; STA $CF00   		; ORB1 (fct)
+        ; LDX #$04			; Set fct "Inactive"
+		; STX $CF00   		; ORB1 (fct)
+        ; STA $CF80   		; Set fct "Write DATA"
+        ; STX $CF80   		; Set fct "Inactive"
+		
++       LDY #0
+		DEC nREGD
+		BNE .fin
+		LDA (dREGD),Y
+		STA nREGD
+		INY
+		LDA (dREGD),Y
+		STA vREGD
+		LDA dREGD   
+        CLC         
+        ADC #02     
+        STA dREGD   
+        BCC .fin     
+        INC dREGD+1 
+
+		
+.fin	STA $C002			; read MAIN Memory
+        LDY #00
+        LDA (dTiming),Y 
+        STA bMark
+		INC dTiming
+        BNE +
+        INC dTiming+1
++       RTS
+EO_PLAYER_YM
+; =============================================================================
+!align 255,0
+WAIT65              ; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 8 cycles obligatoire -> LDY #xx / JSR WAIT65)
+WAIT65ZP = * + 1    ; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 9 cycles obligatoire -> LDY ZP / JSR WAIT65Z)
+!zone           
+		    LDA $EA     ; 3 (dummy)  -> on arrive sur NOP si JSR WAIT65Z
+WAIT62      ; = attend 1*62 cycles exactement (JSR/RTS compris -> LDY #01 / JSR WAIT63)
+            DEY			; 2					
+		    BEQ .S1	    ; 3/2			
+                  
+.WL1 	    LDX #$0B				            
+.WL2 	    DEX							
+		    BNE .WL2	; 2 + (2+3)*10 + 2 + 2 = 56															
+                      
+		    NOP			; 2					
+		    NOP			; 2					
+		    DEY			; 2					
+		    BNE .WL1	; (56+2+2+2+3)*(Y-2) + 56 + 2 + 2 + 2 + 2 = 65*Y - 2*65 + 64 = 65*Y - 66				
+
+WAIT59      ; = attend 1*59 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT59)											                      
+		    LDX #$08					
+.WL3 	    DEX							
+		    BNE .WL3	; 2 + (2+3)*7 + 2 + 2 = 41					
+                							
+		    NOP			; 2					
+		    NOP			; 2					
+		    RTS			; 6
+
+                        ; WAIT62 = 2 + 2 + (65-66) + 41 + 2 + 2 + 6 + (8) = 62 
+                        ; WAIT65 = 3 + 2 + 2 + (65*Y-66) + 41 + 2 + 2 + 6 + (8) = 65*Y
+                        ; WAIT59 = 41 + 2 + 2 + 6 + (8) = 59 					
+
+WAIT57      ; = attend 1*57 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT57)											         
+.S1	 	    NOP         ; 2
+WAIT55      ; = attend 1*55 cycles exactement (JSR/RTS compris -> LDY #xx / JSR WAIT55)	
+            LDX #08					
+                      
+.WL4 	    DEX							
+		    BNE .WL4    ; 2 + (2+3)*7 + 2 + 2 = 41					
+		    RTS         ; 6
+                        ; = 49
+
+                        ; WAIT65 = 3 + 2 + 3 + 49 + (8) = 65
+                        ; WAIT62 = 2 + 3 + 49 + (8) = 62
+                        ; WAIT57 = 49 + (8) = 57
+                        ; WAIT55 = 47 + (8) = 55
+; =============================================================================
+TextLine1   !text "FRENCH TOUCH  PRESENTS"
+; ------------------------------------------
+;                  n   v  ofl ofh
+TableREG 	!byte $ff,$00,$02,$60		; 00
+			!byte $ff,$00,$0c,$63		; 01
+			!byte $08,$a3,$22,$64		; 02
+			!byte $48,$00,$ac,$68		; 03
+			!byte $04,$00,$2e,$69		; 04
+			!byte $4c,$00,$34,$71		; 05
+			!byte $ff,$00,$86,$74		; 06
+			!byte $04,$10,$c2,$78		; 07
+			!byte $ff,$00,$68,$7d		; 08
+			!byte $02,$04,$3e,$83		; 09
+			!byte $04,$00,$7c,$8b		; 0A
+			!byte $ff,$00,$90,$99		; 0B
+			!byte $ff,$ff,$56,$9b		; 0D
+; ------------------------------------------
+; =============================================================================
+LORES
+!binary "DATA\lores.bin.lz4"
+TIMING
+!binary "DATA\timing.reg.lz4"
+; =============================================================================
+; attention à l'alignement
+
+    
+;.............0000000000111111111122222222223333333333
+;.............0123456789012345678901234567890123456789 
+L00 !fill 40,$20
+L01 !text $20,"                                      ",$20
+L02 !byte $20,$A0,$A0,$A0
+    !fill 32,$20
+    !byte $A0,$A0,$A0,$20
+;.............0000000000111111111122222222223333333333
+;.........................0123456789012345678901234567890123456789 
+L03 !text $20,$A0,$A0,$A0,$20,"                              ",$20,$A0,$A0,$A0,$20
+L04 !text $20,$A0,$A0,$A0,$20,"        MAD EFFECT  #3        ",$20,$A0,$A0,$A0,$20
+L05 !text $20,$A0,$A0,$A0,$20,"                              ",$20,$A0,$A0,$A0,$20
+L06 !text $20,$A0,$A0,$A0,$20,"                              ",$20,$A0,$A0,$A0,$20
+L07 !text $20,$A0,$A0,$A0,$20," REAL TIME                    ",$20,$A0,$A0,$A0,$20
+L08 !text $20,$A0,$A0,$A0,$20,"                              ",$20,$A0,$A0,$A0,$20
+L09 !text $20,$A0,$A0,$A0,$20,"                       50 FPS ",$20,$A0,$A0,$A0,$20
+L10 !text $20,$A0,$A0,$A0,$20,"                              ",$20,$A0,$A0,$A0,$20
+L11 !text $20,$A0,$A0,$A0,$20," 120 COLORS                   ",$20,$A0,$A0,$A0,$20
+L12 !text $20,$A0,$A0,$A0,$20,"                              ",$20,$A0,$A0,$A0,$20
+L13 !text $20,$A0,$A0,$A0,$20,"                 STEREO SOUND ",$20,$A0,$A0,$A0,$20
+L14 !text $20,$A0,$A0,$A0,$20,"                              ",$20,$A0,$A0,$A0,$20
+L15 !text $20,$A0,$A0,$A0,$20,"                              ",$20,$A0,$A0,$A0,$20
+L16 !text $20,$A0,$A0,$A0,$20,"                              ",$20,$A0,$A0,$A0,$20
+L17 !text $20,$A0,$A0,$A0,$20," CODE & GFX: GROUiK           ",$20,$A0,$A0,$A0,$20
+L18 !text $20,$A0,$A0,$A0,$20,"                              ",$20,$A0,$A0,$A0,$20
+L19 !text $20,$A0,$A0,$A0,$20,"                 MUSIC: SiRiL ",$20,$A0,$A0,$A0,$20
+L20 !text $20,$A0,$A0,$A0,$20,"                              ",$20,$A0,$A0,$A0,$20
+;......................0123456789012345678901234567890123456789 
+L21 !byte $20,$A0,$A0,$A0
+    !fill 32,$20
+    !byte $A0,$A0,$A0,$20
+L22 !text $20,"                                      ",$20
+L23 !fill 40,$20
+    
+; =============================================================================
+!align 255,0
+PMULTI1_P  
+!byte 68, 68, 68, 68, 136, 136, 136, 136, 153, 153, 153, 153, 0, 0, 0, 0, 153, 153, 153, 153, 68, 68, 68, 68, 85, 85, 85, 85, 153, 153, 153, 153, 136, 136, 136, 136, 153, 153, 153, 153, 221, 221, 221, 221, 153, 153, 153, 153, 221, 221, 221, 221, 0, 0, 0, 0, 17, 17, 17, 17, 0, 0, 0, 0
+!byte 102, 102, 102, 102, 102, 102, 102, 102, 119, 119, 119, 119, 34, 34, 34, 34, 119, 119, 119, 119, 34, 34, 34, 34, 68, 68, 68, 68, 102, 102, 102, 102, 0, 0, 0, 0, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 0, 0, 0, 0, 34, 34, 34, 34, 17, 17, 17, 17
+!byte 7, 17, 17, 17, 51, 51, 51, 51, 0, 0, 0, 0, 17, 17, 17, 17, 34, 34, 34, 34, 51, 51, 51, 51, 68, 68, 68, 68, 85, 85, 85, 85, 119, 119, 119, 119, 136, 136, 136, 136, 153, 153, 153, 153, 17, 17, 17, 17, 34, 34, 34, 34, 51, 51, 51, 51, 187, 187, 187, 187, 187, 187, 187, 187
+!byte 238, 238, 238, 238, 0, 0, 0, 0, 17, 17, 17, 17, 34, 34, 34, 34, 68, 68, 68, 68, 85, 85, 85, 85, 204, 204, 204, 204, 221, 221, 221, 221, 238, 238, 238, 238, 0, 0, 0, 0, 68, 68, 68, 68, 85, 85, 85, 85, 204, 204, 204, 204, 68, 68, 68, 68, 0, 0, 0, 0, 68, 68, 68, 68
+
+PMULTI1_S  
+!byte 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 170, 170, 170, 170, 221, 221, 221, 221, 221, 221, 221, 221, 255, 255, 255, 255, 221, 221, 221, 221, 221, 221, 221, 221, 221, 221, 221, 221, 238, 238, 238, 238, 255, 255, 255, 255, 221, 221, 221, 221, 221, 221, 221, 221, 0, 0, 0, 0
+!byte 238, 238, 238, 238, 204, 204, 204, 204, 238, 238, 238, 238, 238, 238, 238, 238, 204, 204, 204, 204, 204, 204, 204, 204, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 68, 68, 68, 68, 102, 102, 102, 102, 34, 34, 34, 34, 34, 34, 34, 34, 136, 136, 136, 136, 34, 34, 34, 34
+!byte 17, 17, 17, 17, 51, 51, 51, 51, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 187, 187, 187, 187, 255, 255, 255, 255
+!byte 255, 255, 255, 255, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 136, 136, 136, 136, 68, 68, 68, 68, 68, 68, 68, 68
+
+PMULTI2_P
+!byte 68, 68, 68, 68, 136, 136, 136, 136, 153, 153, 153, 153, 0, 0, 0, 0, 153, 153, 153, 153, 68, 68, 68, 68, 85, 85, 85, 85, 153, 153, 153, 153, 136, 136, 136, 136, 153, 153, 153, 153, 221, 221, 221, 221, 153, 153, 153, 153, 221, 221, 221, 221, 0, 0, 0, 0, 17, 17, 17, 17, 136, 136, 136, 136
+!byte 102, 102, 102, 102, 102, 102, 102, 102, 119, 119, 119, 119, 34, 34, 34, 34, 119, 119, 119, 119, 34, 34, 34, 34, 68, 68, 68, 68, 102, 102, 102, 102, 0, 0, 0, 0, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 0, 0, 0, 0, 34, 34, 34, 34, 17, 17, 17, 17
+!byte 7, 17, 17, 17, 51, 51, 51, 51, 0, 0, 0, 0, 17, 17, 17, 17, 34, 34, 34, 34, 51, 51, 51, 51, 68, 68, 68, 68, 85, 85, 85, 85, 119, 119, 119, 119, 136, 136, 136, 136, 153, 153, 153, 153, 17, 17, 17, 17, 34, 34, 34, 34, 51, 51, 51, 51, 187, 187, 187, 187, 187, 187, 187, 187
+!byte 0, 0, 0, 0, 0, 0, 0, 0, 85, 85, 85, 85, 34, 34, 34, 34, 0, 0, 0, 0, 68, 68, 68, 68, 136, 136, 136, 136, 187, 187, 187, 187, 119, 119, 119, 119, 34, 34, 34, 34, 85, 85, 85, 85, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255
+
+PMULTI2_S  
+!byte 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 170, 170, 170, 170, 221, 221, 221, 221, 221, 221, 221, 221, 255, 255, 255, 255, 221, 221, 221, 221, 221, 221, 221, 221, 221, 221, 221, 221, 238, 238, 238, 238, 255, 255, 255, 255, 221, 221, 221, 221, 221, 221, 221, 221, 221, 221, 221, 221
+!byte 238, 238, 238, 238, 204, 204, 204, 204, 238, 238, 238, 238, 238, 238, 238, 238, 204, 204, 204, 204, 204, 204, 204, 204, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 68, 68, 68, 68, 102, 102, 102, 102, 34, 34, 34, 34, 34, 34, 34, 34, 136, 136, 136, 136, 34, 34, 34, 34
+!byte 17, 17, 17, 17, 51, 51, 51, 51, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 187, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 187, 187, 187, 187, 255, 255, 255, 255
+!byte 0, 0, 0, 0, 170, 170, 170, 170, 170, 170, 170, 170, 221, 221, 221, 221, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 238, 238, 238, 238, 221, 221, 221, 221, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255
+; =============================================================================
+ENDMAIN

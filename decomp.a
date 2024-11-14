@@ -1,0 +1,121 @@
+; ACME 0.96.4
+; 
+; OLDSKOOL FORT ET VERT
+; INTRO 8KB
+; SHADOW PARTY 2021 VERSION
+; (c) [FRENCH TOUCH]
+;
+; CODE: GROUiK
+; LZ4 decompression routine: XXL and FOX (from Atari Scene)
+; [small modification: FT]
+;
+; 05/2021 : v0.14 - released at Shadow Party 2021
+; size = 8187 bytes
+; 
+!cpu 6502
+!convtab "a2txt.bin" ; 
+!sl "lbl_decomp.txt"
+
+	*= $D000 ; ORG
+
+; =============================================================================
+; ZERO PAGE / decomp LZ4 (use usual free addresses in ZP)
+src1        	= $FA   	; +$FB
+lenL        	= $FC
+lenH        	= $FD
+token       	= $FE
+; =============================================================================
+START
+!zone
+	LDY #00
+	STY lenH
+	STY lenL
+
+.BP
+	jsr .GET_BYTE                  
+	sta token
+	lsr
+	lsr
+	lsr
+	lsr
+	beq .read_offset                     
+	cmp #$0f
+	jsr .getLength
+	
+.b_literals
+	jsr .GET_BYTE
+	jsr .store
+	bne .b_literals
+	
+.read_offset
+	jsr .GET_BYTE
+	tax
+	sec
+	eor #$ff
+	adc .moddest+1
+	sta src1
+	txa
+	php
+	jsr .GET_BYTE
+	plp
+	bne .not_done
+	tax
+	BNE .not_done
+	LDA #'R'
+	STA $7D0		
+	JMP MAIN				; .unlz4_done 
+.not_done          	eor #$ff
+	adc .moddest+2
+	sta src1+1
+	; c=1
+	lda token
+	and #$0f
+	adc #$03                            	
+	cmp #$13
+	jsr .getLength
+
+.b1                 lda (src1),Y
+	INC src1
+	BNE .s1
+	INC src1+1
+.s1                 jsr .store
+	bne .b1
+	jmp .BP                  
+
+.store             	
+.moddest		sta DECOMP_ADD
+	INC .moddest+1
+	BNE .s2
+	INC .moddest+2      	
+.s2                 dec lenL
+	BNE +
+	dec lenH
++		rts
+
+.getLength_next    	jsr .GET_BYTE
+	tax
+	clc
+	adc lenL
+	bcc .s3
+	inc lenH
+.s3   	          inx
+
+.getLength         	sta lenL
+	beq .getLength_next
+	tax
+	beq .s4
+	inc lenH
+.s4 	          rts
+
+	
+.GET_BYTE		
+.modsrc		LDA COMPDATA
+	STA $7D0
+	INC .modsrc+1		
+	BNE .s5
+	INC .modsrc+2
+.s5		RTS
+; =============================================================================
+COMPDATA
+
+;!binary "main.b.lz4",,16			; skip LZ4 header

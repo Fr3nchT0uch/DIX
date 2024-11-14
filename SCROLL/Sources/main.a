@@ -1,0 +1,888 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; SCROLL SCROLL SCROLL
+; Routines Fast Load/Hyper Boot (c) 1986 - SAM/EA
+; adapt�e pour ACME 0.90 - 2014
+; version 0.02
+
+!convtab "a2txt.bin" ; 
+!sl "mainlabel.a"
+
+!source "routineslabel.a"
+!source "../../macros.a"
+!source "../../sysconst.a"
+
+
+
+	*= $F100 ; ORG = $F100 (RAM Langage Card)
+
+; PSEUDO CATALOG Track/SectorDebut-Track/SectorFin (inclus)
+; T00/S00 			: BOOT0
+; T00/S01-S09 		: MAIN
+; T00/S0A-S0F		: FLOAD
+
+; T01/S00-T02/S0F	: PAGE HGR 1 (32 secteurs)
+; T03/S00-T			: ROUTINES PRINCIPALES + DATA
+
+; CONSTANTES SYSTEME ===================
+;VERTBLANK	 = $C019	; 
+	
+; CONSTANTES PROGRAMME  ;
+
+; SOUS-ROUTINES BOOT0
+;EXECFROMBOOT2  =	$857 ; sous routine de d�tection type APPLE II (utilise ROM)
+
+DEBUG = 0
+
+; SOUS-ROUTINES PROGRAMMES EXTERNE
+HYPLOD			=	$FA00	; routine Fast Load
+ROUTINES		= 	$4000	; routines main Scroll
+
+; HOME 					; remplit ecran txt (page 1/2) avec la valeur de lda
+; WAIT					; routine d'attente : Y * 65 cycles
+; =====================================
+
+
+;======PARAMETRES DU FAST LOAD
+                          
+                        ;-PARAMETRES D'ENTREE
+PISDEP   =   $300       ;PISTE DE DEPART
+SECDEP   =   $301       ;SECTEUR DE DEPART
+BUFFER   =   $302       ;ADRESSE OU L'ON CHARGE
+TOTSEC   =   $304       ;TOTAL DES SECTEURS A CHARGER
+DRVNUM   =   $305       ;1 OU 2
+ERRMAX   =   $306       ;MAXIMUM D'ERREURS TOLEREES SUR UN SECTEUR AVANT DE RENDRE LA MAIN
+DLFLAG   =   $307       ;1=DELAI AVANT DE LIRE ;0=NON
+                        
+                        ;-PARAMETRES ENTREE/SORTIE
+ICURTRK1 =   $310       ;2*PISTE INITIALE DU DRIVE1 A GARNIR POUR LE 1ER APPEL
+ICURTRK2 =   $311       ;2*PISTE INITIALE DU DRIVE2    "
+
+
+; PAGE ZERO ===========================
+bMachine 	= $0B	; byte MACHINE ($7F/IIE | $FF/GS)
+RND			= $0C	; seed pour random routine
+RND2		= $0D	; idem
+
+Temp4		= $1A
+Temp1		= $1B
+Temp2		= $1C
+Temp3		= $1D
+Count1		= $1E
+Count2		= $1F
+
+LIGNE		= $4A
+HAUTEUR		= $4B
+ACTION 		= $4C
+nbText		= $4D
+
+bSLOT       = $02   ; numero SLOT * 0x10
+MB_BASEADDR = $12
+IIc_DETECT = $03
+; SAVE_A	= $FD
+; SAVE_X    = $FC
+; SAVE_Y    = $FB
+
+; F4~FE MUTUAL INTs
+DISPLAYSYNC	= $F4
+VSYNC		= $F5
+T2Timing    = $F6
+WaitSyncPTR = $F8
+WaitDisplayPTR = $FA
+T1RoutPTR = $FC  ;16b
+T2SyncCodePTR = $FE   ;16b
+
+;	initialisation Hyper Load =========
+STARTMAIN	
+!zone	
+	STA $05   ;ExpoMode
+	STA _HIRESon
+	STA _MIXEDoff
+
+ 	;	JMP EXECFROMBOOT2
+	; SEI
+	; LDA #<TIMER_HANDLER
+	; STA $FFFE
+	; LDA #>TIMER_HANDLER
+	; STA $FFFF
+	; LDA MB_BASEADDR+1
+	; STA MODMBCLEAR+2
+
+	; LDA #%11100000      	; Enable T1+T2
+	; LDY #$0E
+	; STA (MB_BASEADDR),Y           ; Interrupt Enable Register
+	; LDY #$04
+	; LDA (MB_BASEADDR),Y 	; clear T1 IFR
+	; LDY #$08
+	; LDA (MB_BASEADDR),Y 	; clear T2 IFR
+	CLI
+ 		
+ ; affichage Text Intro ===============
+DEBUT2
+		LDX #39
+.bd		LDA TextIntro1,x
+		STA $528,x
+		LDA TextIntro2,x                                    
+		STA $5A8,x
+		LDA TextIntro3,x
+		STA $628,x
+		DEX
+		BPL .bd
+
+	LDY #100		; wait 100 frames
+-	JSR WAIT_VSYNC
+	DEY
+	BNE -
+
+; =====================================
+INTROTEXT
+!zone	
+		LDA #00
+		STA ACTION
+		STA nbText
+		STA IndexText
+		STA Count1		; = "256"
+.bp		
+
+	JSR WAIT_VSYNC
+
+		JSR SCROLL_TEXT
+		
+		DEC Count1
+		BNE .bp
+		
+; -------------------------------------
+TRANS					; transition VBL entre TEXT et HIRES
+!zone 
+
+
+		LDA #00              
+		STA LIGNE           
+		LDA #189               
+		STA HAUTEUR          
+ 
+                         
+.BP                 
+
+	INC LIGNE
+	LDA LIGNE
+	CMP #95           
+	BEQ .FIN              
+	DEC HAUTEUR          
+	DEC HAUTEUR
+	JSR SCROLL_TEXT
+		
+	JSR WAIT_DISPLAY
+
+	STA $C050 
+	LDY LIGNE	
+	JSR WAIT
+
+	STA $C051 
+	LDY HAUTEUR
+	JSR WAIT
+
+	STA $C050
+
+	JMP .BP								
+                         
+.FIN 	
+
+; =====================================
+; = EFFACEMENT PAGE TEXT 1 (pour les scrolling GR ($00) et TEXT ($A0)
+HOME
+!zone
+		LDX #00
+		
+.by1	LDY #39
+		LDA TLB,X
+		STA ADR
+		LDA TLH,X
+		STA ADR+1
+		LDA #00			; rien (lores)
+.bx1	STA (ADR),Y			
+		DEY
+		BPL .bx1
+		INX
+		CPX #15
+		BNE .by1
+		
+.by2	LDY #39
+		LDA TLB,X
+		STA ADR
+		LDA TLH,X
+		STA ADR+1
+		LDA #$A0		; espace
+.bx2	STA (ADR),Y			
+		DEY
+		BPL .bx2
+		INX
+		CPX #24
+		BNE .by2
+; =====================================
+		LDA #100
+		STA Count1
+.bwait	LDA bMachine
+		LDY #$FF
+		JSR WAIT
+		DEC Count1
+		BNE .bwait
+; =====================================
+INTROP1
+!zone
+
+	+print_debug '0'
+		
+		LigneHIRES3		= 129
+		LigneHIRES4		= 3
+		LigneHIRES2		= 77
+		LigneHIRES5		= 100
+		
+		LDX #00
+		STX Count1
+		LDY #39
+		STY Count2
+		
+.bp1	
+
+	JSR WAIT_VSYNC
+	+print_debug '1'
+		LDX Count1
+		LDY Count2
+
+		LDA #$FF
+		STA $3e50,Y
+		STA $22d0,Y
+		
+		STA $3e00,X
+		STA $2280,X
+		
+		LDA #$00
+		STA $3a00,X
+		STA $2680,X
+		
+		STA $3a50,Y
+		STA $26d0,Y
+
+
+		LDA #LigneHIRES3
+		ADC TSinus1,X
+		STA Temp1
+	
+		LDA #LigneHIRES4
+		ADC TSinus2,Y
+		STA Temp2
+		
+		LDA #LigneHIRES2
+		ADC TSinus3,Y
+		STA Temp3
+		
+		LDA #LigneHIRES5
+		ADC TSinus3,Y
+		STA Temp4
+						
+		LDX #07
+.by1
+		LDY Temp1
+		LDA THB,Y
+		STA ADR
+		LDA THH,Y
+		STA ADR+1
+		LDA #00
+		LDY Count1
+		STA (ADR),Y
+		INC Temp1
+		DEX
+		BPL .by1
+		
+		LDX #07
+.by2
+		LDY Temp2
+		LDA THB,Y
+		STA ADR
+		LDA THH,Y
+		STA ADR+1
+		LDA #00
+		LDY Count2
+		STA (ADR),Y
+		INC Temp2
+		DEX
+		BPL .by2
+
+		LDX #9
+.by3
+		LDY Temp3
+		LDA THB,Y
+		STA ADR
+		LDA THH,Y
+		STA ADR+1
+		LDA #$00
+		LDY Count1
+		STA (ADR),Y
+		INC Temp3
+		DEX
+		BPL .by3
+		
+		LDX #9
+.by4
+		LDY Temp4
+		LDA THB,Y
+		STA ADR
+		LDA THH,Y
+		STA ADR+1
+		LDY Count1
+		LDA TableCount,Y
+		TAY
+		LDA #$00
+		STA (ADR),Y
+		INC Temp4
+		DEX
+		BPL .by4
+		
+		INC Count1
+		DEC Count2
+		
+		BMI INTROP2
+		JMP .bp1
+; -----------------------------------------------------------------------------		
+INTROP2
+!zone
+	+print_debug '2'
+		
+		LDA #40
+		STA Temp1
+		LDA #39
+		STA Temp2
+		LDA #24
+		STA Count1
+.by1
+		
+
+	JSR WAIT_VSYNC
+		LDY #39
+		
+.bx1	LDX Temp1
+		LDA THB,X
+		STA ADR
+		LDA THH,X
+		STA ADR+1
+		LDA #00
+		STA (ADR),Y
+		INX
+		LDA THB,X
+		STA ADR
+		LDA THH,X
+		STA ADR+1
+		LDA #$FF
+		STA (ADR),Y
+		INX
+		LDA THB,X
+		STA ADR
+		LDA THH,X
+		STA ADR+1
+		LDA #$00
+		STA (ADR),Y
+		
+		LDX Temp2
+		LDA THB,X
+		STA ADR
+		LDA THH,X
+		STA ADR+1
+		LDA #00
+		STA (ADR),Y
+		DEX
+		LDA THB,X
+		STA ADR
+		LDA THH,X
+		STA ADR+1
+		LDA #$FF
+		STA (ADR),Y
+		DEX
+		LDA THB,X
+		STA ADR
+		LDA THH,X
+		STA ADR+1
+		LDA #$00
+		STA (ADR),Y
+		
+		DEY
+		BPL .bx1 	
+
+		INC Temp1
+		DEC Temp2
+		DEC Count1
+		BPL .by1
+		
+		
+		LDA #168
+		STA Temp1
+		LDA #167
+		STA Temp2
+		LDA #16
+		STA Count1
+.by2
+		
+
+	JSR WAIT_VSYNC
+	+print_debug '3'
+		LDY #39
+		
+.bx2	LDX Temp1
+		LDA THB,X
+		STA ADR
+		LDA THH,X
+		STA ADR+1
+		LDA #00
+		STA (ADR),Y
+		INX
+		LDA THB,X
+		STA ADR
+		LDA THH,X
+		STA ADR+1
+		LDA #$FF
+		STA (ADR),Y
+		INX
+		LDA THB,X
+		STA ADR
+		LDA THH,X
+		STA ADR+1
+		LDA #$00
+		STA (ADR),Y
+		
+		LDX Temp2
+		LDA THB,X
+		STA ADR
+		LDA THH,X
+		STA ADR+1
+		LDA #00
+		STA (ADR),Y
+		DEX
+		LDA THB,X
+		STA ADR
+		LDA THH,X
+		STA ADR+1
+		LDA #$FF
+		STA (ADR),Y
+		DEX
+		LDA THB,X
+		STA ADR
+		LDA THH,X
+		STA ADR+1
+		LDA #$00
+		STA (ADR),Y
+		
+		DEY
+		BPL .bx2 	
+
+		INC Temp1
+		DEC Temp2
+		DEC Count1
+		BPL .by2		
+		
+; -----------------------------------------------------------------------------	
+MAIN
+!zone
+		; calcul debut chaines 2 sinus scroll (ALEATOIRE)
+	+print_debug '4'		
+		LDA RND			; on "d�tecte" les �mulateurs...
+		CMP #$A0
+		BNE .s1
+.s2		JMP FIN
+.s1		CMP #$FF
+		BEQ .s2
+		CMP #$02
+		BEQ .s2	
+		
+		; I) random GROUPS (<1037)
+		; random Hi 	
+		LDA RND
+		ASL
+		BCC .noEor2
+.doEor2 EOR #$1D
+.noEor2	
+		AND #03			; entre 0 et 3
+		CLC
+		ADC #>StringHGRP2
+		STA ADR+1
+		
+		; random Lo
+		LDA RND2
+		BEQ .doEor
+		ASL
+		BCC .noEor
+.doEor	EOR #$1D
+.noEor	CLC
+		ADC #<StringHGRP2
+		STA ADR
+		LDA ADR+1	; on ajoute la retenue si besoin � la partie hi
+		ADC #00
+		STA ADR+1
+
+		LDY #00
+.bp		LDA (ADR),Y
+		INC ADR
+		BNE .sb1
+		INC ADR+1
+.sb1	CMP #$FF		; on est au bout de la chaine
+		BEQ SUITE1		; si on a rien trouv�, on ne change rien, la chaine commencera au d�but
+		CMP #$2E		; char �toile (en special txt)
+		BNE .bp			; si on trouve pas, on boucle
+		; si on a trouv�...
+		LDA ADR
+		STA OFFGROUPS1+1
+		LDA ADR+1
+		STA OFFGROUPS2+1
+
+SUITE1
+	+print_debug '5'
+		; II) random guys (<1037)
+		; random Hi 	
+		LDA RND
+		EOR $C054
+		ASL
+		BCC .snoEor2
+.sdoEor2 EOR #$1D
+.snoEor2	
+		AND #03			; entre 0 et 3
+		CLC
+		ADC #>String3HGRP2
+		STA ADR+1
+		
+		; random Lo
+		LDA RND2
+		EOR $C054
+		BEQ .sdoEor
+		ASL
+		BCC .snoEor
+.sdoEor	EOR #$1D
+.snoEor	CLC
+		ADC #<String3HGRP2
+		STA ADR
+		LDA ADR+1
+		ADC #00
+		STA ADR+1
+
+		LDY #00
+.bp2	LDA (ADR),Y
+		INC ADR
+		BNE .sb2
+		INC ADR+1
+.sb2	CMP #$FF		; on est au bout de la chaine
+		BEQ FIN			; si on a rien trouv�, on ne change rien, la chaine commencera au d�but
+		CMP #$2E		; char �toile (en special txt)
+		BNE .bp2		; si on trouve pas, on boucle
+		; si on a trouv�...		
+		LDA ADR
+		STA OFFGUYS1+1
+		LDA ADR+1
+		STA OFFGUYS2+1
+
+
+FIN
+	+print_debug '6'
+		STA $C010
+		JSR ROUTINES		; transfert vers ROUTINES
+; ---------------------------------------------------
+CHARLIE
+!zone
+		STA $C010
+		
+		LDA #$A0		; espace 	
+		LDX #$00
+		LDY #03			; 
+
+.off		
+.b1		STA $400,X		; 
+		INX				;  
+		BNE .b1			; 
+		INC .off+2		; 
+		DEY 			; 
+		BPL .b1			; 
+
+;		LDA $C051		; repasse en mode text/page1
+
+; chargement image HGR CHARLIE ===============
+; 		LDA #00			; secteur 0
+ ;		STA SECDEP
+ ;		STA BUFFER		; buffer low
+ ;		LDA #07			; track 7
+ ;		STA PISDEP		;
+ ;		LDA #$20		; buffer high
+;		STA BUFFER+1
+;		LDA #32			; nb Sector (image HGR = 32)
+;		STA TOTSEC		
+;		JSR HYPLOD		; chargement !
+
+;		LDA $C050		; repasse en mode HGR
+
+;.bw		LDA $C000
+;		EOR $C061
+;		BPL .bw
+
+;		LDA #$8D
+;		STA $300
+;		LDA #$82
+;		STA $301
+;		LDA #$C0
+;		STA $302
+;		LDA #$4C
+;		STA $303
+;		LDA #00
+;		STA $304
+;		LDA #$C6
+;		STA $305		
+;		JMP *		; reboot !
+		SEI
+		RTS	; end
+
+WAIT_VSYNC
+	LDA #$FF
+	STA VSYNC
+-	LDA VSYNC
+	BNE -
+	RTS
+
+WAIT_DISPLAY
+	LDA #$FF
+	STA DISPLAYSYNC
+-	LDA DISPLAYSYNC
+	BNE -
+	RTS
+
+
+; =============================================================================
+SCROLL_TEXT
+!zone
+		LDA ACTION
+		BEQ .scroll ; si = 0 on scroll 
+		CMP #$60	; si = $80, on modifie pour le scroll suivant
+		BEQ .change
+		
+		; sinon on attend
+		LDA bMachine
+		LDY #05
+		JSR WAIT		; on attend environ 325 cycles
+		INC ACTION
+		RTS
+		; ---------------
+.change
+		LDX nbText
+		INX
+		CPX #03
+		BNE .s1
+		LDX #00
+.s1		STX nbText
+		LDA TableTextIntroB,X
+		STA .off1+1
+		LDA TableTextIntroH,X
+		STA .off1+2
+		
+		LDA #00
+		STA ACTION 		; remise � zero
+		RTS
+.scroll
+     lda $62a
+     sta $629
+     lda $62b
+     sta $62a
+     lda $62c
+     sta $62b
+     lda $62d
+     sta $62c
+     lda $62e
+     sta $62d
+     lda $62f
+     sta $62e
+     lda $630
+     sta $62f
+     lda $631
+     sta $630
+     lda $632
+     sta $631
+     lda $633
+     sta $632
+     lda $634
+     sta $633
+     lda $635
+     sta $634
+     lda $636
+     sta $635
+     lda $637
+     sta $636
+     lda $638
+     sta $637
+     lda $639
+     sta $638
+     lda $63a
+     sta $639
+     lda $63b
+     sta $63a
+     lda $63c
+     sta $63b
+     lda $63d
+     sta $63c
+     lda $63e
+     sta $63d
+     lda $63f
+     sta $63e
+     lda $640
+     sta $63f
+     lda $641
+     sta $640
+     lda $642
+     sta $641
+     lda $643
+     sta $642
+     lda $644
+     sta $643
+     lda $645
+     sta $644
+     lda $646
+     sta $645
+     lda $647
+     sta $646
+     lda $648
+     sta $647
+     lda $649
+     sta $648
+     lda $64a
+     sta $649
+     lda $64b
+     sta $64a
+     lda $64c
+     sta $64b
+     lda $64d
+     sta $64c
+     lda $64e
+     sta $64d
+	 
+	 	LDX IndexText		 		
+.off1	LDA TextIntro4,X	
+     	STA $64E
+     	INX					
+		CPX #38	
+		BNE .sc1
+		INC ACTION				
+		LDX #00				
+.sc1	STX IndexText				
+	
+		RTS
+;	!align 255,0
+; =============================================================================
+
+; = Routine WAIT ======================
+; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 11 cycles obligatoire)
+WAIT
+!zone           
+		DEY								
+		BEQ .S1						
+                  
+.WL1 	LDX #$0B				            
+.WL2 	DEX							
+		BNE .WL2																
+                      
+		NOP								
+		NOP								
+		DEY								
+		BNE .WL1						
+																                      
+		LDX #$08					
+                   
+.WL3 	DEX							
+		BNE .WL3						
+                							
+		NOP								
+		NOP								
+		RTS								
+											         
+.S1	 	LDX #08					
+                      
+.WL4 	DEX							
+		BNE .WL4						
+																	
+		NOP								
+		RTS
+		+build_check_crosspage WAIT  ; compilation check
+; =====================================================================================================================
+TextIntro1
+		!byte $a0,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$df,$A0
+
+!convtab "a2txti.bin" {
+TextIntro2
+		!Text "         FRENCH TOUCH  PRESENTS         "
+TextIntro3
+		!byte $1F
+		!Text  "            MINI DEMO  III            "
+		!byte $1F
+
+TextIntro4
+		!Text  "       SCROLL * SCROLL * SCROLL       "
+TextIntro5
+		!Text  "  A TRIBUTE TO THE '80S FRENCH SCENE  "
+TextIntro6
+		!Text  "   A SPECIAL DEDICATION TO  MICHAEL   "
+}
+TableTextIntroB !byte <TextIntro4,<TextIntro5,<TextIntro6
+TableTextIntroH	!byte >TextIntro4,>TextIntro5,>TextIntro6
+; ======================================================================================================================
+THB		!byte 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+        !byte 0x80,0x80,0x80,0x80,0x80,0x80,0x80,0x80
+        !byte 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+        !byte 0x80,0x80,0x80,0x80,0x80,0x80,0x80,0x80
+        !byte 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+        !byte 0x80,0x80,0x80,0x80,0x80,0x80,0x80,0x80
+        !byte 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+        !byte 0x80,0x80,0x80,0x80,0x80,0x80,0x80,0x80
+        !byte 0x28,0x28,0x28,0x28,0x28,0x28,0x28,0x28
+        !byte 0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8
+        !byte 0x28,0x28,0x28,0x28,0x28,0x28,0x28,0x28
+        !byte 0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8
+        !byte 0x28,0x28,0x28,0x28,0x28,0x28,0x28,0x28
+        !byte 0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8
+        !byte 0x28,0x28,0x28,0x28,0x28,0x28,0x28,0x28
+        !byte 0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8
+        !byte 0x50,0x50,0x50,0x50,0x50,0x50,0x50,0x50
+        !byte 0xD0,0xD0,0xD0,0xD0,0xD0,0xD0,0xD0,0xD0
+        !byte 0x50,0x50,0x50,0x50,0x50,0x50,0x50,0x50
+        !byte 0xD0,0xD0,0xD0,0xD0,0xD0,0xD0,0xD0,0xD0
+        !byte 0x50,0x50,0x50,0x50,0x50,0x50,0x50,0x50
+        !byte 0xD0,0xD0,0xD0,0xD0,0xD0,0xD0,0xD0,0xD0
+        !byte 0x50,0x50,0x50,0x50,0x50,0x50,0x50,0x50
+        !byte 0xD0,0xD0,0xD0,0xD0,0xD0,0xD0,0xD0,0xD0
+        
+THH 	!byte 0x20,0x24,0x28,0x2C,0x30,0x34,0x38,0x3C
+        !byte 0x20,0x24,0x28,0x2C,0x30,0x34,0x38,0x3C
+        !byte 0x21,0x25,0x29,0x2D,0x31,0x35,0x39,0x3D
+        !byte 0x21,0x25,0x29,0x2D,0x31,0x35,0x39,0x3D
+        !byte 0x22,0x26,0x2A,0x2E,0x32,0x36,0x3A,0x3E
+        !byte 0x22,0x26,0x2A,0x2E,0x32,0x36,0x3A,0x3E
+        !byte 0x23,0x27,0x2B,0x2F,0x33,0x37,0x3B,0x3F
+        !byte 0x23,0x27,0x2B,0x2F,0x33,0x37,0x3B,0x3F
+        !byte 0x20,0x24,0x28,0x2C,0x30,0x34,0x38,0x3C
+        !byte 0x20,0x24,0x28,0x2C,0x30,0x34,0x38,0x3C
+        !byte 0x21,0x25,0x29,0x2D,0x31,0x35,0x39,0x3D
+        !byte 0x21,0x25,0x29,0x2D,0x31,0x35,0x39,0x3D
+        !byte 0x22,0x26,0x2A,0x2E,0x32,0x36,0x3A,0x3E
+        !byte 0x22,0x26,0x2A,0x2E,0x32,0x36,0x3A,0x3E
+        !byte 0x23,0x27,0x2B,0x2F,0x33,0x37,0x3B,0x3F
+        !byte 0x23,0x27,0x2B,0x2F,0x33,0x37,0x3B,0x3F
+        !byte 0x20,0x24,0x28,0x2C,0x30,0x34,0x38,0x3C
+        !byte 0x20,0x24,0x28,0x2C,0x30,0x34,0x38,0x3C
+        !byte 0x21,0x25,0x29,0x2D,0x31,0x35,0x39,0x3D
+        !byte 0x21,0x25,0x29,0x2D,0x31,0x35,0x39,0x3D
+        !byte 0x22,0x26,0x2A,0x2E,0x32,0x36,0x3A,0x3E
+        !byte 0x22,0x26,0x2A,0x2E,0x32,0x36,0x3A,0x3E
+        !byte 0x23,0x27,0x2B,0x2F,0x33,0x37,0x3B,0x3F
+        !byte 0x23,0x27,0x2B,0x2F,0x33,0x37,0x3B,0x3F
+
+TLH		
+	!byte	$04,$04,$05,$05,$06,$06,$07,$07,$04,$04,$05,$05,$06,$06,$07,$07,$04,$04,$05,$05,$06,$06,$07,$07
+TLB  	
+	!byte	$00,$80,$00,$80,$00,$80,$00,$80,$28,$A8,$28,$A8,$28,$A8,$28,$A8,$50,$D0,$50,$D0,$50,$D0,$50,$D0
+        
+TSinus1 	!byte 0,1,2,3,4,4,3,2,1,0,0,1,2,3,4,4,3,2,1,0,0,1,2,3,4,4,3,2,1,0,0,1,2,3,4,4,3,2,1,0
+TSinus2		!byte 4,3,2,1,0,0,1,2,3,4,4,3,2,1,0,0,1,2,3,4,4,3,2,1,0,0,1,2,3,4,4,3,2,1,0,0,1,2,2,4
+TSinus3		!byte 1,1,0,1,0,0,1,1,0,0,1,1,1,0,0,0,1,1,1,0,0,1,1,0,0,1,1,0,0,1,1,1,0,1,0,0,1,1,0,0
+
+TableCount	!byte 29,29,28,28,27,27,26,26,25,25,24,24,23,23,22,22,21,21,20,20
+			!byte 19,19,18,18,17,17,16,16,15,15,14,14,13,13,12,12,11,11,10,10

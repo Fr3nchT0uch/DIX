@@ -1,0 +1,23 @@
+    !sl "lbl_PIC.txt"
+    
+    *= $2000
+
+PIC0
+   !binary "PIC/hitch.bin.lz4"
+PIC1
+   !binary "PIC/homer.bin.lz4"
+PIC2
+   !binary "PIC/apple.bin.lz4"
+PIC3
+   !binary "PIC/credits.bin.lz4"
+PIC4
+   !binary "PIC/ghost.bin.lz4"
+PIC5
+   !binary "PIC/snoopy.bin.lz4"
+PIC6
+   !binary "PIC/sw.bin.lz4"
+PIC7
+   !binary "PIC/thanos.bin.lz4"
+PIC8
+   !binary "PIC/ft.bin.lz4"
+   

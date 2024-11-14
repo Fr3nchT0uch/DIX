@@ -1,0 +1,1100 @@
+;@com.wudsn.ide.asm.hardware=APPLE2 
+; ACME 0.90
+; ANSI STORY I
+; Routines Fast Load/Hyper Boot (c) 1986 - SAM
+; adaptée pour ACME 0.90 - 2014
+; version 0.32
+
+!convtab "a2txt.bin" ; 
+!sl "mainlabel.a"
+
+	*= $F100 ; ORG = $F100 (RAM Langage Card)
+
+; PSEUDO CATALOG Track/SectorDebut-Track/SectorFin (inclus)
+; T00/S00 			: BOOT0
+; T00/S01-S09 		: MAIN
+; T00/S0A-S0F		: FLOAD
+; T01/S00 - T04/S0F	: DHGR (French Touch Logo) - 64 secteurs
+; T05/S00 - T06/S06	: Intro DLORES (ANSI STORY Logo x3) - 23 secteurs
+; T06/S07 - T0F/S00	: routines SCROLL - 138 secteurs
+
+; ANSI/DLORES 
+; (T/S debut - T/S fin : nom (auteur [groupe]) - nb Sectors - (nb ligne)
+ 
+; FACE1 - Debut T0F/S01
+
+; T0F/S01 - T10/S05	: Roger Rabbit/RPM (The Carnage [MiRAGE]) - 21 - (0x42)
+; T10/S06 - T11/S0A	: The Asylum (G. Washington [MiRAGE]) - 21 - (0x42)
+; T11/S0B - T13/S05 : Girl (JNK) - 27 - (0x55)
+; T13/S06 - T14/S0A : The Badlands (Cerebrus [ACiD]) - 21 - (0x40)
+; T14/S0B - T16/S02 : ACiD (Vindication [ACiD]) - 24 - (0x4C)
+; T16/S03 - T18/S02 : Carbon Nation (Vindication [ACiD]) - 32 - (0x64)
+; T18/S03 - T19/S0C : Pegasus (K!) - 26 - (0x51)
+; T19/S0D - T1B/S05 : TCSN (Cool T [MiRAGE]) - 25 - (0x4D)
+; T1B/S06 - T1C/S00 : Wathdog (Mr. Man [ACiD]) - 11 - (0x23)
+; T1C/S01 - T1F/S04 : Closed Society (Raiser) - 52 - (0xA6)
+; T1F/S05 - T20/S0B	: Arkam Asylm (Amroth [iCE]) - 23 - (0x48)
+; T20/S0C - T22/S02	: iCE 92 (Tempus Thales [iCE] - 23 - (0x48)
+; T22/S03 - T22/S0D : Turn the Disk Over (SWAT [ACiD])- 11 - (0x18)
+
+; FACE2	- Début T00/S01
+
+; T00/S01 - T00/S0B : Turn the Disk Over (SWAT [ACiD]) - 11 - (0x18)
+; T00/S0C - T01/S0D : Psychotic Overload (Cyber X [MiRAGE]) - 18 - (0x39)
+; T01/S0E - T03/S00 : MiRAGE 92 (G. Washington [MiRAGE]) - 19 - (0x3B)
+; T03/S01 - T04/S07 : Sudden Impact (dreamevil [MiRAGE]) - 23 - (0x48)
+; T04/S08 - T05/S0F : Air 92 (Swat [AiR] - 24 - (0x4B)
+; T06/S00 - T08/S0E : The Void (zeroVision) - 47 - (0x96)
+; T08/S0F - T0C/S09 : Cess (???) - 59 - (0xBC)
+; T0C/S0A - T0D/S0A : F/X (QUiCk SiLVER [iCE]) - 17 - (0x36)
+; T0D/S0B - T0F/S09 : Sanctuary (Manslayer [iCE]) - 31 - (0x62)
+; T0F/S0A - T11/S07 : Immortal Grounds (The Necromancer [iCE]) - 30 - (0x5D)
+; T11/S08 - T13/S02 : Korova Milkbar (Blade.Runner [ACiD]) - 27 - (0x56)
+; T13/S03 - T15/S0C : Cyber City (Cerebrus [ACiD]) - 42 - (0x85)
+; T15/S0D - T16/S0C : Attila's Empire (Logan [MiRAGE]) - 16 - (0x32)
+; T16/S0D - T18/S05 : Rebels (blindman [mtn]) - 25 - (0x4D)
+; T18/S06 - T1A/S01 : Arrested Development ([iCE]) - 28 - (0x58)
+; T1A/S02 - T1A/S0D : B2 Bombers (The Malevolent Trickster [ACiD]) - 12 - (0x25)
+; T1A/S0E - T1C/S03 : Rivendell (Shihear Kallizad [iCE]) - 22 - (0x45)
+; T1C/S04 - T1D/S01 : Moebius Continuum (Nightblade [MiRAGE]) - 14 - (0x2C)
+; T1D/S02 - T1E/S09 : Scum (zeroVision) - 24 - (0x4B)
+; T1E/S0A - T20/S04	: Outro (SW [ACiD]) - 27 - (0x18)
+
+; T21/S00 - T22/S0F : QRCODE (32 secteurs)
+
+; CONSTANTES PROGRAMME ================
+EMULATOR 	= $00		; 01 -> Emulateur
+						; 00 -> TRUE GS
+
+; CONSTANTES SYSTEME ===================
+VERTBLANK	 = $C019	; 
+	
+WTAUX 		= $C055 	; switch mémoire aux
+WTPRINC 	= $C054 	; switch mémoire princ
+
+RAMWRTOFF	= $C004		; write main memory
+RAMWRTON	= $C005		; write auxiliary memory
+
+; SOUS-ROUTINES BOOT0
+EXECFROMBOOT2  =	$84b ; sous routine de détection type APPLE II (utilise ROM)
+
+; SOUS-ROUTINES SYSTEME
+AUXMOVE		=	$C311
+XFER		= 	$C314
+
+; SOUS-ROUTINES PROGRAMMES
+HYPLOD			=	$FA00	; routine Fast Load
+SCROLLHversB1  	=	$63B6	; routines...
+SCROLLBversH  	=	$3600	; ...
+SCROLLHversB2  	=	$91D1	; ...scroll text
+STARTTDO		= 	OFFSOURCE1+1920	; routine Turn The Disk Over (placée derrière l'image)
+STARTOUTRO		= 	$1400	; routine Outro (scrolling vertical de générique placée derrière l'image + $80 -> éviter le Cross Page)
+
+; HOME 					; rempli ecran txt (page 1/2) avec la valeur de lda
+; WAIT					; routine d'attente : Y * 65 cycles
+; WAIT2					; routine d'attente : A*Y*65 cycles (environ)
+; DISPLAY				; display NFO vers page 1 DTXT
+; FLIP					; switch entre page 1 et page 2 dans le cas d'un scroll Haut vers Bas
+; LOADNEXT				; chargement nfo suivant ou précédent (selon bouton utilisé)
+; DESSINE_IMG			; affichage PAGE DLORES
+; =====================================
+MAXINFO = (TSector - TTrack)-1	; calcul du nombre de nfo disponibles
+TURNNFO = 12					; 
+
+; PARAMETRES SCROLL TEXT DTXT =========
+ENDSCROLL  	=	$bfec
+
+; PARAMETRE AFFICHAGE / SCROLL  ====
+OFFSOURCE1	= $C00 ;
+OFFSOURCE2 	= OFFSOURCE1+$730 ; 
+Buffer		= $F900
+nbLigne		= OFFSOURCE1-01		; adresse où est stocké le nb de ligne du DLORES chargé
+; PARAMETRES INTRO DLORES (cyclo)
+OFFSOUR1	= $6000 			; adresse mémoire chargement dlores 1
+OFFSOUR2	= OFFSOUR1 + $780	; idem dlores 2
+OFFSOUR3	= OFFSOUR2 + $780	; idem dlores 3
+
+;======PARAMETRES DU FAST LOAD
+                          
+                        ;-PARAMETRES D'ENTREE
+PISDEP   =   $300       ;PISTE DE DEPART
+SECDEP   =   $301       ;SECTEUR DE DEPART
+BUFFER   =   $302       ;ADRESSE OU L'ON CHARGE
+TOTSEC   =   $304       ;TOTAL DES SECTEURS A CHARGER
+DRVNUM   =   $305       ;1 OU 2
+ERRMAX   =   $306       ;MAXIMUM D'ERREURS TOLEREES SUR UN SECTEUR AVANT DE RENDRE LA MAIN
+DLFLAG   =   $307       ;1=DELAI AVANT DE LIRE ;0=NON
+                        
+                        ;-PARAMETRES ENTREE/SORTIE
+ICURTRK1 =   $310       ;2*PISTE INITIALE DU DRIVE1 A GARNIR POUR LE 1ER APPEL
+ICURTRK2 =   $311       ;2*PISTE INITIALE DU DRIVE2    "
+
+
+; PAGE ZERO ===========================
+bRefresh	= $0A	; byte type NTSC/60Hz - PAL/50Hz (00 = 50HZ | 01 = 60 HZ)
+bMachine 	= $0B	; byte MACHINE ($7F/IIE | $FF/GS)
+bEmulator  	= $0C	; byte EMULATOR (01 = oui / 00 = non)
+; ***
+
+MEM  		= $18 ; + $19
+SOURCE		= $1A ; + $1B
+
+LIGNE		= $4A
+HAUTEUR		= $4B
+indexIMG	= $4C
+DEST		= $4D ; +$4E
+
+
+bPage		= $54		; booleen page affichée
+
+LIGNEH		= $55		; ligne affichée haute (par défaut 0)
+LIGNEB		= $56		; ligne affichée basse (par défaut 23)
+LIGNEMAX	= $57
+
+INDEXNFO	= $58
+TEMP		= $59
+TEMP2		= $60
+
+
+;	initialisation Hyper Load =========
+START	
+		JMP DEBUT
+RECALL	JMP	JOY
+		
+DEBUT	
+!zone
+ 		JMP EXECFROMBOOT2
+DEBUT2	; on revient ici après la routine de détection A2	
+ 		LDA #01
+ 		STA DRVNUM
+ 		STA DLFLAG
+ 		LDA #00
+ 		STA ICURTRK1
+ 		
+; chargement image DHGR ===============
+ 		LDA #00			; secteur 0
+ 		STA SECDEP
+ 		STA BUFFER		; buffer low
+ 		LDA #01			; track 1
+ 		STA PISDEP		;
+ 		LDA #$20		; buffer high
+		STA BUFFER+1
+		LDA #64			; nb Sector
+		STA TOTSEC		
+		JSR HYPLOD		; chargement !
+
+; déplacement ram Main vers Aux =======
+; de $4000 (main) vers $2000 (aux)
+; seconde partie page DHGR
+		lda #$00
+		sta $3C
+		sta $42
+		lda #$40
+		sta $3D
+		lda #$20
+		sta $43
+		lda #$FF
+		sta $3e
+		lda #$5F
+		sta $3f
+
+		sec  ; main vers aux
+		jsr AUXMOVE
+; ======================================
+				
+; affichage page DHIRES (Logo FT) =====
+; + préparation affichage text 80 col (pour DLORES)
+		LDA $C057		; Hires
+		LDA $C054		; page 1
+		LDA $C052		; Mixed Off
+		LDA $C050		; gfx
+		STA $C00D		; 80 colonnes
+		STA $C05E		; SETAN3 / DHGR
+		;STA $C00F		; jeux char ALT
+		STA $C002		; read from main memory
+
+; =======================================
+; detection emulateur GS (à faire)
+		LDA #EMULATOR
+		sta bEmulator
+; =======================================
+; detection refresh rate (PAL/NTSC)
+		LDA	 bMachine 	;
+.lp1	CMP VERTBLANK 
+		Bpl   .lp1		; on attend la fin du VBL courant
+
+		LDA  bMachine	; 3
+.lp2	CMP VERTBLANK	; 4
+		Bmi   .lp2	 	; 2 => on attend la fin du display courant/début du VBL
+		
+		; début VBL
+
+.BP		INC COUNT		; 6 ; on incrémente le compteur
+
+		LDX #$09		; 							
+.WL1 	DEX				; 					
+		BNE .WL1 		; = 46 cycles
+						; + 6 + 3 + 3 + 4 + 3 = 65 !
+		
+		LDA bMachine	; 3
+
+		LDA bMachine	; 3
+		CMP VERTBLANK	; 4
+		Bpl   .BP	 	; 3 => on boucle tant qu'on est en VBL
+		
+		LDA COUNT
+		; CMP #71
+		CMP #72			; >= 72 alors 50 HZ (120*65 cycles de VBL)
+						; bug corrigé le 3.06.2016
+		BCS .GO3
+		
+		LDA #01			; 60HZ (VBL = 70x65 cycles)
+		STA bRefresh		
+		JMP .GO4
+
+.GO3	LDA #00
+		STA bRefresh	; 50HZ (VBL = 120x65 cycles)
+
+.GO4	
+; chargement Logo DLORES   ==============
+; vers $6000
+ 		LDA #00			; secteur 0
+ 		STA SECDEP
+ 		STA BUFFER		; buffer low
+ 		LDA #05			; track 5
+ 		STA PISDEP		;
+ 		LDA #$60		; buffer high
+		STA BUFFER+1
+		LDA #23			; nb Sector
+		STA TOTSEC		
+		JSR HYPLOD		; chargement !
+; Affichage vers DLORES Page 1 du Logo ===
+; depuis $6000
+!zone
+		STA $C001   	; PAGE2 comm aux/princ
+
+		ldx #00
+		ldy #00
+		sty LIGNE		; on commence à 0
+
+.BPLi	; boucle Ligne
+
+		lda TABLELO,y	; on récupère l'adresse (ligne dans y)
+		sta MEM			; de base de la ligne en cours
+		lda TABLEHI1,y	; pour la page Text 1
+		sta MEM+1
+
+		ldy #00			; on commence à la colonne 0
+
+.BPCo
+PTR1	lda $6000, x
+		sta WTAUX
+		sta (MEM),y
+		inx
+		sta WTPRINC
+PTR2	lda $6000, x
+		sta (MEM),y
+		inx
+		bne .suite		; si x = 00, on ajoute + 1 à OFFSOURCE Hi
+		inc PTR1+2
+		inc PTR2+2
+.suite	iny
+		cpy #40
+		bne .BPCo
+		
+		inc LIGNE		; on passe à la ligne suivante
+		ldy LIGNE		
+		cpy #24			; on est en bas ? (0-23)
+		bne .BPLi		; non ? on boucle (ligne)
+		
+		STA $C000   	; PAGE2 comm aux/princ OFF
+
+		LDX #$40
+		JSR WAIT2		; attente sup !
+; =========================================================
+TRANS					; transition VBL entre DHIRES et DLORES
+!zone 
+
+		LDA #95              
+		STA LIGNE           
+		LDA #2               
+		STA HAUTEUR          
+        
+        LDA bMachine                                                                   
+.L1	 	CMP VERTBLANK         
+		BPL .L1 
+                         
+.BP                 
+		LDA bMachine      
+.L2 	CMP VERTBLANK         
+		BMI .L2 
+                         
+		DEC LIGNE           
+		BEQ .FIN              
+		INC HAUTEUR          
+		INC HAUTEUR          
+                     
+        LDA bMachine    
+.L3 	CMP VERTBLANK				
+		BPL .L3 ;
+                         
+; === phase 1            
+		STA $C057 ; 1 LIGNE 
+                         
+		LDA LIGNE		; timing only
+		NOP								
+		NOP			
+                         
+		LDX #$09							
+                         
+.WL1	DEX									
+		BNE .WL1 ;							
+
+		LDY LIGNE ;
+		NOP					
+		JSR WAIT              
+; === phase 2            
+		STA $C056 ; 1 LIGNE
+                         
+		LDX #$0C							
+                         
+.WL2 	DEX									
+		BNE .WL2 ;							
+
+        LDY HAUTEUR						
+		NOP
+		JSR WAIT
+		
+; === phase 3            
+		STA $C057 ; 1 LIGNE	
+                         
+		LDX #$0C							
+                         
+.WL7 	DEX									
+		BNE .WL7 ;							
+                         
+		LDY LIGNE
+		NOP						
+		JSR WAIT ; +Y 
+; ===                    
+		JMP .BP								
+                         
+.FIN 	                   
+
+		LDA $C056 ; Hires OFF (pour PAGE2 comm) 
+; =========================================================
+; intro effet DLORES (rotation couleurs)
+INTRO_DLORES
+!zone          
+ 		LDA #00
+		STA bPage		; page 1 affichée
+		LDA #01
+		STA indexIMG	; image 2 à afficher
+
+.loop	
+		LDA bMachine
+		BPL	.iie		; si IIe
+		LDA bEmulator
+		BNE .iie		; ou emulateur !
+		JMP .iigs		; si TRUE GS, on shunte la pause entre les images
+.iie
+		LDX #10
+		JSR WAIT2		; routine d'attente
+.iigs
+		JSR DESSINE_IMG	; routine qui affiche la bonne image Lores vers la page NON courante 
+
+		LDA bMachine
+.lp1	CMP  VERTBLANK
+		BPL   .lp1	 	; boucle tant que A < $80 (VBL) => on attend la fin du VBL courant
+.lp2	CMP	 VERTBLANK 	; 
+		BMI   .lp2		; boucle tant que A >=$80 (display) => attend le début du prochain VBL
+
+		LDA bPage
+		BNE .s1
+		
+; ***********************************
+		LDA bMachine
+		BPL .siie		; si IIE
+		LDA bEmulator	; ou Emulateur
+		BNE .siie
+; si TRUE IIGS		
+		LDA $C054
+		JMP .siigs
+; ***********************************				
+.siie	LDA $C055		; il est à zero (page 1 affichée) -> on affiche page 2
+.siigs	INC bPage 		; on le passe à 1
+		BNE .s2			; saut systématique		
+.s1		LDA $C054		; il est à 1 (page 2 affichée) -> on affiche page 1
+		DEC bPage		; on le passe à 0
+
+.s2		ldx indexIMG	; on incrémente l'index d'image Lores
+		inx
+		cpx #04			; il est égal à 4 (on a fait le tour)
+		bne .s3
+		ldx #0			; alors on le repasse à zéro
+.s3		stx indexIMG
+
+		rol $c061		; check bouton 1
+		bcc .loop
+		                      
+; chargement routines Scroll ==========
+ 		LDA #07			; sector 7
+ 		STA SECDEP
+ 		LDA #00
+ 		STA BUFFER		; buffer low
+ 		LDA #06			; track 6
+ 		STA PISDEP		;
+ 		LDA #$36		; buffer high
+		STA BUFFER+1
+		LDA #138		; nb Sector
+		STA TOTSEC		
+		JSR HYPLOD		; chargement !
+
+; déplacement/copie ram Main vers Aux =======
+; de  $3600 (main) vers $3600 (aux) des 3 routines de SCROLL
+; la première utilisée uniquement en AUX. Les deux autres alternativement entre MAIN/AUX (suivant RAMREAD)
+
+		lda #<SCROLLBversH
+		sta $3C
+		sta $42
+		lda #>SCROLLBversH
+		sta $3D
+		sta $43
+		lda #<ENDSCROLL
+		sta $3e
+		lda #>ENDSCROLL
+		sta $3f
+
+		sec  ; main vers aux
+		jsr AUXMOVE
+; =====================================
+ 		ldx #$00		; on charge le premier ANSI après intro 
+		stx INDEXNFO	; 
+		JSR LOADNEXT	;
+
+; on commence ici après chargement d'une image LORES
+INITPARAM
+
+		lda nbLigne		; on récupère le nb de ligne du NFO
+		sta LIGNEMAX   	; on sauve le résultat
+
+		lda #00			; premiere ligne affichée du NFO (par défaut)
+		sta LIGNEH
+		sta bPage		; page displayed = 1 (défaut)		
+		lda #23			; dernière ligne affichée du NFO (par défaut)
+		sta LIGNEB
+		
+		; reinitialisation de OFFSOURCE1 et 2
+
+		lda #<OFFSOURCE1
+		sta Lab1+1
+		lda #<OFFSOURCE2
+		sta Lab2+1
+		lda #>OFFSOURCE1
+		sta Lab1+2
+		lda #>OFFSOURCE2
+		sta Lab2+2
+
+; ======= MAIN ========================
+; routine JOYSTICK (haut + bas + boutons 1/2)
+JOY
+
+!zone
+.wait	rol $c061		; bouton 1
+		bcc .chk1
+		ldx INDEXNFO
+		inx
+		cpx #MAXINFO	; dernier ANSI qui sera affiché ?
+		BNE .suite5		; si non, on continue, si oui on termine !
+		JMP OUTRO		; si oui on jump à l'animation de fin
+.suite5	cpx #TURNNFO	; on arrive sur l'ansi demandant de changer de disk ?
+		bne .suite3		; si non on continue
+		JMP TOD			; si oui on applique la routine
+.suite3	cpx #TURNNFO+1  ; on est sur l'ansi demandant de changer de disk ?
+		bne .suite1		; si non, on continue
+		inx 			; si oui, on passe le suivant (même ansi pour la face 2)
+
+.suite1	JSR LOADNEXT	; chargement + affichage
+		CMP #$FF
+		BEQ JOY			; si chargement problématique, on bloque sur la routine JOY (sans remise à zero)
+		JMP INITPARAM	; retour routine JOY	
+		
+.chk1	rol $c062		; bouton 2
+		bcc .chk2
+		ldx INDEXNFO
+		dex
+		bmi .wait		; premier nfo déjà affiché ? si oui on boucle
+		cpx #TURNNFO+1	; on arrive sur l'ansi demandant de changer de disk ?
+		bne .suite4
+		JMP TOD			; si oui on applique la routine
+.suite4	cpx #TURNNFO	; on est sur l'ansi demandant de changer de disk (face 2) ?
+		bne .suite2
+		dex				; si oui on passe le précédent (meme ansi pour fin de face 1)
+
+.suite2	JSR LOADNEXT	; chargement + affichage
+		CMP #$FF
+		BEQ JOY			; si chargement problématique, on bloque sur la routine JOY (sans remise à zero)
+		JMP INITPARAM	; retour routine JOY	
+		
+.chk2	rol $C065		; on attend que le joystick bouge
+		bcs .wait
+		; === PREAD
+		LDA $C070		; strobe JOYSTICK
+		ldy #00
+		nop
+		nop
+.b1		lda $C065		; lecture JOY 1
+		bpl .s1
+		iny
+		bne .b1
+		dey
+		; ===
+
+		; Y = $00 si JOY haut ou $FF si JOY bas
+.s1		cpy	#$C8		
+		bcs BversH 		; JOY vers le bas (donc scroll bas vers haut)
+		cpy #$32
+		bcs .wait	 	; entre les deux on boucle
+					    ; sinon JOY vers le haut (donc scroll haut vers bas)
+
+; = SCROLL HAUT VERS BAS ==============
+HversB 	
+!zone
+		ldx LIGNEH		; récupère la ligne haute courante
+		beq	JOY			; on est au mini (0), alors on bouge pas !
+		
+		dex				; on décrémente de 1
+		stx LIGNEH		; et on sauve
+		dec LIGNEB		; on décrémente aussi LIGNEB
+		
+		; ===== calcul des nouveaux OFFSOURCE1 et OFFSOURCE2 (on soustrait 80)
+		LDA Lab1+1
+		SEC
+		SBC #80
+		sta Lab1+1
+		LDA Lab1+2
+		SBC #00
+		sta Lab1+2
+		
+		LDA Lab2+1
+		SEC
+		SBC #80
+		sta Lab2+1
+		LDA Lab2+2
+		SBC #00
+		sta Lab2+2
+		; =====		
+
+		ldx #79
+Lab1	lda OFFSOURCE1,x			; on transfert dans le buffer 
+		sta Buffer,x		
+		dex 				
+		bpl Lab1
+		
+		lda bPage					; booléen Page (0 = page 1 affichée | 1 = page 2 affichée)
+		bne .suite					; égal à 1 ? go .suite
+		JSR SCROLLHversB1 			; page 1 affichée donc scroll vers page 2
+		JMP FLIP 		
+.suite	JSR SCROLLHversB2			; page 2 affichée donc scroll vers page 1
+; == FLIP PAGE 1/PAGE 2 ===============
+FLIP
+!zone
+
+		LDA bMachine
+.lp1	CMP	 VERTBLANK 	; 
+		BPL   .lp1		; boucle tant que A <$80 (VBL) => attend le début du prochain display		
+.lp2	CMP  VERTBLANK
+		BMI   .lp2	 	; boucle tant que A >= $80 (display) => on attend la fin du trace courant
+
+; VBL en cours
+
+		lda bPage		; booléen Page (0 = page 1 affichée | 1 = page 2 affichée)
+		bne .suite		; égal à 1 ? go .suite
+
+; ***********************************
+		LDA bMachine
+		BPL	.siie		; si IIe
+		LDA bEmulator	; ou Emulateur IIGS
+		BNE .siie		; on exécute le code normal
+; si TRUE IIGS alors on ne flip pas PAGE1/PAGE2 becoze problème de shadowing		
+		LDA $C054
+		JMP .siigs
+; ***********************************		
+.siie	LDA $C055		; égal à 0 donc on affiche la page 2 et 
+
+.siigs	inc bPage 		; on le met à 1
+		jmp JOY
+
+.suite  LDA $C054		; on affiche la page 1 et
+		dec bPage		; on le met à 0
+		jmp JOY
+		
+; = SCROLL BAS VERS HAUT ==============
+BversH
+!zone
+		ldx LIGNEB		; récupère la ligne haute courante
+		inx				; on ajoute 1
+		cpx LIGNEMAX	; on est au max ?
+		bcc .s1			; si non, on continue, si oui on bouge pas
+		JMP JOY			; et on retourne à la routine JOY
+		
+.s1		stx LIGNEB		; on sauve
+		inc LIGNEH		; on incrémente aussi LIGNEH
+		
+		; ===== calcul nouveaux OFFSOURCE1 et OFFSOURCE2 (+80)
+		LDA #80			
+		CLC
+		ADC Lab1+1
+		sta Lab1+1
+		LDA #00
+		ADC Lab1+2
+		sta Lab1+2
+		
+		LDA #80
+		CLC
+		ADC Lab2+1
+		sta Lab2+1
+		LDA #00
+		sta bPage		; on en profite pour mette bPage à 0 si besoin
+		ADC Lab2+2
+		sta Lab2+2
+		; ======
+
+		ldx #79
+Lab2	lda OFFSOURCE2,x			;	4/5
+		sta Buffer,x				; 	4/5
+		dex 						;	2
+		bpl Lab2					; 	3/2			Total : (4+4+2+3)*80 = 1040
+		
+		LDA #<SCROLLBversH
+		STA $3ED
+		LDA #>SCROLLBversH
+		STA $3EE
+		sec		; main to aux
+		clv		; use main stack and page 0
+		JMP XFER
+
+; ===================================
+; TURN THE DISK OVER + SCROLL
+TOD
+!zone
+		JSR LOADNEXT		; chargement + affichage
+		CMP #$FF			; tout est OK ?
+		BEQ .s1				; si non on revient à la routine JOY directement
+
+		JSR STARTTDO		; action !
+		
+.s1		JMP INITPARAM		; retour routine JOY	
+; ===================================
+LOADNEXT			; chargement ANSI suivant (LDA = $FF si ERROR / sinon autre)
+!zone 
+
+		STX TEMP2		; on sauve le nouvel index
+		
+		; chargement des params pour la lecture du nfo
+		LDA TSector, X
+ 		STA SECDEP
+ 		LDA TTrack, X
+ 		STA PISDEP		
+
+		LDA TNSector, X	; nb Sector
+		STA TOTSEC			
+
+		LDA TNLigne, X	; nb ligne
+		STA TEMP 
+
+ 		LDA #$FF
+ 		STA BUFFER			; buffer low
+ 		LDA #>OFFSOURCE1-1	; buffer high  Buffer = $xxFF (OFFSOURCE1-1)
+		STA BUFFER+1			
+		JSR HYPLOD		; chargement !
+		
+		LDA nbLigne		; vérification si le nfo chargé est bien celui voulu
+		CMP TEMP		; on compare le nb de ligne trouvée avec la table
+		BNE .s1			; si pas OK, on revient directement à la routine JOY
+		
+		JSR DISPLAY		; si ok on affiche le NFO chargé
+		LDA TEMP2
+		STA INDEXNFO	; on sauve le nouvel index correspondant au nfo affiché
+		RTS				; retour (good boy)
+
+.s1		LDA #$FF
+		RTS				; retour appelant (bad boy)
+
+; =====================================
+TTrack		!byte $0F,$10,$11,$13,$14,$16,$18,$19,$1B,$1C,$1F,$20,$22,$00,$00,$01,$03,$04,$06,$08,$0C,$0D,$0F,$11,$13,$15,$16,$18,$1A,$1A,$1C,$1D,$1E
+TSector 	!byte $01,$06,$0B,$06,$0B,$03,$03,$0D,$06,$01,$05,$0C,$03,$01,$0C,$0E,$01,$08,$00,$0F,$0A,$0B,$0A,$08,$03,$0D,$0D,$06,$02,$0E,$04,$02,$0A
+TNSector	!byte 021,021,027,021,024,032,026,025,011,052,023,023,011,011,018,019,023,024,047,059,017,031,030,027,042,016,025,028,012,022,014,024,027
+TNLigne		!byte $42,$42,$55,$40,$4C,$64,$51,$4D,$23,$A6,$48,$48,$18,$18,$39,$3B,$48,$4B,$96,$BC,$36,$62,$5D,$56,$85,$32,$4D,$58,$25,$45,$2C,$4B,$18
+		
+; ======================================
+; SOUS ROUTINES
+; =============================================================================
+DESSINE_IMG
+!zone		
+
+		Ldy indexIMG
+		LDA TABLEINDEXIMGLO,y
+		STA .PTR1+1
+		STA .PTR2+1
+		LDA TABLEINDEXIMGHI,y
+		STA .PTR1+2
+		STA .PTR2+2
+
+		ldx #00
+		ldy #00
+		sty LIGNE			
+
+.BPLi							; boucle Ligne
+
+		lda TABLELO,y			; on recupère l'adresse correspondante
+		sta DEST
+		lda bPage
+		bne .s1					; bPage = 0, page1 affichée, on doit écrire vers la 2
+		lda TABLEHI2,y
+		sta DEST+1
+		jmp .s2					; saut vers début boucle
+.s1		lda TABLEHI1,y			; bPage = 1, page 2 affichée, on doit écrire vers la 1
+		sta DEST+1
+
+.s2		ldy #00					; début colonne 0
+
+.BPCo							; boucle colonne		
+.PTR1	lda OFFSOUR1,x
+		STA RAMWRTON			; memory aux
+		sta (DEST),y
+		inx
+.PTR2	lda OFFSOUR1,x
+		STA RAMWRTOFF			; main memory
+		sta (DEST),y
+		inx
+		bne	.s3
+		inc .PTR1+2
+		inc .PTR2+2
+.s3		iny
+		cpy #40
+		bne .BPCo
+		
+		inc LIGNE
+		ldy LIGNE
+		cpy #24
+		bne .BPLi		
+
+		rts					; sortie
+
+; = HOME ==============================
+HOME					; X : (Hi) Offset Page 1/2 [04 ou 08]
+						; A : effacement blanc ($20) ou noir ($A0)
+!zone
+		STX .off+2
+		
+		LDX #$FF		; 
+		LDY #03			; 
+
+.off		
+.b1		STA $400,X		; 
+		DEX				; 
+		CPX #$FF		; 
+		BNE .b1			; 
+		INC .off+2		; 
+		DEY 			; 
+		BPL .b1			; 						
+		RTS				;
+
+; = Routine WAIT ======================
+; = attend Y * 65 cycles exactement (JSR/RTS compris -> APPEL EN 11 cycles obligatoire)
+WAIT
+!zone           
+		DEY								
+		BEQ .S1						
+                  
+.WL1 	LDX #$0B				            
+.WL2 	DEX							
+		BNE .WL2																
+                      
+		NOP								
+		NOP								
+		DEY								
+		BNE .WL1						
+																                      
+		LDX #$08					
+                   
+.WL3 	DEX							
+		BNE .WL3						
+                							
+		NOP								
+		NOP								
+		RTS								
+											         
+.S1	 	LDX #08					
+                      
+.WL4 	DEX							
+		BNE .WL4						
+																	
+		NOP								
+		RTS
+; WAIT 2 ==============================
+; X valeur d'entrée
+WAIT2
+!zone
+.bw1	TXA
+		LDY #$FF
+		JSR WAIT
+		TAX
+		DEX
+		BNE .bw1
+		RTS 
+									
+; Display I ===========================
+DISPLAY			; NOTE : n'affiche pas la totalité pendant un VBL donc attente inutile ?
+!zone
+		LDA bMachine
+.lp1	CMP  VERTBLANK
+		BMI   .lp1	 	; boucle tant que A >= $80 (display) => on attend la fin du trace courant
+.lp2	CMP	 VERTBLANK 	;
+		BPL   .lp2		; boucle tant que A <$80 (VBL) => attend le début du prochain display
+		
+		LDY #8
+		NOP
+		JSR WAIT	; attente 65x8 cycles (= affichage premiere ligne caractères)
+		
+		STA $C001	; PAGE2 comm aux/princ
+		
+		ldy #39
+		ldx #79
+
+.bp		STA WTPRINC	
+		lda OFFSOURCE1,x		
+		sta $400,y		
+		lda OFFSOURCE1+$50,x		
+		sta $480,y		
+		lda OFFSOURCE1+$A0,x		
+		sta $500,y		
+		lda OFFSOURCE1+$F0,x		
+		sta $580,y		
+		lda OFFSOURCE1+$140,x		
+		sta $600,y		
+		lda OFFSOURCE1+$190,x		
+		sta $680,y		
+		lda OFFSOURCE1+$1E0,x		
+		sta $700,y		
+		lda OFFSOURCE1+$230,x		
+		sta $780,y		
+		lda OFFSOURCE1+$280,x		
+		sta $428,y		
+		lda OFFSOURCE1+$2D0,x
+		sta $4a8,y
+		lda OFFSOURCE1+$320,x
+		sta $528,y
+		lda OFFSOURCE1+$370,x
+		sta $5a8,y
+		lda OFFSOURCE1+$3C0,x
+		sta $628,y
+		lda OFFSOURCE1+$410,x
+		sta $6a8,y
+		lda OFFSOURCE1+$460,x
+		sta $728,y
+		lda OFFSOURCE1+$4B0,x
+		sta $7a8,y
+		lda OFFSOURCE1+$500,x
+		sta $450,y
+		lda OFFSOURCE1+$550,x
+		sta $4d0,y
+		lda OFFSOURCE1+$5A0,x
+		sta $550,y
+		lda OFFSOURCE1+$5F0,x
+		sta $5d0,y
+		lda OFFSOURCE1+$640,x
+		sta $650,y
+		lda OFFSOURCE1+$690,x
+		sta $6d0,y
+		lda OFFSOURCE1+$6E0,x
+		sta $750,y
+		lda OFFSOURCE1+$730,x
+		sta $7d0,y
+		
+		dex					; 2
+	
+		STA WTAUX	;
+		lda OFFSOURCE1,x		
+		sta $400,y		
+		lda OFFSOURCE1+$50,x		
+		sta $480,y		
+		lda OFFSOURCE1+$A0,x		
+		sta $500,y		
+		lda OFFSOURCE1+$F0,x		
+		sta $580,y		
+		lda OFFSOURCE1+$140,x		
+		sta $600,y		
+		lda OFFSOURCE1+$190,x		
+		sta $680,y		
+		lda OFFSOURCE1+$1E0,x		
+		sta $700,y		
+		lda OFFSOURCE1+$230,x		
+		sta $780,y		
+		lda OFFSOURCE1+$280,x		
+		sta $428,y		
+		lda OFFSOURCE1+$2D0,x
+		sta $4a8,y
+		lda OFFSOURCE1+$320,x
+		sta $528,y
+		lda OFFSOURCE1+$370,x
+		sta $5a8,y
+		lda OFFSOURCE1+$3C0,x
+		sta $628,y
+		lda OFFSOURCE1+$410,x
+		sta $6a8,y
+		lda OFFSOURCE1+$460,x
+		sta $728,y
+		lda OFFSOURCE1+$4B0,x
+		sta $7a8,y
+		lda OFFSOURCE1+$500,x
+		sta $450,y
+		lda OFFSOURCE1+$550,x
+		sta $4d0,y
+		lda OFFSOURCE1+$5A0,x
+		sta $550,y
+		lda OFFSOURCE1+$5F0,x
+		sta $5d0,y
+		lda OFFSOURCE1+$640,x
+		sta $650,y
+		lda OFFSOURCE1+$690,x
+		sta $6d0,y
+		lda OFFSOURCE1+$6E0,x
+		sta $750,y
+		lda OFFSOURCE1+$730,x
+		sta $7d0,y
+		
+		dex				
+		dey					
+		bmi .fin			
+		jmp .bp		
+		
+.fin	STA $C000 ; PAGE2 comm aux/princ OFF
+		BIT $C054 ; on s'assure d'être bien page 1
+		rts 
+	
+; =====================================
+; générique de fin 
+OUTRO
+!zone
+		JSR LOADNEXT		; chargement + affichage
+		CMP #$FF			; tout est oki ?
+		BNE .s1
+		JMP INITPARAM		; sinon on revient à la routine joy
+.s1
+		JSR STARTOUTRO		; action !
+		
+		STA $C001			; PAGE2 comm aux/princ
+		
+; effacement lignes DLORES de l'OUTRO (pour éviter les caractères LORES du reste du scroll)
+		
+		LDX #23
+.BPLi							; boucle Ligne		
+		lda TABLELO,X			; on recupère l'adresse correspondante
+		sta DEST
+		lda TABLEHI1,X			
+		sta DEST+1
+
+		LDA #00
+
+		ldy #37					; début colonne 0
+
+.BPCo							; boucle colonne		
+		STA WTAUX				; memory aux
+		sta (DEST),y
+		STA WTPRINC				; main memory
+		sta (DEST),y
+		dey
+		cpy #29
+		bne .BPCo
+		
+		DEX
+		BPL .BPLi
+		
+		STA $C000
+				
+		; remplissage Hires2 de $FF
+		LDY #$20
+		LDA #$FF
+		TAX
+.b1		STA $4000,X
+		dex
+		cpx #$FF
+		bne .b1
+		inc .b1+2
+		dey
+		bne .b1
+		; ------ 
+
+; chargement QRCODE en Hires1
+ 		LDA #00			; secteur 0
+ 		STA SECDEP
+ 		STA BUFFER		; buffer low
+ 		LDA #$21		; track $21
+ 		STA PISDEP		;
+ 		LDA #$20		; buffer high
+		STA BUFFER+1
+		LDA #32			; nb Sector
+		STA TOTSEC		
+		JSR HYPLOD		; chargement !
+
+		; ------
+
+; flash		
+		LDA $C055		; page2
+		LDA $C050		; gfx
+		LDA $C057		; hires
+		STA $C00C		; 40 colonnes
+
+		LDX #05
+		JSR WAIT2
+		
+		LDA $C054		; affichage QRCODE !
+
+		LDA #$A0
+		LDX #$04		
+		JSR HOME		; effacement page1
+
+.chk5	rol $c061		; bouton 1
+		bcc .chk5
+;
+		BIT $C051		; txt (ecran noir)
+
+.chk6	rol $c061		; bouton 1
+		bcc .chk6
+		
+		
+		LDA #$8D
+		STA $300
+		LDA #$82
+		STA $301
+		LDA #$C0
+		STA $302
+		LDA #$4C
+		STA $303
+		LDA #00
+		STA $304
+		LDA #$C6
+		STA $305		
+		JMP $300		; reboot !
+
+; =====================================
+; tables "rotation" couleurs intro DLORES
+TABLEINDEXIMGLO
+	!byte	<OFFSOUR1,<OFFSOUR2,<OFFSOUR3,<OFFSOUR2
+TABLEINDEXIMGHI
+	!byte 	>OFFSOUR1,>OFFSOUR2,>OFFSOUR3,>OFFSOUR2
+	
+COUNT		; utilisé pour la détection de refresh
+!byte 00
+	
+; Tables adresses page LORES 1/2		
+TABLEHI1		
+	!byte	$04,$04,$05,$05,$06,$06,$07,$07,$04,$04,$05,$05,$06,$06,$07,$07,$04,$04,$05,$05,$06,$06,$07,$07
+TABLEHI2
+	!byte	$08,$08,$09,$09,$0A,$0A,$0B,$0B,$08,$08,$09,$09,$0A,$0A,$0B,$0B,$08,$08,$09,$09,$0A,$0A,$0B,$0B
+TABLELO  	
+	!byte	$00,$80,$00,$80,$00,$80,$00,$80,$28,$A8,$28,$A8,$28,$A8,$28,$A8,$50,$D0,$50,$D0,$50,$D0,$50,$D0
+ENDCOMP
+ 		

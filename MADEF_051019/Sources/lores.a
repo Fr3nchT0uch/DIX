@@ -1,0 +1,21 @@
+
+ !sl "lbl_LORES.txt"
+   
+   *= $1000
+   
+LORES0
+   !binary "LORES/blue.bin.lz4"
+LORES1
+   !binary "LORES/red.bin.lz4"
+LORES2
+   !binary "LORES/yellow.bin.lz4"
+LORES3
+   !binary "LORES/white.bin.lz4"
+LORES4
+   !binary "LORES/green.bin.lz4"
+LORES5
+   !binary "LORES/fr.bin.lz4"
+LORES6
+   !binary "LORES/gb.bin.lz4"
+LORES7
+   !binary "LORES/bo.bin.lz4"

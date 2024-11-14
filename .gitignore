@@ -1,0 +1,74 @@
+*.cfg
+*.b
+Thumbs.db
+lbl_*.txt
+cw.code-workspace
+build.bat
+*.dsk
+test/
+*.reg
+
+a.po
+ANSI/Sources/outro/Test4.BMP
+ANSI/Sources/tdo/Test7.BMP
+CC_2015.zip
+CCII_2016.zip
+CCII_2016/Sources/mainlabel.a
+CCII_2016/Sources/part1label.a
+CCII_2016/Sources/part2label.a
+CCII_2016/Sources/part3label.a
+CCII_2016/Sources/part4label.a
+
+ANSI/AS-S1.dsk.lz4
+ANSI/Sources/ansi/ACID-VN.lz4
+ANSI/Sources/ansi/AM-ARKH_ICE.lz4
+ANSI/Sources/ansi/BADLACD1.lz4
+ANSI/Sources/ansi/CN2ACID.lz4
+ANSI/Sources/ansi/CT-TCS_MIR.lz4
+ANSI/Sources/ansi/GW-ASYLM_MIR.lz4
+ANSI/Sources/ansi/ICE9-92_MEM.lz4
+ANSI/Sources/ansi/JNK-GIRL.lz4
+ANSI/Sources/ansi/KPEGA.lz4
+ANSI/Sources/ansi/mm-wtcdg.lz4
+ANSI/Sources/ansi/RS-CLSO.lz4
+ANSI/Sources/ansi/TC-RPM_MIR.lz4
+ANSI/Sources/ansi/TDOCODE.lz4
+BOBS/bobs.b.lz4
+BOBS/move.b.lz4
+CC_2015/hgr1.lz4
+CC_2015/main.b.lz4
+CC_2015/part1.b.lz4
+CC_2015/part2.b.lz4
+CC_2015/part2C.b.lz4
+CC_2015/part3.b.lz4
+CC_2015/routines.b.lz4
+OMT_020819/Sources/DATA/Reserve/euphoriaAux.lz4
+OMT_020819/Sources/DATA/Reserve/euphoriaMain.lz4
+OMT_020819/Sources/DATA/Reserve/kombatAux.lz4
+OMT_020819/Sources/DATA/Reserve/kombatMain.lz4
+OMT_020819/Sources/DATA/Tested But Not So Great/clownAux.lz4
+OMT_020819/Sources/DATA/Tested But Not So Great/clownMain.lz4
+OMT_020819/Sources/DATA/Tested But Not So Great/spyAux.lz4
+OMT_020819/Sources/DATA/Tested But Not So Great/spyMain.lz4
+SCROLL/main.b.lz4
+SCROLL/routines.b.lz4
+MADEF_051019/routine.b.lz4
+makefile_emul
+MADEF_051019/routine.b.lz4.bak
+MAD3_150120.zip
+MAD3/Siril - C6.T.K (1998)-megacut5.pt3
+MAD3/Siril - C6.T.K (1998)-megacut5.ym
+OFV/FT_oldskool.po
+DD2.woz
+DD2.zip
+TRIBU_030120.zip
+TRIBU/hgr.b.lz4
+TRIBU/pts.b.lz4
+TRIBU/sub.b.lz4
+music/2-AY-test.fur
+music/2-AY-test2.vgm
+music/2-AY-test.fur
+MENU/player_fym6_tmp.a
+MENU/logo.lz4
+
+DIX.po
