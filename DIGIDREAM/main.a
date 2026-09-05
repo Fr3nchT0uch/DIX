@@ -127,7 +127,7 @@ MAIN
 	CMP #0
 	BNE +
 	LDA #$FF		; Not Expo Mode
-	STA MODEXPO
+	STA MODEXPO+1
 +	STA $C000		; 80STOREOFF
 	STA $C008		; zero Page = Main (+ $FXXX MAIN)
 

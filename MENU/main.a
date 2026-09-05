@@ -45,7 +45,7 @@ DIXPRINT = $B000
 ;--------------------------------------------
 
 	
-
+	STA _MIXEDoff
 	LDA #' '
 	JSR FILLTEXT1
 	STA _80STOREon
@@ -149,6 +149,14 @@ DIXPRINT = $B000
 	SEI
 ; -------------------- Demo --------------------
 .skipintro
+	; Video 7 DHGR
+	STA _80COLon
+	STA _AN3off
+	STA _AN3on
+	STA _AN3off
+	STA _AN3on
+	STA _AN3off
+
 	STA _80COLoff
 	STA _AN3on
 	STA _TEXToff
@@ -548,12 +556,22 @@ Intromod	LDY #1
 	STA _PAGE2off
 	RTS
 
-T2intro2	JSR WAIT55
+T2intro2	; Video 7 DHGR
+	STA _80COLon
+	STA _AN3off
+	STA _AN3on
+	STA _AN3off
+	STA _AN3on
+	STA _AN3off
+
 	STA _80COLoff
 	STA _AN3on
 	STA _TEXToff
 	STA _PAGE2off
 	STA _HIRESon
+
+	JSR WAIT55
+
 Intromod2	LDY #1
 	JSR WAIT65
 	STA _HIRESoff

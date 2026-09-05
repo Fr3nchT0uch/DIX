@@ -10,8 +10,8 @@
 
 ; INCLUDE
 !source "tloadlabel.a"
-!source "frameA\frameAlabel.a"
-!source "frameM\frameMlabel.a"
+!source "frameA/frameAlabel.a"
+!source "frameM/frameMlabel.a"
 
 	*= $F100 ; ORG = $F100 (RAM Langage Card)
 
